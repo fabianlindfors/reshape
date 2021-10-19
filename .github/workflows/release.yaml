@@ -1,0 +1,29 @@
+name: Release
+
+on:
+  release:
+    types: [ created ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Select Rust toolchain 
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+    - name: Use cache for Rust dependencies
+      uses: Swatinem/rust-cache@v1
+    - name: Build
+      run: cargo build --release && mv target/release/reshape ./reshape-linux_amd64
+    - name: Save binary to release
+      uses: skx/github-action-publish-binaries@master
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        args: reshape-linux_amd64

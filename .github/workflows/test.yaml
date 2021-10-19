@@ -1,0 +1,42 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_DB: migra_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Select Rust toolchain 
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+    - name: Use cache for Rust dependencies
+      uses: Swatinem/rust-cache@v1
+    - name: Run integration tests
+      run: cargo test -- --test-threads=1
+      env:
+        POSTGRES_CONNECTION_STRING: "postgres://postgres:postgres@127.0.0.1/migra_test"
