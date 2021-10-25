@@ -121,11 +121,10 @@ impl Reshape {
 
         // Remove previous migration's schema
         if let Some(current_migration) = &self.state.current_migration {
-            let query = format!(
+            transaction.run(&format!(
                 "DROP SCHEMA IF EXISTS {} CASCADE",
                 schema_name_for_migration(current_migration)
-            );
-            transaction.run(&query)?;
+            ))?;
         }
 
         for migration in remaining_migrations {
@@ -146,11 +145,10 @@ impl Reshape {
             if table.has_is_new {
                 table.has_is_new = false;
 
-                let query = format!(
+                transaction.run(&format!(
                     "ALTER TABLE {table} DROP COLUMN __reshape_is_new CASCADE",
                     table = table.name,
-                );
-                transaction.run(&query)?;
+                ))?;
 
                 // The view will automatically be dropped by CASCADE so let's recreate it
                 let schema = schema_name_for_migration(target_migration);
@@ -175,8 +173,8 @@ impl Reshape {
     ) -> anyhow::Result<()> {
         // Create schema for migration
         let schema_name = schema_name_for_migration(migration_name);
-        let create_schema_query = format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name);
-        self.db.run(&create_schema_query)?;
+        self.db
+            .run(&format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name))?;
 
         // Create views inside schema
         for table in schema.tables.values() {
@@ -208,23 +206,21 @@ impl Reshape {
             select_columns.push("__reshape_is_new".to_string());
         }
 
-        let query = format!(
+        db.run(&format!(
             "CREATE OR REPLACE VIEW {schema}.{table} AS
                 SELECT {columns}
                 FROM {table}",
             schema = schema,
             table = table.name,
             columns = select_columns.join(","),
-        );
-        db.run(&query)?;
+        ))?;
 
         if table.has_is_new {
-            let query = format!(
+            db.run(&format!(
                 "ALTER VIEW {schema}.{view} ALTER __reshape_is_new SET DEFAULT TRUE",
                 schema = schema,
                 view = table.name,
-            );
-            db.run(&query)?;
+            ))?;
         }
 
         Ok(())
@@ -245,11 +241,10 @@ impl Reshape {
     pub fn remove(&mut self) -> anyhow::Result<()> {
         // Remove migration schemas and views
         if let Some(current_migration) = &self.state.current_migration {
-            let query = format!(
+            self.db.run(&format!(
                 "DROP SCHEMA IF EXISTS {} CASCADE",
                 schema_name_for_migration(current_migration)
-            );
-            self.db.run(&query)?;
+            ))?;
         }
 
         if let Status::InProgress {
@@ -257,18 +252,17 @@ impl Reshape {
             target_schema: _,
         } = &self.state.status
         {
-            let query = format!(
+            self.db.run(&format!(
                 "DROP SCHEMA IF EXISTS {} CASCADE",
                 schema_name_for_migration(target_migration)
-            );
-            self.db.run(&query)?;
+            ))?;
         }
 
         // Remove all tables
         let schema = &self.state.current_schema;
         for table in schema.tables.values() {
-            let query = format!("DROP TABLE IF EXISTS {} CASCADE", table.name);
-            self.db.run(&query)?;
+            self.db
+                .run(&format!("DROP TABLE IF EXISTS {} CASCADE", table.name))?;
         }
 
         // Reset state
@@ -284,6 +278,48 @@ impl Reshape {
             .migrations
             .last()
             .map(|migration| schema_name_for_migration(&migration.name))
+    }
+
+    pub fn abort(&mut self) -> anyhow::Result<()> {
+        let target_migration = match &self.state.status {
+            Status::InProgress {
+                target_migration,
+                target_schema: _,
+            } => target_migration,
+            _ => {
+                println!("No migration is in progress");
+                return Ok(());
+            }
+        };
+
+        let remaining_migrations = Self::get_remaining_migrations(&self.state);
+
+        // Run all the abort changes as a transaction to avoid incomplete changes
+        let mut transaction = self.db.transaction()?;
+
+        // Remove new migration's schema
+        transaction.run(&format!(
+            "DROP SCHEMA IF EXISTS {} CASCADE",
+            schema_name_for_migration(target_migration)
+        ))?;
+
+        // Abort all pending migrations in reverse order
+        for migration in remaining_migrations.iter().rev() {
+            print!("Aborting'{}' ", migration.name);
+            for action in migration.actions.iter().rev() {
+                action.abort(&mut transaction)?;
+            }
+            println!("{}", "done".green());
+        }
+
+        let keep_count = self.state.migrations.len() - remaining_migrations.len();
+        self.state.migrations.truncate(keep_count);
+        self.state.status = state::Status::Idle;
+        self.state.save(&mut transaction)?;
+
+        transaction.commit()?;
+
+        Ok(())
     }
 }
 

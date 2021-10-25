@@ -1,5 +1,5 @@
 use super::Action;
-use crate::{db::Conn, schema::Schema};
+use crate::{db::Conn, migrations::common, schema::Schema};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +21,10 @@ pub struct ColumnChanges {
 }
 
 impl AlterColumn {
+    fn temporary_column_name(&self) -> String {
+        format!("__new__{}", self.column)
+    }
+
     fn insert_trigger_name(&self) -> String {
         format!("alter_column_insert_trigger_{}_{}", self.table, self.column)
     }
@@ -64,21 +68,10 @@ impl Action for AlterColumn {
             .find_table(&self.table)
             .and_then(|table| table.find_column(&self.column))?;
 
-        // If we are only changing the name of a column, we can do that without creating a temporary column
+        // If we are only changing the name of a column, we don't have to do anything at this stage
+        // We'll set the new schema to point to the old column. When the migration is completed,
+        // we rename the actual column.
         if self.can_short_circuit() {
-            if let Some(new_name) = &self.changes.name {
-                let query = format!(
-                    "
-			        ALTER TABLE {table}
-			        RENAME COLUMN {existing_name} TO {new_name}
-			        ",
-                    table = self.table,
-                    existing_name = column.real_name(),
-                    new_name = new_name,
-                );
-                db.run(&query)?;
-            }
-
             return Ok(());
         }
 
@@ -88,7 +81,6 @@ impl Action for AlterColumn {
             _ => return Err(anyhow!("missing up or down values")),
         };
 
-        let temporary_column = format!("__new__{}", column.real_name());
         let temporary_column_type = self.changes.data_type.as_ref().unwrap_or(&column.data_type);
 
         // Add temporary, nullable column
@@ -96,15 +88,15 @@ impl Action for AlterColumn {
             "
 			ALTER TABLE {table}
             ADD COLUMN IF NOT EXISTS {temp_column} {temp_column_type};
-
-            ALTER TABLE {table}
-            ADD COLUMN IF NOT EXISTS __reshape_is_new BOOLEAN DEFAULT FALSE NOT NULL;
 			",
             table = self.table,
-            temp_column = temporary_column,
+            temp_column = self.temporary_column_name(),
             temp_column_type = temporary_column_type,
         );
         db.run(&query)?;
+
+        // Add temporary is new column
+        db.run(&common::add_is_new_column_query(&self.table))?;
 
         // Add triggers to fill in values as they are inserted/updated
         let query = format!(
@@ -159,7 +151,7 @@ impl Action for AlterColumn {
             CREATE TRIGGER {update_new_trigger} BEFORE UPDATE OF {temp_column} ON {table} FOR EACH ROW EXECUTE PROCEDURE {update_new_trigger}();
             ",
             existing_column = column.real_name(),
-            temp_column = temporary_column,
+            temp_column = self.temporary_column_name(),
             up = up,
             down = down,
             table = self.table,
@@ -182,7 +174,7 @@ impl Action for AlterColumn {
                 ",
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(),
-                column = temporary_column,
+                column = self.temporary_column_name(),
             );
             db.run(&query)?;
         }
@@ -193,7 +185,7 @@ impl Action for AlterColumn {
             UPDATE {table} SET {temp_column} = {up}
 			",
             table = self.table,
-            temp_column = temporary_column,
+            temp_column = self.temporary_column_name(),
             up = up,
         );
         db.run(&query)?;
@@ -203,13 +195,24 @@ impl Action for AlterColumn {
 
     fn complete(&self, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
         if self.can_short_circuit() {
+            if let Some(new_name) = &self.changes.name {
+                let query = format!(
+                    "
+			        ALTER TABLE {table}
+			        RENAME COLUMN {existing_name} TO {new_name}
+			        ",
+                    table = self.table,
+                    existing_name = self.column,
+                    new_name = new_name,
+                );
+                db.run(&query)?;
+            }
             return Ok(());
         }
 
         let column = schema
             .find_table(&self.table)
             .and_then(|table| table.find_column(&self.column))?;
-
         let column_name = self.changes.name.as_deref().unwrap_or(column.real_name());
 
         // Remove old column
@@ -225,10 +228,10 @@ impl Action for AlterColumn {
         // Rename temporary column
         let query = format!(
             "
-            ALTER TABLE {table} RENAME COLUMN __new__{real_name} TO {name}
+            ALTER TABLE {table} RENAME COLUMN {temp_column} TO {name}
 			",
             table = self.table,
-            real_name = column.real_name(),
+            temp_column = self.temporary_column_name(),
             name = column_name,
         );
         db.run(&query)?;
@@ -300,9 +303,10 @@ impl Action for AlterColumn {
         let column = table.find_column_mut(&self.column)?;
 
         // If we are only changing the name of a column, we haven't created a temporary column
+        // Instead we rename the schema column but point it to the old column
         if self.can_short_circuit() {
             if let Some(new_name) = &self.changes.name {
-                column.real_name = None;
+                column.real_name = Some(column.real_name().to_string());
                 column.name = new_name.to_string();
             }
 
@@ -317,6 +321,43 @@ impl Action for AlterColumn {
             .unwrap_or(self.column.to_string());
         column.real_name = Some(format!("__new__{}", self.column));
         table.has_is_new = true;
+
+        Ok(())
+    }
+
+    fn abort(&self, db: &mut dyn Conn) -> anyhow::Result<()> {
+        // Remove triggers and procedures
+        let query = format!(
+            "
+            DROP TRIGGER IF EXISTS {insert_trigger} ON {table};
+            DROP FUNCTION IF EXISTS {insert_trigger};
+
+            DROP TRIGGER IF EXISTS {update_old_trigger} ON {table};
+            DROP FUNCTION IF EXISTS {update_old_trigger};
+
+            DROP TRIGGER IF EXISTS {update_new_trigger} ON {table};
+            DROP FUNCTION IF EXISTS {update_new_trigger};
+            ",
+            table = self.table,
+            insert_trigger = self.insert_trigger_name(),
+            update_old_trigger = self.update_old_trigger_name(),
+            update_new_trigger = self.update_new_trigger_name(),
+        );
+        db.run(&query)?;
+
+        // Drop temporary column
+        let query = format!(
+            "
+			ALTER TABLE {table}
+            DROP COLUMN IF EXISTS {temp_column};
+			",
+            table = self.table,
+            temp_column = self.temporary_column_name(),
+        );
+        db.run(&query)?;
+
+        // Drop temporary "is new" column
+        db.run(&common::drop_is_new_column_query(&self.table))?;
 
         Ok(())
     }

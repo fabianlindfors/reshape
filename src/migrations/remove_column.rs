@@ -97,4 +97,18 @@ impl Action for RemoveColumn {
 
         Ok(())
     }
+
+    fn abort(&self, db: &mut dyn Conn) -> anyhow::Result<()> {
+        // Remove function and trigger
+        db.query(&format!(
+            "
+            DROP TRIGGER IF EXISTS {trigger_name} ON {table};
+            DROP FUNCTION IF EXISTS {trigger_name};
+            ",
+            table = self.table,
+            trigger_name = self.trigger_name(),
+        ))?;
+
+        Ok(())
+    }
 }

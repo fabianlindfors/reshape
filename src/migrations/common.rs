@@ -16,3 +16,23 @@ pub struct Column {
 fn nullable_default() -> bool {
     true
 }
+
+pub fn add_is_new_column_query(table: &str) -> String {
+    format!(
+        "
+        ALTER TABLE {table}
+        ADD COLUMN IF NOT EXISTS __reshape_is_new BOOLEAN DEFAULT FALSE NOT NULL;
+        ",
+        table = table,
+    )
+}
+
+pub fn drop_is_new_column_query(table: &str) -> String {
+    format!(
+        "
+        ALTER TABLE {table}
+        DROP COLUMN IF EXISTS __reshape_is_new;
+        ",
+        table = table,
+    )
+}

@@ -67,4 +67,11 @@ impl Action for CreateTable {
 
         Ok(())
     }
+
+    fn abort(&self, db: &mut dyn Conn) -> anyhow::Result<()> {
+        let query = format!("DROP TABLE IF EXISTS {table}", table = self.name,);
+        db.run(&query)?;
+
+        Ok(())
+    }
 }

@@ -61,4 +61,5 @@ pub trait Action: Debug {
     fn run(&self, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()>;
     fn complete(&self, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()>;
     fn update_schema(&self, schema: &mut Schema) -> anyhow::Result<()>;
+    fn abort(&self, db: &mut dyn Conn) -> anyhow::Result<()>;
 }

@@ -25,6 +25,7 @@ enum Command {
     Finish,
     Remove,
     LatestSchema,
+    Abort,
 }
 
 fn main() {
@@ -50,6 +51,7 @@ fn run(opts: Opts) -> anyhow::Result<()> {
             );
             Ok(())
         }
+        Command::Abort => reshape.abort(),
     }
 }
 

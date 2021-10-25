@@ -43,7 +43,7 @@ impl Action for AddColumn {
             definition_parts.push(default.to_string());
         }
 
-        // Add temporary column
+        // Add column as NOT NULL
         let query = format!(
             "
 			ALTER TABLE {table}
@@ -140,7 +140,7 @@ impl Action for AddColumn {
     }
 
     fn complete(&self, db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
-        // Remove triggers, procedures and temporary column
+        // Remove triggers and procedures
         let query = format!(
             "
             DROP TRIGGER IF EXISTS {trigger_name} ON {table};
@@ -207,6 +207,32 @@ impl Action for AddColumn {
             data_type: self.column.data_type.to_string(),
             nullable: self.column.nullable,
         });
+
+        Ok(())
+    }
+
+    fn abort(&self, db: &mut dyn Conn) -> anyhow::Result<()> {
+        // Remove triggers and procedures
+        let query = format!(
+            "
+            DROP TRIGGER IF EXISTS {trigger_name} ON {table};
+            DROP FUNCTION IF EXISTS {trigger_name};
+            ",
+            table = self.table,
+            trigger_name = self.trigger_name(),
+        );
+        db.run(&query)?;
+
+        // Remove column
+        let query = format!(
+            "
+            ALTER TABLE {table}
+            DROP COLUMN IF EXISTS {column}
+            ",
+            table = self.table,
+            column = self.column.name,
+        );
+        db.run(&query)?;
 
         Ok(())
     }
