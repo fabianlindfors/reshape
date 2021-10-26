@@ -107,7 +107,7 @@ Every action has a `type`. The supported types are detailed below.
 
 ### Create table
 
-The `create_table` action will create a new table with the specified columns and indices.
+The `create_table` action will create a new table with the specified columns, indices and constraints.
 
 *Example: creating a `customers` table with a few columns and a primary key*
 
@@ -130,6 +130,37 @@ primary_key = "id"
 
 	# default can be any valid SQL value, in this case a string literal
 	default = "'PLACEHOLDER'" 
+```
+
+*Example: creating `users` and `items` tables with a foreign key between them*
+
+```toml
+[[actions]]
+type = "create_table"
+table = "users"
+primary_key = "id"
+
+	[[actions.columns]]
+	name = "id"
+	type = "SERIAL"
+
+[[actions]]
+type = "create_table"
+table = "items"
+primary_key = "id"
+
+	[[actions.columns]]
+	name = "id"
+	type = "SERIAL"
+
+	[[actions.columns]]
+	name = "user_id"
+	type = "INTEGER"
+
+	[[actions.foreign_keys]]
+	columns = ["user_id"]
+	referenced_table = "users"
+	referenced_columns = ["id"]
 ```
 
 ### Add column

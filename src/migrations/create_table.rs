@@ -10,6 +10,14 @@ pub struct CreateTable {
     pub name: String,
     pub columns: Vec<Column>,
     pub primary_key: Option<String>,
+    pub foreign_keys: Vec<ForeignKey>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ForeignKey {
+    pub columns: Vec<String>,
+    pub referenced_table: String,
+    pub referenced_columns: Vec<String>,
 }
 
 #[typetag::serde(name = "create_table")]
@@ -42,14 +50,22 @@ impl Action for CreateTable {
             definition_rows.push(format!("PRIMARY KEY ({})", column));
         }
 
-        let query = format!(
+        for foreign_key in &self.foreign_keys {
+            definition_rows.push(format!(
+                "FOREIGN KEY ({columns}) REFERENCES {table} ({referenced_columns})",
+                columns = foreign_key.columns.join(", "),
+                table = foreign_key.referenced_table,
+                referenced_columns = foreign_key.referenced_columns.join(", "),
+            ));
+        }
+
+        db.run(&format!(
             "CREATE TABLE {} (
                 {}
             )",
             self.name,
             definition_rows.join(",\n"),
-        );
-        db.run(&query)?;
+        ))?;
         Ok(())
     }
 

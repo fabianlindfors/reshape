@@ -1,5 +1,5 @@
 use reshape::{
-    migrations::{Column, CreateTable, Migration},
+    migrations::{Column, CreateTable, ForeignKey, Migration},
     Status,
 };
 
@@ -13,6 +13,7 @@ fn create_table() {
         Migration::new("create_users_table", None).with_action(CreateTable {
             name: "users".to_string(),
             primary_key: Some("id".to_string()),
+            foreign_keys: vec![],
             columns: vec![
                 Column {
                     name: "id".to_string(),
@@ -116,4 +117,81 @@ fn create_table() {
         .collect();
 
     assert_eq!(vec!["id"], primary_key_columns);
+}
+
+#[test]
+fn create_table_with_foreign_keys() {
+    let (mut reshape, mut db, _) = common::setup();
+
+    let create_table_migration =
+        Migration::new("create_users_table", None).with_action(CreateTable {
+            name: "users".to_string(),
+            primary_key: Some("id".to_string()),
+            foreign_keys: vec![],
+            columns: vec![Column {
+                name: "id".to_string(),
+                data_type: "SERIAL".to_string(),
+                nullable: true, // Will be ignored by Postgres as the column is a SERIAL
+                default: None,
+            }],
+        });
+
+    let create_second_table_migration =
+        Migration::new("create_items_table", None).with_action(CreateTable {
+            name: "items".to_string(),
+            primary_key: None,
+            foreign_keys: vec![ForeignKey {
+                columns: vec!["user_id".to_string()],
+                referenced_table: "users".to_string(),
+                referenced_columns: vec!["id".to_string()],
+            }],
+            columns: vec![Column {
+                name: "user_id".to_string(),
+                data_type: "INTEGER".to_string(),
+                nullable: false,
+                default: None,
+            }],
+        });
+
+    reshape
+        .migrate(vec![
+            create_table_migration.clone(),
+            create_second_table_migration.clone(),
+        ])
+        .unwrap();
+
+    let foreign_key_columns: Vec<(String, String, String)> = db
+        .query(
+            "
+        SELECT
+            kcu.column_name, 
+            ccu.table_name AS foreign_table_name,
+            ccu.column_name AS foreign_column_name 
+        FROM 
+            information_schema.table_constraints AS tc 
+            JOIN information_schema.key_column_usage AS kcu
+              ON tc.constraint_name = kcu.constraint_name
+              AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage AS ccu
+              ON ccu.constraint_name = tc.constraint_name
+              AND ccu.table_schema = tc.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name='items';
+        ",
+            &[],
+        )
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row.get("column_name"),
+                row.get("foreign_table_name"),
+                row.get("foreign_column_name"),
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        vec![("user_id".to_string(), "users".to_string(), "id".to_string())],
+        foreign_key_columns
+    );
 }

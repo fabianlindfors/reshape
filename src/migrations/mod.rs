@@ -7,7 +7,7 @@ mod common;
 pub use common::Column;
 
 mod create_table;
-pub use create_table::CreateTable;
+pub use create_table::{CreateTable, ForeignKey};
 
 mod alter_column;
 pub use alter_column::{AlterColumn, ColumnChanges};

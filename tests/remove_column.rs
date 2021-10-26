@@ -10,6 +10,7 @@ fn remove_column() {
         Migration::new("create_users_table", None).with_action(CreateTable {
             name: "users".to_string(),
             primary_key: None,
+            foreign_keys: vec![],
             columns: vec![
                 Column {
                     name: "id".to_string(),
