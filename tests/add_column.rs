@@ -9,6 +9,7 @@ fn add_column() {
 
     let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
         name: "users".to_string(),
+        primary_key: None,
         columns: vec![
             Column {
                 name: "id".to_string(),
@@ -122,6 +123,7 @@ fn add_column_nullable() {
 
     let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
         name: "users".to_string(),
+        primary_key: None,
         columns: vec![Column {
             name: "id".to_string(),
             data_type: "SERIAL".to_string(),
@@ -221,6 +223,7 @@ fn add_column_with_default() {
             nullable: true,
             default: None,
         }],
+        primary_key: None,
     });
     let add_name_column =
         Migration::new("add_name_column_with_default", None).with_action(AddColumn {

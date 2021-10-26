@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 pub struct CreateTable {
     pub name: String,
     pub columns: Vec<Column>,
+    pub primary_key: Option<String>,
 }
 
 #[typetag::serde(name = "create_table")]
@@ -18,7 +19,7 @@ impl Action for CreateTable {
     }
 
     fn run(&self, db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
-        let column_definitions: Vec<String> = self
+        let mut definition_rows: Vec<String> = self
             .columns
             .iter()
             .map(|column| {
@@ -37,12 +38,16 @@ impl Action for CreateTable {
             })
             .collect();
 
+        if let Some(column) = &self.primary_key {
+            definition_rows.push(format!("PRIMARY KEY ({})", column));
+        }
+
         let query = format!(
             "CREATE TABLE {} (
                 {}
             )",
             self.name,
-            column_definitions.join(",\n"),
+            definition_rows.join(",\n"),
         );
         db.run(&query)?;
         Ok(())

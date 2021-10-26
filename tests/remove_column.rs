@@ -9,6 +9,7 @@ fn remove_column() {
     let create_table_migration =
         Migration::new("create_users_table", None).with_action(CreateTable {
             name: "users".to_string(),
+            primary_key: None,
             columns: vec![
                 Column {
                     name: "id".to_string(),

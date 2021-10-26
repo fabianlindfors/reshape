@@ -9,6 +9,7 @@ fn alter_column_data() {
 
     let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
         name: "users".to_string(),
+        primary_key: None,
         columns: vec![
             Column {
                 name: "id".to_string(),
@@ -109,6 +110,7 @@ fn alter_column_set_not_null() {
 
     let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
         name: "users".to_string(),
+        primary_key: None,
         columns: vec![
             Column {
                 name: "id".to_string(),
@@ -209,6 +211,7 @@ fn alter_column_rename() {
 
     let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
         name: "users".to_string(),
+        primary_key: None,
         columns: vec![
             Column {
                 name: "id".to_string(),

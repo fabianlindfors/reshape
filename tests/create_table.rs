@@ -12,6 +12,7 @@ fn create_table() {
     let create_table_migration =
         Migration::new("create_users_table", None).with_action(CreateTable {
             name: "users".to_string(),
+            primary_key: Some("id".to_string()),
             columns: vec![
                 Column {
                     name: "id".to_string(),
@@ -97,4 +98,22 @@ fn create_table() {
         "timestamp without time zone",
         created_at_column.get::<_, String>("data_type")
     );
+
+    // Ensure the primary key has the right columns
+    let primary_key_columns: Vec<String> = db
+        .query(
+            "
+            SELECT a.attname AS column
+            FROM pg_index i
+            JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+            WHERE i.indrelid = 'users'::regclass AND i.indisprimary
+            ",
+            &[],
+        )
+        .unwrap()
+        .iter()
+        .map(|row| row.get("column"))
+        .collect();
+
+    assert_eq!(vec!["id"], primary_key_columns);
 }
