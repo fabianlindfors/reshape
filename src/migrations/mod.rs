@@ -18,6 +18,9 @@ pub use add_column::AddColumn;
 mod remove_column;
 pub use remove_column::RemoveColumn;
 
+mod add_index;
+pub use add_index::AddIndex;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Migration {
     pub name: String,

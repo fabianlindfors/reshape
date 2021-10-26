@@ -18,6 +18,8 @@ Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It 
 	- [Columns](#columns)
 		- [Add column](#add-column)
 		- [Alter column](#alter-column)
+	- [Indices](#indices)
+		- [Add index](#add-index)
 - [How it works](#how-it-works)
 
 ## Getting started
@@ -108,7 +110,7 @@ Every action has a `type`. The supported types are detailed below.
 
 The `create_table` action will create a new table with the specified columns, indices and constraints.
 
-*Example: creating a `customers` table with a few columns and a primary key*
+*Example: create a `customers` table with a few columns and a primary key*
 
 ```toml
 [[actions]]
@@ -131,7 +133,7 @@ primary_key = "id"
 	default = "'PLACEHOLDER'" 
 ```
 
-*Example: creating `users` and `items` tables with a foreign key between them*
+*Example: create `users` and `items` tables with a foreign key between them*
 
 ```toml
 [[actions]]
@@ -265,6 +267,35 @@ down = "index - 1" # Decrement to revert for old schema
 	[actions.changes]
 	name = "index"
 
+```
+
+### Indices
+
+#### Add index
+
+The `add_index` action will add a new index to an existing table.
+
+*Example: create a `users` table with an index on the `name` column*
+
+```toml
+[[actions]]
+type = "create_table"
+table = "users"
+primary_key = "id"
+
+	[[actions.columns]]
+	name = "id"
+	type = "SERIAL"
+
+	[[actions.columns]]
+	name = "name"
+	type = "TEXT"
+
+[[actions]]
+type = "add_index"
+table = "users"
+name = "name_idx"
+columns = ["name"]
 ```
 
 
