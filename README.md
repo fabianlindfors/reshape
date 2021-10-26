@@ -16,7 +16,7 @@ Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It 
 	- [Tables](#tables)
 		- [Create table](#create-table)
 	- [Columns](#columns)
-		- [Create column](#create-column)
+		- [Add column](#add-column)
 		- [Alter column](#alter-column)
 - [How it works](#how-it-works)
 
@@ -102,7 +102,9 @@ table = "products"
 
 Every action has a `type`. The supported types are detailed below.
 
-### Create table
+### Tables
+
+#### Create table
 
 The `create_table` action will create a new table with the specified columns, indices and constraints.
 
@@ -160,7 +162,9 @@ primary_key = "id"
 	referenced_columns = ["id"]
 ```
 
-### Add column
+### Columns
+
+#### Add column
 
 The `add_column` action will add a new column to an existing table. You can optionally provide an `up` setting. This should be an SQL expression which will be run for all existing rows to backfill the new column.
 
@@ -215,7 +219,7 @@ down = "first_name || ' ' || last_name"
 ```
 
 
-### Alter column
+#### Alter column
 
 The `alter_column` action enables many different changes to an existing column, for example renaming, changing type and changing existing values.
 
