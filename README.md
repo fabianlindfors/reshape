@@ -6,22 +6,19 @@ Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It 
 
 *Note: Reshape is **experimental** and should not be used in production. It can (and probably will) destroy your data and break your application.*
 
-- [Getting started]()
-	- [Installation]()
-	- [Creating your first migration]()
-	- [Preparing your application]()
-	- [Running your migration]()
-- [Writing migrations]()
-	- [Basics]()
-	- [Tables]()
-		- [Create table]()
-		- [Rename table]()
-		- [Drop table]()
-	- [Columns]()
-		- [Create column]()
-		- [Alter column]()
-		- [Remove column]()
-- [How it works]()
+- [Getting started](#getting-started)
+	- [Installation](#installation)
+	- [Creating your first migration](#creating-your-first-migration)
+	- [Preparing your application](#preparing-your-application)
+	- [Running your migration](#running-your-migration)
+- [Writing migrations](#writing-migrations)
+	- [Basics](#basics)
+	- [Tables](#tables)
+		- [Create table](#create-table)
+	- [Columns](#columns)
+		- [Create column](#create-column)
+		- [Alter column](#alter-column)
+- [How it works](#how-it-works)
 
 ## Getting started
 
