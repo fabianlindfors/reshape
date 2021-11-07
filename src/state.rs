@@ -22,7 +22,7 @@ pub enum Status {
 
     #[serde(rename = "in_progress")]
     InProgress {
-        target_migration: String,
+        migrations: Vec<Migration>,
         target_schema: Schema,
     },
 }
@@ -88,6 +88,68 @@ impl State {
         // Add any new migrations
         self.migrations.extend(new_iter);
         Ok(())
+    }
+
+    pub fn add_migrations<'a>(&mut self, new_migrations: impl IntoIterator<Item = &'a Migration>) {
+        for migration in new_migrations.into_iter() {
+            self.migrations.push(migration.clone());
+        }
+    }
+
+    // Complete will change the status from InProgress to Idle
+    pub fn complete(&mut self) -> anyhow::Result<()> {
+        let current_status = std::mem::replace(&mut self.status, Status::Idle);
+
+        match current_status {
+            Status::Idle => {
+                // Move old status back
+                self.status = current_status;
+                return Err(anyhow!("status is not in progress"));
+            }
+            Status::InProgress {
+                mut migrations,
+                target_schema,
+            } => {
+                let target_migration = migrations.last().unwrap().name.to_string();
+                self.migrations.append(&mut migrations);
+                self.current_migration = Some(target_migration);
+                self.current_schema = target_schema;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn in_progress(&mut self, new_migrations: Vec<Migration>, new_schema: Schema) {
+        self.status = Status::InProgress {
+            migrations: new_migrations,
+            target_schema: new_schema,
+        };
+    }
+
+    pub fn get_remaining_migrations(
+        &self,
+        new_migrations: impl IntoIterator<Item = Migration>,
+    ) -> anyhow::Result<Vec<Migration>> {
+        let mut new_iter = new_migrations.into_iter();
+
+        // Ensure the new migration match up with the existing ones
+        for pair in self.migrations.iter().zip(new_iter.by_ref()) {
+            let (existing, ref new) = pair;
+            if existing != new {
+                return Err(anyhow!(
+                    "existing migration {} does not match new migration {}",
+                    existing.name,
+                    new.name
+                ));
+            }
+        }
+
+        let items: Vec<Migration> = new_iter.collect();
+        println!("Remaining migrations count: {:?}", items);
+
+        // Return the remaining migrations
+        Ok(items)
     }
 
     fn ensure_schema_and_table(db: &mut impl Conn) {
