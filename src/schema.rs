@@ -42,6 +42,7 @@ impl Default for Schema {
 pub struct Table {
     pub name: String,
     pub columns: Vec<Column>,
+    pub primary_key: Vec<String>,
     #[serde(skip)]
     pub has_is_new: bool,
 }
@@ -50,6 +51,7 @@ impl Table {
     pub fn new(name: impl Into<String>) -> Table {
         Table {
             name: name.into(),
+            primary_key: vec![],
             columns: vec![],
             has_is_new: false,
         }

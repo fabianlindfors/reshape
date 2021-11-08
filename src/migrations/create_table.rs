@@ -75,6 +75,8 @@ impl Action for CreateTable {
 
     fn update_schema(&self, schema: &mut Schema) -> anyhow::Result<()> {
         let mut table = Table::new(self.name.to_string());
+        table.primary_key = self.primary_key.clone();
+
         for column in &self.columns {
             table.add_column(crate::schema::Column {
                 name: column.name.to_string(),
