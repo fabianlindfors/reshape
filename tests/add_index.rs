@@ -9,7 +9,7 @@ fn add_index() {
     let create_table_migration =
         Migration::new("create_users_table", None).with_action(CreateTable {
             name: "users".to_string(),
-            primary_key: None,
+            primary_key: vec!["id".to_string()],
             foreign_keys: vec![],
             columns: vec![
                 Column {

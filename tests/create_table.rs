@@ -12,7 +12,7 @@ fn create_table() {
     let create_table_migration =
         Migration::new("create_users_table", None).with_action(CreateTable {
             name: "users".to_string(),
-            primary_key: Some("id".to_string()),
+            primary_key: vec!["id".to_string()],
             foreign_keys: vec![],
             columns: vec![
                 Column {
@@ -126,7 +126,7 @@ fn create_table_with_foreign_keys() {
     let create_table_migration =
         Migration::new("create_users_table", None).with_action(CreateTable {
             name: "users".to_string(),
-            primary_key: Some("id".to_string()),
+            primary_key: vec!["id".to_string()],
             foreign_keys: vec![],
             columns: vec![Column {
                 name: "id".to_string(),
@@ -139,18 +139,26 @@ fn create_table_with_foreign_keys() {
     let create_second_table_migration =
         Migration::new("create_items_table", None).with_action(CreateTable {
             name: "items".to_string(),
-            primary_key: None,
+            primary_key: vec!["id".to_string()],
             foreign_keys: vec![ForeignKey {
                 columns: vec!["user_id".to_string()],
                 referenced_table: "users".to_string(),
                 referenced_columns: vec!["id".to_string()],
             }],
-            columns: vec![Column {
-                name: "user_id".to_string(),
-                data_type: "INTEGER".to_string(),
-                nullable: false,
-                default: None,
-            }],
+            columns: vec![
+                Column {
+                    name: "id".to_string(),
+                    data_type: "SERIAL".to_string(),
+                    nullable: true,
+                    default: None,
+                },
+                Column {
+                    name: "user_id".to_string(),
+                    data_type: "INTEGER".to_string(),
+                    nullable: false,
+                    default: None,
+                },
+            ],
         });
 
     reshape

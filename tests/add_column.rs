@@ -9,7 +9,7 @@ fn add_column() {
 
     let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
         name: "users".to_string(),
-        primary_key: None,
+        primary_key: vec!["id".to_string()],
         foreign_keys: vec![],
         columns: vec![
             Column {
@@ -124,7 +124,7 @@ fn add_column_nullable() {
 
     let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
         name: "users".to_string(),
-        primary_key: None,
+        primary_key: vec!["id".to_string()],
         foreign_keys: vec![],
         columns: vec![Column {
             name: "id".to_string(),
@@ -207,7 +207,7 @@ fn add_column_nullable() {
 
     // Ensure data can be inserted against new schema
     new_db
-        .simple_query("INSERT INTO users (id, name) VALUES (3, 'Test Testsson'), (4, NULL)")
+        .simple_query("INSERT INTO users (id, name) VALUES (4, 'Test Testsson'), (5, NULL)")
         .unwrap();
 
     reshape.complete_migration().unwrap();
@@ -219,7 +219,7 @@ fn add_column_with_default() {
 
     let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
         name: "users".to_string(),
-        primary_key: None,
+        primary_key: vec!["id".to_string()],
         foreign_keys: vec![],
         columns: vec![Column {
             name: "id".to_string(),
