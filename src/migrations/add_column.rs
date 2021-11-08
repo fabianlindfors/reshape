@@ -1,4 +1,4 @@
-use super::{Action, Column};
+use super::{common, Action, Column};
 use crate::{
     db::Conn,
     schema::{self, Schema},
@@ -123,17 +123,9 @@ impl Action for AddColumn {
             db.run(&query)?;
         }
 
-        // Fill in values
+        // Backfill values in batches
         if let Some(up) = &self.up {
-            let query = format!(
-                "
-                UPDATE {table} SET {column_name} = {up}
-			    ",
-                table = self.table,
-                column_name = self.column.name,
-                up = up,
-            );
-            db.run(&query)?;
+            common::batch_update(db, table, &self.column.name, up)?;
         }
 
         Ok(())

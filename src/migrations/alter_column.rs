@@ -64,9 +64,8 @@ impl Action for AlterColumn {
     }
 
     fn run(&self, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
-        let column = schema
-            .find_table(&self.table)
-            .and_then(|table| table.find_column(&self.column))?;
+        let table = schema.find_table(&self.table)?;
+        let column = table.find_column(&self.column)?;
 
         // If we are only changing the name of a column, we don't have to do anything at this stage
         // We'll set the new schema to point to the old column. When the migration is completed,
@@ -179,16 +178,8 @@ impl Action for AlterColumn {
             db.run(&query)?;
         }
 
-        // Fill in values
-        let query = format!(
-            "
-            UPDATE {table} SET {temp_column} = {up}
-			",
-            table = self.table,
-            temp_column = self.temporary_column_name(),
-            up = up,
-        );
-        db.run(&query)?;
+        // Backfill values in batches
+        common::batch_update(db, table, &self.temporary_column_name(), up)?;
 
         Ok(())
     }
