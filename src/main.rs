@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use clap::Parser;
+use clap::{Args, Parser};
 use reshape::{
     migrations::{Action, Migration},
     Reshape,
@@ -15,17 +15,38 @@ use serde::{Deserialize, Serialize};
 struct Opts {
     #[clap(subcommand)]
     cmd: Command,
-    #[clap(default_value = "postgres://postgres:postgres@localhost:5432/postgres")]
-    url: String,
 }
 
 #[derive(Parser)]
 enum Command {
-    Migrate,
-    Finish,
-    Remove,
-    LatestSchema,
-    Abort,
+    Migrate(MigrateOptions),
+    Complete(ConnectionOptions),
+    Remove(ConnectionOptions),
+    Abort(ConnectionOptions),
+}
+
+#[derive(Args)]
+struct MigrateOptions {
+    #[clap(long, short)]
+    complete: bool,
+    #[clap(flatten)]
+    connection_options: ConnectionOptions,
+}
+
+#[derive(Parser)]
+struct ConnectionOptions {
+    #[clap(long)]
+    url: Option<String>,
+    #[clap(long, default_value = "localhost")]
+    host: String,
+    #[clap(long, default_value = "5432")]
+    port: u16,
+    #[clap(long, short, default_value = "postgres")]
+    database: String,
+    #[clap(long, short, default_value = "postgres")]
+    username: String,
+    #[clap(long, short, default_value = "postgres")]
+    password: String,
 }
 
 fn main() {
@@ -38,26 +59,42 @@ fn main() {
 }
 
 fn run(opts: Opts) -> anyhow::Result<()> {
-    let mut reshape = Reshape::new(&opts.url)?;
-
     match opts.cmd {
-        Command::Migrate => migrate(&mut reshape),
-        Command::Finish => reshape.complete_migration(),
-        Command::Remove => reshape.remove(),
-        Command::LatestSchema => {
-            println!(
-                "{}",
-                reshape.latest_schema().unwrap_or_else(|| "".to_string())
-            );
+        Command::Migrate(opts) => {
+            let mut reshape = reshape_from_connection_options(&opts.connection_options)?;
+            let migrations = find_migrations()?;
+            reshape.migrate(migrations)?;
+
+            // Automatically complete migration if --complete flag is set
+            if opts.complete {
+                reshape.complete_migration()?;
+            }
+
             Ok(())
         }
-        Command::Abort => reshape.abort(),
+        Command::Complete(opts) => {
+            let mut reshape = reshape_from_connection_options(&opts)?;
+            reshape.complete_migration()
+        }
+        Command::Remove(opts) => {
+            let mut reshape = reshape_from_connection_options(&opts)?;
+            reshape.remove()
+        }
+        Command::Abort(opts) => {
+            let mut reshape = reshape_from_connection_options(&opts)?;
+            reshape.abort()
+        }
     }
 }
 
-fn migrate(reshape: &mut Reshape) -> anyhow::Result<()> {
-    let migrations = find_migrations()?;
-    reshape.migrate(migrations)
+fn reshape_from_connection_options(opts: &ConnectionOptions) -> anyhow::Result<Reshape> {
+    let env_url = std::env::var("POSTGRES_URL").ok();
+    let url = env_url.as_ref().or(opts.url.as_ref());
+
+    match url {
+        Some(url) => Reshape::new(&url),
+        None => Reshape::new_with_options(&opts.host, opts.port, &opts.username, &opts.password),
+    }
 }
 
 fn find_migrations() -> anyhow::Result<Vec<Migration>> {

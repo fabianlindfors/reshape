@@ -1,6 +1,7 @@
 use crate::migrations::Migration;
 use colored::*;
 use db::{Conn, DbConn};
+use postgres::Config;
 use schema::Table;
 
 mod db;
@@ -17,7 +18,28 @@ pub struct Reshape {
 
 impl Reshape {
     pub fn new(connection_string: &str) -> anyhow::Result<Reshape> {
-        let mut db = DbConn::connect(connection_string)?;
+        let config: Config = connection_string.parse()?;
+        Self::new_with_config(&config)
+    }
+
+    pub fn new_with_options(
+        host: &str,
+        port: u16,
+        username: &str,
+        password: &str,
+    ) -> anyhow::Result<Reshape> {
+        let mut config = Config::new();
+        config
+            .host(host)
+            .port(port)
+            .user(username)
+            .password(password);
+
+        Self::new_with_config(&config)
+    }
+
+    fn new_with_config(config: &Config) -> anyhow::Result<Reshape> {
+        let mut db = DbConn::connect(config)?;
         let state = State::load(&mut db);
 
         Ok(Reshape { db, state })
@@ -255,13 +277,6 @@ impl Reshape {
         Ok(())
     }
 
-    pub fn latest_schema(&self) -> Option<String> {
-        self.state
-            .migrations
-            .last()
-            .map(|migration| schema_name_for_migration(&migration.name))
-    }
-
     pub fn abort(&mut self) -> anyhow::Result<()> {
         let remaining_migrations = match &self.state.status {
             Status::InProgress {
@@ -307,6 +322,12 @@ impl Reshape {
 pub fn generate_schema_query(migration_name: &str) -> String {
     let schema_name = schema_name_for_migration(migration_name);
     format!("SET search_path TO {}", schema_name)
+}
+
+pub fn latest_schema_from_migrations(migrations: &[Migration]) -> Option<String> {
+    migrations
+        .last()
+        .map(|migration| schema_name_for_migration(&migration.name))
 }
 
 fn schema_name_for_migration(migration_name: &str) -> String {

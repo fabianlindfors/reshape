@@ -15,8 +15,8 @@ pub struct DbConn {
 }
 
 impl DbConn {
-    pub fn connect(connection_string: &str) -> anyhow::Result<DbConn> {
-        let client = postgres::Client::connect(connection_string, NoTls)?;
+    pub fn connect(config: &postgres::Config) -> anyhow::Result<DbConn> {
+        let client = config.connect(NoTls)?;
         Ok(DbConn { client })
     }
 

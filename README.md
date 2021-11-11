@@ -20,6 +20,11 @@ Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It 
 		- [Alter column](#alter-column)
 	- [Indices](#indices)
 		- [Add index](#add-index)
+- [Commands and options](#commands-and-options)
+	- [`reshape migrate`](#reshape-migrate)
+	- [`reshape complete`](#reshape-complete)
+	- [`reshape abort`](#reshape-abort)
+	- [Connection options](#connection-options)
 - [How it works](#how-it-works)
 
 ## Getting started
@@ -298,6 +303,48 @@ name = "name_idx"
 columns = ["name"]
 ```
 
+## Commands and options
+
+### `reshape migrate`
+
+Starts a new migration, applying all migrations under `migrations/` that haven't yet been applied. After the command has completed, both the old and new schema will be usable at the same time. When you have rolled out the new version of your application which uses the new schema, you should run `reshape complete`.
+
+#### Options
+
+*See also [Connection options](#connection-options)*
+
+| Option | Default | Description |
+| ------ | ------- | ----------- |
+| `--complete`, `-c` | `false` | Automatically complete migration after applying it. Useful during development. |
+
+### `reshape complete`
+
+Completes migrations previously started with `reshape complete`. 
+
+#### Options
+
+See [Connection options](#connection-options)
+
+### `reshape abort`
+
+Aborts any migrations which haven't yet been completed. 
+
+#### Options
+
+See [Connection options](#connection-options)
+
+### Connection options
+
+The options below can be used with all commands that communicate with Postgres. Use either a connection URL or specify each connection option individually.
+
+| Option | Default | Description |
+| ------ | ------- | ----------- |
+| `--url`  | | URI to connect to your Postgres database.<br>Can also be provided with the environment variable `DATABASE_URL`. |
+| `--host` | `localhost` | Hostname to use when connecting to Postgres |
+| `--port` | `5432` | Port which Postgres is listening on |
+| `--database` | `postgres` | Database name |
+| `--username` | `postgres` | Postgres username |
+| `--password` | `postgres` | Postgres password |
 
 ## How it works
 
