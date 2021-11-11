@@ -23,6 +23,7 @@ enum Command {
     Complete(ConnectionOptions),
     Remove(ConnectionOptions),
     Abort(ConnectionOptions),
+    GenerateSchemaQuery,
 }
 
 #[derive(Args)]
@@ -83,6 +84,15 @@ fn run(opts: Opts) -> anyhow::Result<()> {
         Command::Abort(opts) => {
             let mut reshape = reshape_from_connection_options(&opts)?;
             reshape.abort()
+        }
+        Command::GenerateSchemaQuery => {
+            let migrations = find_migrations()?;
+            let query = migrations
+                .last()
+                .map(|migration| reshape::schema_query_for_migration(&migration.name));
+            println!("{}", query.unwrap_or_else(|| "".to_string()));
+
+            Ok(())
         }
     }
 }

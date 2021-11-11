@@ -24,6 +24,7 @@ Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It 
 	- [`reshape migrate`](#reshape-migrate)
 	- [`reshape complete`](#reshape-complete)
 	- [`reshape abort`](#reshape-abort)
+	- [`reshape generate-schema-query`](#reshape-generate-schema-query)
 	- [Connection options](#connection-options)
 - [How it works](#how-it-works)
 
@@ -332,6 +333,12 @@ Aborts any migrations which haven't yet been completed.
 #### Options
 
 See [Connection options](#connection-options)
+
+### `reshape generate-schema-query`
+
+Generates the SQL query you need to run in your application before using the database. This command does not require a database connection. Instead it will generate the query based on the latest migration in the `migrations/` directory.
+
+The query should look something like `SET search_path TO migration_1_initial_migration`.
 
 ### Connection options
 

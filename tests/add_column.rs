@@ -64,12 +64,12 @@ fn add_column() {
 
     // Update search paths
     old_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &first_migrations.last().unwrap().name,
         ))
         .unwrap();
     new_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &first_migrations.last().unwrap().name,
         ))
         .unwrap();
@@ -88,7 +88,7 @@ fn add_column() {
     // Run second migration
     reshape.migrate(second_migrations.clone()).unwrap();
     new_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &second_migrations.last().unwrap().name,
         ))
         .unwrap();
@@ -157,12 +157,12 @@ fn add_column_nullable() {
 
     // Update search paths
     old_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &first_migrations.last().unwrap().name,
         ))
         .unwrap();
     new_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &first_migrations.last().unwrap().name,
         ))
         .unwrap();
@@ -181,7 +181,7 @@ fn add_column_nullable() {
     // Run second migration
     reshape.migrate(second_migrations.clone()).unwrap();
     new_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &second_migrations.last().unwrap().name,
         ))
         .unwrap();
@@ -253,12 +253,12 @@ fn add_column_with_default() {
 
     // Update search paths
     old_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &first_migrations.last().unwrap().name,
         ))
         .unwrap();
     new_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &first_migrations.last().unwrap().name,
         ))
         .unwrap();
@@ -271,7 +271,7 @@ fn add_column_with_default() {
     // Run second migration
     reshape.migrate(second_migrations.clone()).unwrap();
     new_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &second_migrations.last().unwrap().name,
         ))
         .unwrap();

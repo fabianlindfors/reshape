@@ -44,8 +44,10 @@ fn remove_column() {
     reshape.migrate(second_migrations.clone()).unwrap();
 
     // Update schemas of Postgres connections
-    let old_schema_query = reshape::generate_schema_query(&first_migrations.last().unwrap().name);
-    let new_schema_query = reshape::generate_schema_query(&second_migrations.last().unwrap().name);
+    let old_schema_query =
+        reshape::schema_query_for_migration(&first_migrations.last().unwrap().name);
+    let new_schema_query =
+        reshape::schema_query_for_migration(&second_migrations.last().unwrap().name);
     old_db.simple_query(&old_schema_query).unwrap();
     new_db.simple_query(&new_schema_query).unwrap();
 

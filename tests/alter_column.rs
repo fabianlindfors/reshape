@@ -51,7 +51,7 @@ fn alter_column_data() {
 
     // Update search paths
     old_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &first_migrations.last().unwrap().name,
         ))
         .unwrap();
@@ -70,7 +70,7 @@ fn alter_column_data() {
     // Run second migration
     reshape.migrate(second_migrations.clone()).unwrap();
     new_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &second_migrations.last().unwrap().name,
         ))
         .unwrap();
@@ -153,7 +153,7 @@ fn alter_column_set_not_null() {
 
     // Update search paths
     old_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &first_migrations.last().unwrap().name,
         ))
         .unwrap();
@@ -172,7 +172,7 @@ fn alter_column_set_not_null() {
     // Run second migration
     reshape.migrate(second_migrations.clone()).unwrap();
     new_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &second_migrations.last().unwrap().name,
         ))
         .unwrap();
@@ -256,7 +256,7 @@ fn alter_column_rename() {
 
     // Update search paths
     old_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &first_migrations.last().unwrap().name,
         ))
         .unwrap();
@@ -275,7 +275,7 @@ fn alter_column_rename() {
     // Run second migration
     reshape.migrate(second_migrations.clone()).unwrap();
     new_db
-        .simple_query(&reshape::generate_schema_query(
+        .simple_query(&reshape::schema_query_for_migration(
             &second_migrations.last().unwrap().name,
         ))
         .unwrap();

@@ -100,13 +100,13 @@ impl Reshape {
             println!("Migrations complete:");
             println!(
                 "  - Run '{}' from your application to use the latest schema",
-                generate_schema_query(&target_migration)
+                schema_query_for_migration(&target_migration)
             );
         } else {
             println!("Migrations have been applied and the new schema is ready for use:");
             println!(
                 "  - Run '{}' from your application to use the latest schema",
-                generate_schema_query(&target_migration)
+                schema_query_for_migration(&target_migration)
             );
             println!(
                 "  - Run 'reshape complete' once your application has been updated and the previous schema is no longer in use"
@@ -319,15 +319,15 @@ impl Reshape {
     }
 }
 
-pub fn generate_schema_query(migration_name: &str) -> String {
-    let schema_name = schema_name_for_migration(migration_name);
-    format!("SET search_path TO {}", schema_name)
-}
-
 pub fn latest_schema_from_migrations(migrations: &[Migration]) -> Option<String> {
     migrations
         .last()
         .map(|migration| schema_name_for_migration(&migration.name))
+}
+
+pub fn schema_query_for_migration(migration_name: &str) -> String {
+    let schema_name = schema_name_for_migration(migration_name);
+    format!("SET search_path TO {}", schema_name)
 }
 
 fn schema_name_for_migration(migration_name: &str) -> String {
