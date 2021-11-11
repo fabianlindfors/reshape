@@ -1,7 +1,7 @@
 use std::{
-    fs::{self, DirEntry, File},
+    fs::{self, File},
     io::Read,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use clap::{Args, Parser};
@@ -23,7 +23,7 @@ enum Command {
     Complete(ConnectionOptions),
     Remove(ConnectionOptions),
     Abort(ConnectionOptions),
-    GenerateSchemaQuery,
+    GenerateSchemaQuery(FindMigrationsOptions),
 }
 
 #[derive(Args)]
@@ -32,6 +32,8 @@ struct MigrateOptions {
     complete: bool,
     #[clap(flatten)]
     connection_options: ConnectionOptions,
+    #[clap(flatten)]
+    find_migrations_options: FindMigrationsOptions,
 }
 
 #[derive(Parser)]
@@ -50,6 +52,12 @@ struct ConnectionOptions {
     password: String,
 }
 
+#[derive(Parser)]
+struct FindMigrationsOptions {
+    #[clap(long, default_value = "migrations")]
+    dirs: Vec<String>,
+}
+
 fn main() {
     let opts: Opts = Opts::parse();
 
@@ -63,7 +71,7 @@ fn run(opts: Opts) -> anyhow::Result<()> {
     match opts.cmd {
         Command::Migrate(opts) => {
             let mut reshape = reshape_from_connection_options(&opts.connection_options)?;
-            let migrations = find_migrations()?;
+            let migrations = find_migrations(&opts.find_migrations_options)?;
             reshape.migrate(migrations)?;
 
             // Automatically complete migration if --complete flag is set
@@ -85,8 +93,8 @@ fn run(opts: Opts) -> anyhow::Result<()> {
             let mut reshape = reshape_from_connection_options(&opts)?;
             reshape.abort()
         }
-        Command::GenerateSchemaQuery => {
-            let migrations = find_migrations()?;
+        Command::GenerateSchemaQuery(find_migrations_options) => {
+            let migrations = find_migrations(&find_migrations_options)?;
             let query = migrations
                 .last()
                 .map(|migration| reshape::schema_query_for_migration(&migration.name));
@@ -107,24 +115,28 @@ fn reshape_from_connection_options(opts: &ConnectionOptions) -> anyhow::Result<R
     }
 }
 
-fn find_migrations() -> anyhow::Result<Vec<Migration>> {
-    let path = Path::new("migrations");
+fn find_migrations(opts: &FindMigrationsOptions) -> anyhow::Result<Vec<Migration>> {
+    let search_paths = opts
+        .dirs
+        .iter()
+        .map(|path| Path::new(path))
+        // Filter out all directories that don't exist
+        .filter(|path| path.exists());
 
-    // Return early if path doesn't exist
-    if !path.exists() {
-        return Ok(Vec::new());
+    // Find all files in the search paths
+    let mut file_paths = Vec::new();
+    for search_path in search_paths {
+        let entries = fs::read_dir(search_path)?;
+        for entry in entries {
+            let path = entry?.path();
+            file_paths.push(path);
+        }
     }
 
-    let mut paths: Vec<PathBuf> = fs::read_dir(path)?
-        .collect::<std::io::Result<Vec<DirEntry>>>()?
-        .iter()
-        .map(|entry| entry.path())
-        .collect();
-
     // Sort all files by their file names (without extension)
-    paths.sort_unstable_by_key(|path| path.as_path().file_stem().unwrap().to_os_string());
+    file_paths.sort_unstable_by_key(|path| path.as_path().file_stem().unwrap().to_os_string());
 
-    paths
+    file_paths
         .iter()
         .map(|path| {
             let mut file = File::open(path)?;

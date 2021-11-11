@@ -317,6 +317,7 @@ Starts a new migration, applying all migrations under `migrations/` that haven't
 | Option | Default | Description |
 | ------ | ------- | ----------- |
 | `--complete`, `-c` | `false` | Automatically complete migration after applying it. Useful during development. |
+| `--dirs` | `migrations/` | Directories to search for migration files. Multiple directories can be specified using `--dirs dir1 dir2 dir3`. |
 
 ### `reshape complete`
 
@@ -336,9 +337,15 @@ See [Connection options](#connection-options)
 
 ### `reshape generate-schema-query`
 
-Generates the SQL query you need to run in your application before using the database. This command does not require a database connection. Instead it will generate the query based on the latest migration in the `migrations/` directory.
+Generates the SQL query you need to run in your application before using the database. This command does not require a database connection. Instead it will generate the query based on the latest migration in the `migrations/` directory (or the directories specified by `--dirs`).
 
 The query should look something like `SET search_path TO migration_1_initial_migration`.
+
+#### Options
+
+| Option | Default | Description |
+| ------ | ------- | ----------- |
+| `--dirs` | `migrations/` | Directories to search for migration files. Multiple directories can be specified using `--dirs dir1 dir2 dir3`. |
 
 ### Connection options
 
