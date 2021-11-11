@@ -1,4 +1,4 @@
-use super::{Action, Column};
+use super::{Action, Column, Context};
 use crate::{
     db::Conn,
     schema::{Schema, Table},
@@ -26,7 +26,7 @@ impl Action for CreateTable {
         format!("Creating table \"{}\"", self.name)
     }
 
-    fn run(&self, db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
+    fn run(&self, _ctx: &Context, db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
         let mut definition_rows: Vec<String> = self
             .columns
             .iter()
@@ -68,7 +68,7 @@ impl Action for CreateTable {
         Ok(())
     }
 
-    fn complete(&self, _db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
+    fn complete(&self, _ctx: &Context, _db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
         // Do nothing
         Ok(())
     }
@@ -90,7 +90,7 @@ impl Action for CreateTable {
         Ok(())
     }
 
-    fn abort(&self, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn abort(&self, _ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {
         let query = format!("DROP TABLE IF EXISTS {table}", table = self.name,);
         db.run(&query)?;
 

@@ -1,4 +1,4 @@
-use super::Action;
+use super::{Action, Context};
 use crate::{
     db::Conn,
     schema::{Column, Schema},
@@ -18,7 +18,7 @@ impl Action for AddIndex {
         format!("Adding index \"{}\" to table \"{}\"", self.name, self.table)
     }
 
-    fn run(&self, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
+    fn run(&self, _ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
         let table = schema.find_table(&self.table)?;
         let column_real_names: Vec<&str> = self
             .columns
@@ -40,7 +40,7 @@ impl Action for AddIndex {
         Ok(())
     }
 
-    fn complete(&self, _db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
+    fn complete(&self, _ctx: &Context, _db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -48,7 +48,7 @@ impl Action for AddIndex {
         Ok(())
     }
 
-    fn abort(&self, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn abort(&self, _ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {
         db.run(&format!(
             "
 			DROP INDEX {name} ON {table}

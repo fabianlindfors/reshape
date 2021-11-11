@@ -1,4 +1,4 @@
-use crate::migrations::Migration;
+use crate::migrations::{Context, Migration};
 use colored::*;
 use db::{Conn, DbConn};
 use postgres::Config;
@@ -72,13 +72,16 @@ impl Reshape {
 
         let mut new_schema = self.state.current_schema.clone();
 
-        for migration in remaining_migrations.iter() {
+        for (migration_index, migration) in remaining_migrations.iter().enumerate() {
             println!("Migrating '{}':", migration.name);
 
-            for step in &migration.actions {
-                print!("  + {} ", step.describe());
-                step.run(&mut self.db, &new_schema)?;
-                step.update_schema(&mut new_schema)?;
+            for (action_index, action) in migration.actions.iter().enumerate() {
+                print!("  + {} ", action.describe());
+
+                let ctx = Context::new(migration_index, action_index);
+                action.run(&ctx, &mut self.db, &new_schema)?;
+                action.update_schema(&mut new_schema)?;
+
                 println!("{}", "done".green());
             }
 
@@ -144,13 +147,16 @@ impl Reshape {
             ))?;
         }
 
-        for migration in remaining_migrations {
+        for (migration_index, migration) in remaining_migrations.iter().enumerate() {
             println!("Completing '{}':", migration.name);
 
-            for step in &migration.actions {
-                print!("  + {} ", step.describe());
-                step.complete(&mut transaction, &temp_schema)?;
-                step.update_schema(&mut temp_schema)?;
+            for (action_index, action) in migration.actions.iter().enumerate() {
+                print!("  + {} ", action.describe());
+
+                let ctx = Context::new(migration_index, action_index);
+                action.complete(&ctx, &mut transaction, &temp_schema)?;
+                action.update_schema(&mut temp_schema)?;
+
                 println!("{}", "done".green());
             }
 
@@ -300,10 +306,11 @@ impl Reshape {
         ))?;
 
         // Abort all pending migrations in reverse order
-        for migration in remaining_migrations.iter().rev() {
+        for (migration_index, migration) in remaining_migrations.iter().rev().enumerate() {
             print!("Aborting'{}' ", migration.name);
-            for action in migration.actions.iter().rev() {
-                action.abort(&mut transaction)?;
+            for (action_index, action) in migration.actions.iter().rev().enumerate() {
+                let ctx = Context::new(migration_index, action_index);
+                action.abort(&ctx, &mut transaction)?;
             }
             println!("{}", "done".green());
         }

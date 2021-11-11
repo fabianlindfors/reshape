@@ -1,4 +1,4 @@
-use super::Action;
+use super::{Action, Context};
 use crate::{db::Conn, schema::Schema};
 use serde::{Deserialize, Serialize};
 
@@ -10,8 +10,13 @@ pub struct RemoveColumn {
 }
 
 impl RemoveColumn {
-    fn trigger_name(&self) -> String {
-        format!("remove_column_{}_{}", self.table, self.column)
+    fn trigger_name(&self, ctx: &Context) -> String {
+        format!(
+            "{}_remove_column_{}_{}",
+            ctx.prefix(),
+            self.table,
+            self.column
+        )
     }
 }
 
@@ -24,7 +29,7 @@ impl Action for RemoveColumn {
         )
     }
 
-    fn run(&self, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
+    fn run(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
         // Add down trigger
         if let Some(down) = &self.down {
             let table = schema.find_table(&self.table)?;
@@ -61,7 +66,7 @@ impl Action for RemoveColumn {
                 CREATE TRIGGER {trigger_name} BEFORE UPDATE OR INSERT ON {table} FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
                 ",
                 column_name = self.column,
-                trigger_name = self.trigger_name(),
+                trigger_name = self.trigger_name(&ctx),
                 down = down,
                 table = self.table,
                 declarations = declarations.join("\n"),
@@ -72,7 +77,7 @@ impl Action for RemoveColumn {
         Ok(())
     }
 
-    fn complete(&self, db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
+    fn complete(&self, ctx: &Context, db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
         // Remove column, function and trigger
         let query = format!(
             "
@@ -84,7 +89,7 @@ impl Action for RemoveColumn {
             ",
             table = self.table,
             column = self.column,
-            trigger_name = self.trigger_name(),
+            trigger_name = self.trigger_name(&ctx),
         );
         db.run(&query)?;
 
@@ -98,7 +103,7 @@ impl Action for RemoveColumn {
         Ok(())
     }
 
-    fn abort(&self, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn abort(&self, ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove function and trigger
         db.query(&format!(
             "
@@ -106,7 +111,7 @@ impl Action for RemoveColumn {
             DROP FUNCTION IF EXISTS {trigger_name};
             ",
             table = self.table,
-            trigger_name = self.trigger_name(),
+            trigger_name = self.trigger_name(&ctx),
         ))?;
 
         Ok(())

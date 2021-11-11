@@ -1,4 +1,4 @@
-use super::Action;
+use super::{Action, Context};
 use crate::{db::Conn, migrations::common, schema::Schema};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -25,28 +25,39 @@ impl AlterColumn {
         format!("__new__{}", self.column)
     }
 
-    fn insert_trigger_name(&self) -> String {
-        format!("alter_column_insert_trigger_{}_{}", self.table, self.column)
-    }
-
-    fn update_old_trigger_name(&self) -> String {
+    fn insert_trigger_name(&self, ctx: &Context) -> String {
         format!(
-            "alter_column_update_old_trigger_{}_{}",
-            self.table, self.column
+            "{}_alter_column_insert_trigger_{}_{}",
+            ctx.prefix(),
+            self.table,
+            self.column
         )
     }
 
-    fn update_new_trigger_name(&self) -> String {
+    fn update_old_trigger_name(&self, ctx: &Context) -> String {
         format!(
-            "alter_column_update_new_trigger_{}_{}",
-            self.table, self.column
+            "{}_alter_column_update_old_trigger_{}_{}",
+            ctx.prefix(),
+            self.table,
+            self.column
         )
     }
 
-    fn not_null_constraint_name(&self) -> String {
+    fn update_new_trigger_name(&self, ctx: &Context) -> String {
         format!(
-            "alter_column_temporary_not_null_{}_{}",
-            self.table, self.column
+            "{}_alter_column_update_new_trigger_{}_{}",
+            ctx.prefix(),
+            self.table,
+            self.column
+        )
+    }
+
+    fn not_null_constraint_name(&self, ctx: &Context) -> String {
+        format!(
+            "{}_alter_column_temporary_not_null_{}_{}",
+            ctx.prefix(),
+            self.table,
+            self.column
         )
     }
 
@@ -63,7 +74,7 @@ impl Action for AlterColumn {
         format!("Altering column \"{}\" on \"{}\"", self.column, self.table)
     }
 
-    fn run(&self, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
+    fn run(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
         let table = schema.find_table(&self.table)?;
         let column = table.find_column(&self.column)?;
 
@@ -154,9 +165,9 @@ impl Action for AlterColumn {
             up = up,
             down = down,
             table = self.table,
-            insert_trigger = self.insert_trigger_name(),
-            update_old_trigger = self.update_old_trigger_name(),
-            update_new_trigger = self.update_new_trigger_name(),
+            insert_trigger = self.insert_trigger_name(ctx),
+            update_old_trigger = self.update_old_trigger_name(ctx),
+            update_new_trigger = self.update_new_trigger_name(ctx),
         );
         db.run(&query)?;
 
@@ -172,7 +183,7 @@ impl Action for AlterColumn {
                 CHECK ({column} IS NOT NULL) NOT VALID
                 ",
                 table = self.table,
-                constraint_name = self.not_null_constraint_name(),
+                constraint_name = self.not_null_constraint_name(ctx),
                 column = self.temporary_column_name(),
             );
             db.run(&query)?;
@@ -184,7 +195,7 @@ impl Action for AlterColumn {
         Ok(())
     }
 
-    fn complete(&self, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
+    fn complete(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
         if self.can_short_circuit() {
             if let Some(new_name) = &self.changes.name {
                 let query = format!(
@@ -240,9 +251,9 @@ impl Action for AlterColumn {
             DROP FUNCTION IF EXISTS {update_new_trigger};
             ",
             table = self.table,
-            insert_trigger = self.insert_trigger_name(),
-            update_old_trigger = self.update_old_trigger_name(),
-            update_new_trigger = self.update_new_trigger_name(),
+            insert_trigger = self.insert_trigger_name(ctx),
+            update_old_trigger = self.update_old_trigger_name(ctx),
+            update_new_trigger = self.update_new_trigger_name(ctx),
         );
         db.run(&query)?;
 
@@ -256,7 +267,7 @@ impl Action for AlterColumn {
                 VALIDATE CONSTRAINT {constraint_name}
                 ",
                 table = self.table,
-                constraint_name = self.not_null_constraint_name(),
+                constraint_name = self.not_null_constraint_name(ctx),
             );
             db.run(&query)?;
 
@@ -281,7 +292,7 @@ impl Action for AlterColumn {
                 DROP CONSTRAINT {constraint_name}
                 ",
                 table = self.table,
-                constraint_name = self.not_null_constraint_name(),
+                constraint_name = self.not_null_constraint_name(ctx),
             );
             db.run(&query)?;
         }
@@ -316,7 +327,7 @@ impl Action for AlterColumn {
         Ok(())
     }
 
-    fn abort(&self, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn abort(&self, ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove triggers and procedures
         let query = format!(
             "
@@ -330,9 +341,9 @@ impl Action for AlterColumn {
             DROP FUNCTION IF EXISTS {update_new_trigger};
             ",
             table = self.table,
-            insert_trigger = self.insert_trigger_name(),
-            update_old_trigger = self.update_old_trigger_name(),
-            update_new_trigger = self.update_new_trigger_name(),
+            insert_trigger = self.insert_trigger_name(ctx),
+            update_old_trigger = self.update_old_trigger_name(ctx),
+            update_new_trigger = self.update_new_trigger_name(ctx),
         );
         db.run(&query)?;
 

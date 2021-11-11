@@ -58,11 +58,29 @@ impl Clone for Migration {
     }
 }
 
+pub struct Context {
+    migration_index: usize,
+    action_index: usize,
+}
+
+impl Context {
+    pub fn new(migration_index: usize, action_index: usize) -> Self {
+        Context {
+            migration_index,
+            action_index,
+        }
+    }
+
+    fn prefix(&self) -> String {
+        format!("reshape_{}_{}", self.migration_index, self.action_index)
+    }
+}
+
 #[typetag::serde(tag = "type")]
 pub trait Action: Debug {
     fn describe(&self) -> String;
-    fn run(&self, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()>;
-    fn complete(&self, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()>;
+    fn run(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()>;
+    fn complete(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()>;
     fn update_schema(&self, schema: &mut Schema) -> anyhow::Result<()>;
-    fn abort(&self, db: &mut dyn Conn) -> anyhow::Result<()>;
+    fn abort(&self, ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()>;
 }

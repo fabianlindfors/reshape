@@ -1,4 +1,4 @@
-use super::{common, Action, Column};
+use super::{common, Action, Column, Context};
 use crate::{
     db::Conn,
     schema::{self, Schema},
@@ -13,12 +13,22 @@ pub struct AddColumn {
 }
 
 impl AddColumn {
-    fn trigger_name(&self) -> String {
-        format!("add_column_{}_{}", self.table, self.column.name)
+    fn trigger_name(&self, ctx: &Context) -> String {
+        format!(
+            "{}_add_column_{}_{}",
+            ctx.prefix(),
+            self.table,
+            self.column.name
+        )
     }
 
-    fn not_null_constraint_name(&self) -> String {
-        format!("add_column_not_null_{}_{}", self.table, self.column.name)
+    fn not_null_constraint_name(&self, ctx: &Context) -> String {
+        format!(
+            "{}_add_column_not_null_{}_{}",
+            ctx.prefix(),
+            self.table,
+            self.column.name
+        )
     }
 }
 
@@ -31,7 +41,7 @@ impl Action for AddColumn {
         )
     }
 
-    fn run(&self, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
+    fn run(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
         let table = schema.find_table(&self.table)?;
 
         let mut definition_parts = vec![
@@ -97,7 +107,7 @@ impl Action for AddColumn {
                 CREATE TRIGGER {trigger_name} BEFORE UPDATE OR INSERT ON {table} FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
                 ",
                 column_name = self.column.name,
-                trigger_name = self.trigger_name(),
+                trigger_name = self.trigger_name(ctx),
                 up = up,
                 table = self.table,
                 declarations = declarations.join("\n"),
@@ -117,7 +127,7 @@ impl Action for AddColumn {
                 CHECK ({column} IS NOT NULL) NOT VALID
                 ",
                 table = self.table,
-                constraint_name = self.not_null_constraint_name(),
+                constraint_name = self.not_null_constraint_name(&ctx),
                 column = self.column.name,
             );
             db.run(&query)?;
@@ -131,7 +141,7 @@ impl Action for AddColumn {
         Ok(())
     }
 
-    fn complete(&self, db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
+    fn complete(&self, ctx: &Context, db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
         // Remove triggers and procedures
         let query = format!(
             "
@@ -139,7 +149,7 @@ impl Action for AddColumn {
             DROP FUNCTION IF EXISTS {trigger_name};
             ",
             table = self.table,
-            trigger_name = self.trigger_name(),
+            trigger_name = self.trigger_name(ctx),
         );
         db.run(&query)?;
 
@@ -153,7 +163,7 @@ impl Action for AddColumn {
                 VALIDATE CONSTRAINT {constraint_name}
                 ",
                 table = self.table,
-                constraint_name = self.not_null_constraint_name(),
+                constraint_name = self.not_null_constraint_name(ctx),
             );
             db.run(&query)?;
 
@@ -178,7 +188,7 @@ impl Action for AddColumn {
                 DROP CONSTRAINT {constraint_name}
                 ",
                 table = self.table,
-                constraint_name = self.not_null_constraint_name(),
+                constraint_name = self.not_null_constraint_name(ctx),
             );
             db.run(&query)?;
         }
@@ -203,7 +213,7 @@ impl Action for AddColumn {
         Ok(())
     }
 
-    fn abort(&self, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn abort(&self, ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove triggers and procedures
         let query = format!(
             "
@@ -211,7 +221,7 @@ impl Action for AddColumn {
             DROP FUNCTION IF EXISTS {trigger_name};
             ",
             table = self.table,
-            trigger_name = self.trigger_name(),
+            trigger_name = self.trigger_name(ctx),
         );
         db.run(&query)?;
 
