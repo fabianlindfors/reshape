@@ -154,7 +154,7 @@ impl Action for AlterColumn {
             RETURNS TRIGGER AS $$
             DECLARE
                 {declarations}
-                {existing_column} public.{table}.{existing_column}%TYPE := NEW.{existing_column};
+                {existing_column} public.{table}.{existing_column}%TYPE := NEW.{existing_column_real};
             BEGIN
                 NEW.{temp_column} = {up};
                 RETURN NEW;
@@ -180,6 +180,7 @@ impl Action for AlterColumn {
             CREATE TRIGGER {update_new_trigger} BEFORE UPDATE OF {temp_column} ON {table} FOR EACH ROW EXECUTE PROCEDURE {update_new_trigger}();
             ",
             existing_column = column.name,
+            existing_column_real = column.real_name(),
             temp_column = self.temporary_column_name(ctx),
             up = up,
             down = down,
@@ -190,6 +191,9 @@ impl Action for AlterColumn {
             declarations = declarations.join("\n"),
         );
         db.run(&query)?;
+
+        // Backfill values in batches
+        common::batch_touch_rows(db, table, &column.name)?;
 
         // Add a temporary NOT NULL constraint if the column shouldn't be nullable.
         // This constraint is set as NOT VALID so it doesn't apply to existing rows and
@@ -208,9 +212,6 @@ impl Action for AlterColumn {
             );
             db.run(&query)?;
         }
-
-        // Backfill values in batches
-        common::batch_update(db, table, &self.temporary_column_name(ctx), up)?;
 
         Ok(())
     }

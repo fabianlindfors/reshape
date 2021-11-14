@@ -291,3 +291,98 @@ fn alter_column_rename() {
 
     reshape.complete_migration().unwrap();
 }
+
+#[test]
+fn alter_column_multiple() {
+    let (mut reshape, mut old_db, mut new_db) = common::setup();
+
+    let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
+        name: "users".to_string(),
+        primary_key: vec!["id".to_string()],
+        foreign_keys: vec![],
+        columns: vec![
+            Column {
+                name: "id".to_string(),
+                data_type: "SERIAL".to_string(),
+                nullable: true,
+                default: None,
+            },
+            Column {
+                name: "counter".to_string(),
+                data_type: "INTEGER".to_string(),
+                nullable: false,
+                default: None,
+            },
+        ],
+    });
+    let increment_counter_twice = Migration::new("increment_counter_twice", None)
+        .with_action(AlterColumn {
+            table: "users".to_string(),
+            column: "counter".to_string(),
+            up: Some("counter + 1".to_string()),
+            down: Some("counter - 1".to_string()),
+            changes: ColumnChanges {
+                data_type: None,
+                nullable: None,
+                name: None,
+            },
+        })
+        .with_action(AlterColumn {
+            table: "users".to_string(),
+            column: "counter".to_string(),
+            up: Some("counter + 1".to_string()),
+            down: Some("counter - 1".to_string()),
+            changes: ColumnChanges {
+                data_type: None,
+                nullable: None,
+                name: None,
+            },
+        });
+
+    let first_migrations = vec![create_users_table.clone()];
+    let second_migrations = vec![create_users_table.clone(), increment_counter_twice.clone()];
+
+    // Run first migration, should automatically finish
+    reshape.migrate(first_migrations.clone()).unwrap();
+    assert!(matches!(reshape.state.status, Status::Idle));
+    assert_eq!(
+        Some(&create_users_table.name),
+        reshape.state.current_migration.as_ref()
+    );
+
+    // Update search paths
+    old_db
+        .simple_query(&reshape::schema_query_for_migration(
+            &first_migrations.last().unwrap().name,
+        ))
+        .unwrap();
+
+    // Insert some test data
+    old_db
+        .simple_query(
+            "
+            INSERT INTO users (id, counter) VALUES
+                (1, 0),
+                (2, 100);
+            ",
+        )
+        .unwrap();
+
+    // Run second migration
+    reshape.migrate(second_migrations.clone()).unwrap();
+    new_db
+        .simple_query(&reshape::schema_query_for_migration(
+            &second_migrations.last().unwrap().name,
+        ))
+        .unwrap();
+
+    // Check that the existing data has been updated
+    let expected = vec![2, 102];
+    let results: Vec<i32> = new_db
+        .query("SELECT counter FROM users ORDER BY id", &[])
+        .unwrap()
+        .iter()
+        .map(|row| row.get::<_, i32>("counter"))
+        .collect();
+    assert_eq!(expected, results);
+}

@@ -83,14 +83,9 @@ impl ToSql for PostgresRawValue {
     postgres::types::to_sql_checked!();
 }
 
-const BATCH_SIZE: u16 = 1000;
+pub fn batch_touch_rows(db: &mut dyn Conn, table: &Table, column: &str) -> anyhow::Result<()> {
+    const BATCH_SIZE: u16 = 1000;
 
-pub fn batch_update(
-    db: &mut dyn Conn,
-    table: &Table,
-    column: &str,
-    up: &str,
-) -> anyhow::Result<()> {
     let mut cursor: Option<PostgresRawValue> = None;
 
     loop {
@@ -139,7 +134,7 @@ pub fn batch_update(
                     LIMIT {batch_size}
                 ), update AS (
                     UPDATE {table}
-                    SET {temp_column} = {up}
+                    SET {column} = {column}
                     FROM rows
                     WHERE {primary_key_where}
                     RETURNING {returning_columns}
@@ -152,8 +147,7 @@ pub fn batch_update(
             primary_key_columns = primary_key_columns,
             cursor_where = cursor_where,
             batch_size = BATCH_SIZE,
-            temp_column = column,
-            up = up,
+            column = column,
             primary_key_where = primary_key_where,
             returning_columns = returning_columns,
         );
@@ -165,9 +159,9 @@ pub fn batch_update(
         if last_value.is_none() {
             break;
         }
-        println!("{}", query);
 
         cursor = last_value
     }
+
     Ok(())
 }

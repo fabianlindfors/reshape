@@ -134,8 +134,8 @@ impl Action for AddColumn {
         }
 
         // Backfill values in batches
-        if let Some(up) = &self.up {
-            common::batch_update(db, table, &self.column.name, up)?;
+        if self.up.is_some() {
+            common::batch_touch_rows(db, table, &self.column.name)?;
         }
 
         Ok(())
