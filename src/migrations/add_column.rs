@@ -196,7 +196,7 @@ impl Action for AddColumn {
         Ok(())
     }
 
-    fn update_schema(&self, schema: &mut Schema) -> anyhow::Result<()> {
+    fn update_schema(&self, _ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
         let table = schema.find_table_mut(&self.table)?;
 
         if self.up.is_some() {

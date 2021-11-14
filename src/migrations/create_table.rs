@@ -73,7 +73,7 @@ impl Action for CreateTable {
         Ok(())
     }
 
-    fn update_schema(&self, schema: &mut Schema) -> anyhow::Result<()> {
+    fn update_schema(&self, _ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
         let mut table = Table::new(self.name.to_string());
         table.primary_key = self.primary_key.clone();
 

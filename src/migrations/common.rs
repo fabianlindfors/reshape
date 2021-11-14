@@ -165,6 +165,7 @@ pub fn batch_update(
         if last_value.is_none() {
             break;
         }
+        println!("{}", query);
 
         cursor = last_value
     }

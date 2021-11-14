@@ -44,7 +44,7 @@ impl Action for AddIndex {
         Ok(())
     }
 
-    fn update_schema(&self, _schema: &mut Schema) -> anyhow::Result<()> {
+    fn update_schema(&self, _ctx: &Context, _schema: &mut Schema) -> anyhow::Result<()> {
         Ok(())
     }
 
