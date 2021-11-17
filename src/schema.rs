@@ -1,34 +1,44 @@
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Schema {
-    pub tables: HashMap<String, Table>,
+    pub tables: Vec<Table>,
 }
 
 impl Schema {
     pub fn new() -> Schema {
-        Schema {
-            tables: HashMap::new(),
-        }
+        Schema { tables: Vec::new() }
     }
 
     pub fn add_table(&mut self, table: Table) -> &mut Self {
-        self.tables.insert(table.name.to_string(), table);
+        self.tables.push(table);
         self
     }
 
     pub fn find_table(&self, name: &str) -> anyhow::Result<&Table> {
         self.tables
-            .get(name)
+            .iter()
+            .find(|table| table.name == name)
             .ok_or_else(|| anyhow!("no table {}", name))
     }
 
     pub fn find_table_mut(&mut self, name: &str) -> anyhow::Result<&mut Table> {
         self.tables
-            .get_mut(name)
+            .iter_mut()
+            .find(|table| table.name == name)
             .ok_or_else(|| anyhow!("no table {}", name))
+    }
+
+    pub fn remove_table(&mut self, name: &str) -> anyhow::Result<()> {
+        let index = self
+            .tables
+            .iter()
+            .position(|table| table.name == name)
+            .ok_or_else(|| anyhow!("no table {}", name))?;
+
+        self.tables.swap_remove(index);
+        Ok(())
     }
 }
 
@@ -43,6 +53,9 @@ pub struct Table {
     pub name: String,
     pub columns: Vec<Column>,
     pub primary_key: Vec<String>,
+
+    #[serde(skip)]
+    pub real_name: Option<String>,
     #[serde(skip)]
     pub has_is_new: bool,
 }
@@ -51,10 +64,15 @@ impl Table {
     pub fn new(name: impl Into<String>) -> Table {
         Table {
             name: name.into(),
+            real_name: None,
             primary_key: vec![],
             columns: vec![],
             has_is_new: false,
         }
+    }
+
+    pub fn real_name(&self) -> &str {
+        self.real_name.as_ref().unwrap_or(&self.name)
     }
 
     pub fn add_column(&mut self, column: Column) -> &mut Self {
@@ -87,28 +105,15 @@ impl Table {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Column {
     pub name: String,
-    #[serde(skip)]
-    pub real_name: Option<String>,
     pub data_type: String,
     pub nullable: bool,
+
+    #[serde(skip)]
+    pub real_name: Option<String>,
 }
 
 impl Column {
     pub fn real_name(&self) -> &str {
         self.real_name.as_ref().unwrap_or(&self.name)
     }
-
-    //pub fn new(
-    //    name: impl Into<String>,
-    //    real_name: impl Into<String>,
-    //    datatype: impl Into<String>,
-    //    nullable: bool,
-    //) -> Column {
-    //    Column {
-    //        name: name.into(),
-    //        real_name: real_name.into(),
-    //        datatype: datatype.into(),
-    //        nullable,
-    //    }
-    //}
 }

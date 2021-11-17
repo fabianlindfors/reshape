@@ -15,6 +15,7 @@ Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It 
 	- [Basics](#basics)
 	- [Tables](#tables)
 		- [Create table](#create-table)
+		- [Rename table](#rename-table)
 		- [Remove table](#remove-table)
 	- [Columns](#columns)
 		- [Add column](#add-column)
@@ -201,6 +202,19 @@ primary_key = "id"
 	columns = ["user_id"]
 	referenced_table = "users"
 	referenced_columns = ["id"]
+```
+
+#### Rename table
+
+The `rename_table` action will change the name of an existing table.
+
+*Example: change name of `users` table to `customers`*
+
+```toml
+[[actions]]
+type = "rename_table"
+table = "users"
+new_name = "customers"
 ```
 
 #### Remove table

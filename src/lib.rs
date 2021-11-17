@@ -164,7 +164,7 @@ impl Reshape {
         }
 
         // Remove any temporary is new columns from tables
-        for table in temp_schema.tables.values_mut() {
+        for table in temp_schema.tables.iter_mut() {
             if table.has_is_new {
                 table.has_is_new = false;
 
@@ -198,7 +198,7 @@ impl Reshape {
             .run(&format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name))?;
 
         // Create views inside schema
-        for table in schema.tables.values() {
+        for table in &schema.tables {
             Self::create_view_for_table(&mut self.db, table, &schema_name, true)?;
         }
 
@@ -228,11 +228,12 @@ impl Reshape {
         }
 
         db.run(&format!(
-            "CREATE OR REPLACE VIEW {schema}.{table} AS
+            "CREATE OR REPLACE VIEW {schema}.{table_name} AS
                 SELECT {columns}
-                FROM {table}",
+                FROM {table_real_name}",
             schema = schema,
-            table = table.name,
+            table_name = table.name,
+            table_real_name = table.real_name(),
             columns = select_columns.join(","),
         ))?;
 
@@ -270,7 +271,7 @@ impl Reshape {
 
         // Remove all tables
         let schema = &self.state.current_schema;
-        for table in schema.tables.values() {
+        for table in &schema.tables {
             self.db
                 .run(&format!("DROP TABLE IF EXISTS {} CASCADE", table.name))?;
         }

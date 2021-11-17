@@ -3,14 +3,15 @@ use crate::{db::Conn, schema::Schema};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct RemoveTable {
+pub struct RenameTable {
     pub table: String,
+    pub new_name: String,
 }
 
-#[typetag::serde(name = "remove_table")]
-impl Action for RemoveTable {
+#[typetag::serde(name = "rename_table")]
+impl Action for RenameTable {
     fn describe(&self) -> String {
-        format!("Removing table \"{}\"", self.table)
+        format!("Renaming table \"{}\" to \"{}\"", self.table, self.new_name)
     }
 
     fn run(&self, _ctx: &Context, _db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
@@ -18,12 +19,14 @@ impl Action for RemoveTable {
     }
 
     fn complete(&self, _ctx: &Context, db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
-        // Remove table
+        // Rename table
         let query = format!(
             "
-            DROP TABLE {table};
+            ALTER TABLE {table}
+            RENAME TO {new_name}
             ",
             table = self.table,
+            new_name = self.new_name,
         );
         db.run(&query)?;
 
@@ -31,7 +34,9 @@ impl Action for RemoveTable {
     }
 
     fn update_schema(&self, _ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
-        schema.remove_table(&self.table)?;
+        let mut table = schema.find_table_mut(&self.table)?;
+        table.real_name = Some(self.table.to_string());
+        table.name = self.new_name.to_string();
         Ok(())
     }
 
