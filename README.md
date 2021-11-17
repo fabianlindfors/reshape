@@ -15,6 +15,7 @@ Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It 
 	- [Basics](#basics)
 	- [Tables](#tables)
 		- [Create table](#create-table)
+		- [Remove table](#remove-table)
 	- [Columns](#columns)
 		- [Add column](#add-column)
 		- [Alter column](#alter-column)
@@ -169,6 +170,49 @@ primary_key = "id"
 	columns = ["user_id"]
 	referenced_table = "users"
 	referenced_columns = ["id"]
+```
+
+*Example: create `users` and `items` tables with a foreign key between them*
+
+```toml
+[[actions]]
+type = "create_table"
+table = "users"
+primary_key = "id"
+
+	[[actions.columns]]
+	name = "id"
+	type = "SERIAL"
+
+[[actions]]
+type = "create_table"
+table = "items"
+primary_key = "id"
+
+	[[actions.columns]]
+	name = "id"
+	type = "SERIAL"
+
+	[[actions.columns]]
+	name = "user_id"
+	type = "INTEGER"
+
+	[[actions.foreign_keys]]
+	columns = ["user_id"]
+	referenced_table = "users"
+	referenced_columns = ["id"]
+```
+
+#### Remove table
+
+The `remove_table` action will remove an existing table.
+
+*Example: remove `users` table*
+
+```toml
+[[actions]]
+type = "remove_table"
+table = "users"
 ```
 
 ### Columns
