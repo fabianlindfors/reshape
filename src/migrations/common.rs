@@ -1,7 +1,7 @@
 use postgres::types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 
-use crate::{db::Conn, schema::Table};
+use crate::db::Conn;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Column {
@@ -83,7 +83,7 @@ impl ToSql for PostgresRawValue {
     postgres::types::to_sql_checked!();
 }
 
-pub fn batch_touch_rows(db: &mut dyn Conn, table: &Table, column: &str) -> anyhow::Result<()> {
+pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow::Result<()> {
     const BATCH_SIZE: u16 = 1000;
 
     let mut cursor: Option<PostgresRawValue> = None;
@@ -91,23 +91,22 @@ pub fn batch_touch_rows(db: &mut dyn Conn, table: &Table, column: &str) -> anyho
     loop {
         let mut params: Vec<&(dyn ToSql + Sync)> = Vec::new();
 
-        let primary_key_columns = table.primary_key.join(", ");
+        let primary_key = get_primary_key_columns_for_table(db, &table)?;
+        let primary_key_columns = primary_key.join(", ");
 
-        let primary_key_where = table
-            .primary_key
+        let primary_key_where = primary_key
             .iter()
             .map(|column| {
                 format!(
                     "{table}.{column} = rows.{column}",
-                    table = table.name,
+                    table = table,
                     column = column,
                 )
             })
             .collect::<Vec<String>>()
             .join(" AND ");
 
-        let returning_columns = table
-            .primary_key
+        let returning_columns = primary_key
             .iter()
             .map(|column| format!("rows.{}", column))
             .collect::<Vec<String>>()
@@ -143,7 +142,7 @@ pub fn batch_touch_rows(db: &mut dyn Conn, table: &Table, column: &str) -> anyho
                 FROM update
                 LIMIT 1
 			    ",
-            table = table.name,
+            table = table,
             primary_key_columns = primary_key_columns,
             cursor_where = cursor_where,
             batch_size = BATCH_SIZE,
@@ -164,4 +163,27 @@ pub fn batch_touch_rows(db: &mut dyn Conn, table: &Table, column: &str) -> anyho
     }
 
     Ok(())
+}
+
+fn get_primary_key_columns_for_table(
+    db: &mut dyn Conn,
+    table: &str,
+) -> anyhow::Result<Vec<String>> {
+    // Query from https://wiki.postgresql.org/wiki/Retrieve_primary_key_columns
+    let primary_key_columns: Vec<String> = db
+        .query(&format!(
+            "
+            SELECT a.attname AS column_name
+            FROM   pg_index i
+            JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+            WHERE  i.indrelid = '{table}'::regclass
+            AND    i.indisprimary;
+            ",
+            table = table
+        ))?
+        .iter()
+        .map(|row| row.get("column_name"))
+        .collect();
+
+    Ok(primary_key_columns)
 }

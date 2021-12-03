@@ -193,7 +193,7 @@ impl Action for AlterColumn {
         db.run(&query)?;
 
         // Backfill values in batches
-        common::batch_touch_rows(db, table, &column.name)?;
+        common::batch_touch_rows(db, &table.real_name(), &column.name)?;
 
         // Add a temporary NOT NULL constraint if the column shouldn't be nullable.
         // This constraint is set as NOT VALID so it doesn't apply to existing rows and

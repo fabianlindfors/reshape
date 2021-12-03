@@ -135,7 +135,7 @@ impl Action for AddColumn {
 
         // Backfill values in batches
         if self.up.is_some() {
-            common::batch_touch_rows(db, table, &self.column.name)?;
+            common::batch_touch_rows(db, &table.real_name(), &self.column.name)?;
         }
 
         Ok(())
