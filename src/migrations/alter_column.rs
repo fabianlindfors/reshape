@@ -25,28 +25,19 @@ impl AlterColumn {
         format!("{}_new_{}", ctx.prefix(), self.column)
     }
 
-    fn insert_trigger_name(&self, ctx: &Context) -> String {
+    fn up_trigger_name(&self, ctx: &Context) -> String {
         format!(
-            "{}_alter_column_insert_trigger_{}_{}",
+            "{}_alter_column_up_trigger_{}_{}",
             ctx.prefix(),
             self.table,
             self.column
         )
     }
 
-    fn update_old_trigger_name(&self, ctx: &Context) -> String {
+    fn down_trigger_name(&self, ctx: &Context) -> String {
         format!(
-            "{}_alter_column_update_old_trigger_{}_{}",
-            ctx.prefix(),
-            self.table,
-            self.column
-        )
-    }
-
-    fn update_new_trigger_name(&self, ctx: &Context) -> String {
-        format!(
-            "{}_alter_column_update_new_trigger_{}_{}",
-            ctx.prefix(),
+            "{}_alter_column_down_trigger_{}_{}",
+            ctx.prefix_inverse(),
             self.table,
             self.column
         )
@@ -75,9 +66,6 @@ impl Action for AlterColumn {
     }
 
     fn run(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
-        let table = schema.find_table(&self.table)?;
-        let column = table.find_column(&self.column)?;
-
         // If we are only changing the name of a column, we don't have to do anything at this stage
         // We'll set the new schema to point to the old column. When the migration is completed,
         // we rename the actual column.
@@ -91,7 +79,19 @@ impl Action for AlterColumn {
             _ => return Err(anyhow!("missing up or down values")),
         };
 
-        let temporary_column_type = self.changes.data_type.as_ref().unwrap_or(&column.data_type);
+        let table = schema.get_table(db, &self.table)?;
+
+        let column = table
+            .columns
+            .iter()
+            .find(|column| column.name == self.column)
+            .ok_or_else(|| anyhow!("no such column exists"))?;
+
+        let temporary_column_type = self
+            .changes
+            .data_type
+            .as_ref()
+            .unwrap_or_else(|| &column.data_type);
 
         // Add temporary, nullable column
         let query = format!(
@@ -105,18 +105,16 @@ impl Action for AlterColumn {
         );
         db.run(&query)?;
 
-        // Add temporary is new column
-        db.run(&common::add_is_new_column_query(&self.table))?;
-
         let declarations: Vec<String> = table
             .columns
             .iter()
-            .filter(|c| c.name != column.name)
+            .filter(|column| column.name != self.column)
             .map(|column| {
                 format!(
-                    "{name} public.{table}.{name}%TYPE := NEW.{name};",
-                    table = table.name,
-                    name = column.name,
+                    "{alias} public.{table}.{real_name}%TYPE := NEW.{real_name};",
+                    table = table.real_name,
+                    alias = column.name,
+                    real_name = column.real_name,
                 )
             })
             .collect();
@@ -124,20 +122,13 @@ impl Action for AlterColumn {
         // Add triggers to fill in values as they are inserted/updated
         let query = format!(
             "
-            CREATE OR REPLACE FUNCTION {insert_trigger}()
+            CREATE OR REPLACE FUNCTION {up_trigger}()
             RETURNS TRIGGER AS $$
             BEGIN
-                IF NEW.__reshape_is_new THEN
+                IF reshape.is_old_schema() THEN
                     DECLARE
                         {declarations}
-                        {existing_column} public.{table}.{temp_column}%TYPE := NEW.{temp_column};
-                    BEGIN
-                        NEW.{existing_column} = {down};
-                    END;
-                ELSIF NOT NEW.__reshape_is_new THEN
-                    DECLARE
-                        {declarations}
-                        {existing_column} public.{table}.{existing_column}%TYPE := NEW.{existing_column};
+                        {existing_column} public.{table}.{existing_column_real}%TYPE := NEW.{existing_column_real};
                     BEGIN
                         NEW.{temp_column} = {up};
                     END;
@@ -146,54 +137,41 @@ impl Action for AlterColumn {
             END
             $$ language 'plpgsql';
 
-            DROP TRIGGER IF EXISTS {insert_trigger} ON {table};
-            CREATE TRIGGER {insert_trigger} BEFORE INSERT ON {table} FOR EACH ROW EXECUTE PROCEDURE {insert_trigger}();
+            DROP TRIGGER IF EXISTS {up_trigger} ON {table};
+            CREATE TRIGGER {up_trigger} BEFORE INSERT OR UPDATE ON {table} FOR EACH ROW EXECUTE PROCEDURE {up_trigger}();
 
-
-            CREATE OR REPLACE FUNCTION {update_old_trigger}()
+            CREATE OR REPLACE FUNCTION {down_trigger}()
             RETURNS TRIGGER AS $$
-            DECLARE
-                {declarations}
-                {existing_column} public.{table}.{existing_column}%TYPE := NEW.{existing_column_real};
             BEGIN
-                NEW.{temp_column} = {up};
+                IF NOT reshape.is_old_schema() THEN
+                    DECLARE
+                        {declarations}
+                        {existing_column} public.{table}.{temp_column}%TYPE := NEW.{temp_column};
+                    BEGIN
+                        NEW.{existing_column_real} = {down};
+                    END;
+                END IF;
                 RETURN NEW;
             END
             $$ language 'plpgsql';
 
-            DROP TRIGGER IF EXISTS {update_old_trigger} ON {table};
-            CREATE TRIGGER {update_old_trigger} BEFORE UPDATE OF {existing_column} ON {table} FOR EACH ROW EXECUTE PROCEDURE {update_old_trigger}();
-
-
-            CREATE OR REPLACE FUNCTION {update_new_trigger}()
-            RETURNS TRIGGER AS $$
-            DECLARE
-                {declarations}
-                {existing_column} public.{table}.{temp_column}%TYPE := NEW.{temp_column};
-            BEGIN
-                NEW.{existing_column} = {up};
-                RETURN NEW;
-            END
-            $$ language 'plpgsql';
-
-            DROP TRIGGER IF EXISTS {update_new_trigger} ON {table};
-            CREATE TRIGGER {update_new_trigger} BEFORE UPDATE OF {temp_column} ON {table} FOR EACH ROW EXECUTE PROCEDURE {update_new_trigger}();
+            DROP TRIGGER IF EXISTS {down_trigger} ON {table};
+            CREATE TRIGGER {down_trigger} BEFORE INSERT OR UPDATE ON {table} FOR EACH ROW EXECUTE PROCEDURE {down_trigger}();
             ",
-            existing_column = column.name,
-            existing_column_real = column.real_name(),
+            existing_column = &self.column,
+            existing_column_real = column.real_name,
             temp_column = self.temporary_column_name(ctx),
             up = up,
             down = down,
             table = self.table,
-            insert_trigger = self.insert_trigger_name(ctx),
-            update_old_trigger = self.update_old_trigger_name(ctx),
-            update_new_trigger = self.update_new_trigger_name(ctx),
+            up_trigger = self.up_trigger_name(ctx),
+            down_trigger = self.down_trigger_name(ctx),
             declarations = declarations.join("\n"),
         );
         db.run(&query)?;
 
-        // Backfill values in batches
-        common::batch_touch_rows(db, &table.real_name(), &column.name)?;
+        // Backfill values in batches by touching the previous column
+        common::batch_touch_rows(db, &table.real_name, &column.real_name)?;
 
         // Add a temporary NOT NULL constraint if the column shouldn't be nullable.
         // This constraint is set as NOT VALID so it doesn't apply to existing rows and
@@ -233,18 +211,21 @@ impl Action for AlterColumn {
             return Ok(());
         }
 
-        let column = schema
-            .find_table(&self.table)
-            .and_then(|table| table.find_column(&self.column))?;
-        let column_name = self.changes.name.as_deref().unwrap_or(column.real_name());
+        let table = schema.get_table(db, &self.table)?;
+
+        let column = table
+            .columns
+            .iter()
+            .find(|column| column.name == self.column)
+            .ok_or_else(|| anyhow!("no such column exists"))?;
+        let column_name = self.changes.name.as_deref().unwrap_or(&column.real_name);
 
         // Remove old column
         let query = format!(
             "
             ALTER TABLE {} DROP COLUMN {} CASCADE
 			",
-            self.table,
-            column.real_name()
+            self.table, column.real_name
         );
         db.run(&query)?;
 
@@ -262,19 +243,15 @@ impl Action for AlterColumn {
         // Remove triggers and procedures
         let query = format!(
             "
-            DROP TRIGGER IF EXISTS {insert_trigger} ON {table};
-            DROP FUNCTION IF EXISTS {insert_trigger};
+            DROP TRIGGER IF EXISTS {up_trigger} ON {table};
+            DROP FUNCTION IF EXISTS {up_trigger};
 
-            DROP TRIGGER IF EXISTS {update_old_trigger} ON {table};
-            DROP FUNCTION IF EXISTS {update_old_trigger};
-
-            DROP TRIGGER IF EXISTS {update_new_trigger} ON {table};
-            DROP FUNCTION IF EXISTS {update_new_trigger};
+            DROP TRIGGER IF EXISTS {down_trigger} ON {table};
+            DROP FUNCTION IF EXISTS {down_trigger};
             ",
             table = self.table,
-            insert_trigger = self.insert_trigger_name(ctx),
-            update_old_trigger = self.update_old_trigger_name(ctx),
-            update_new_trigger = self.update_new_trigger_name(ctx),
+            up_trigger = self.up_trigger_name(ctx),
+            down_trigger = self.down_trigger_name(ctx),
         );
         db.run(&query)?;
 
@@ -322,28 +299,18 @@ impl Action for AlterColumn {
     }
 
     fn update_schema(&self, ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
-        let table = schema.find_table_mut(&self.table)?;
-        let column = table.find_column_mut(&self.column)?;
-
         // If we are only changing the name of a column, we haven't created a temporary column
-        // Instead we rename the schema column but point it to the old column
+        // Instead, we rename the schema column but point it to the old column
         if self.can_short_circuit() {
             if let Some(new_name) = &self.changes.name {
-                column.real_name = Some(column.real_name().to_string());
-                column.name = new_name.to_string();
+                schema.set_column_alias(&self.table, &self.column, new_name);
+                println!("Schema is now: {:?}", schema);
             }
 
             return Ok(());
         }
 
-        column.name = self
-            .changes
-            .name
-            .as_ref()
-            .map(|n| n.to_string())
-            .unwrap_or(self.column.to_string());
-        column.real_name = Some(self.temporary_column_name(ctx));
-        table.has_is_new = true;
+        schema.set_column_alias(&self.table, &self.temporary_column_name(ctx), &self.column);
 
         Ok(())
     }
@@ -352,19 +319,15 @@ impl Action for AlterColumn {
         // Remove triggers and procedures
         let query = format!(
             "
-            DROP TRIGGER IF EXISTS {insert_trigger} ON {table};
-            DROP FUNCTION IF EXISTS {insert_trigger};
+            DROP TRIGGER IF EXISTS {up_trigger} ON {table};
+            DROP FUNCTION IF EXISTS {up_trigger};
 
-            DROP TRIGGER IF EXISTS {update_old_trigger} ON {table};
-            DROP FUNCTION IF EXISTS {update_old_trigger};
-
-            DROP TRIGGER IF EXISTS {update_new_trigger} ON {table};
-            DROP FUNCTION IF EXISTS {update_new_trigger};
+            DROP TRIGGER IF EXISTS {down_trigger} ON {table};
+            DROP FUNCTION IF EXISTS {down_trigger};
             ",
             table = self.table,
-            insert_trigger = self.insert_trigger_name(ctx),
-            update_old_trigger = self.update_old_trigger_name(ctx),
-            update_new_trigger = self.update_new_trigger_name(ctx),
+            up_trigger = self.up_trigger_name(ctx),
+            down_trigger = self.down_trigger_name(ctx),
         );
         db.run(&query)?;
 
@@ -378,9 +341,6 @@ impl Action for AlterColumn {
             temp_column = self.temporary_column_name(ctx),
         );
         db.run(&query)?;
-
-        // Drop temporary "is new" column
-        db.run(&common::drop_is_new_column_query(&self.table))?;
 
         Ok(())
     }

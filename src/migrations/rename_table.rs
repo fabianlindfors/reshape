@@ -34,9 +34,8 @@ impl Action for RenameTable {
     }
 
     fn update_schema(&self, _ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
-        let mut table = schema.find_table_mut(&self.table)?;
-        table.real_name = Some(self.table.to_string());
-        table.name = self.new_name.to_string();
+        schema.set_table_alias(&self.table, &self.new_name);
+
         Ok(())
     }
 

@@ -1,10 +1,15 @@
-use crate::migrations::{Context, Migration};
+use crate::{
+    migrations::{Context, Migration},
+    schema::Schema,
+};
+
 use colored::*;
 use db::{Conn, DbConn};
 use postgres::Config;
 use schema::Table;
 
 mod db;
+mod helpers;
 pub mod migrations;
 mod schema;
 mod state;
@@ -49,12 +54,10 @@ impl Reshape {
     where
         T: IntoIterator<Item = Migration>,
     {
+        self.state = State::load(&mut self.db);
+
         // Make sure no migration is in progress
-        if let state::Status::InProgress {
-            migrations: _,
-            target_schema: _,
-        } = &self.state.status
-        {
+        if let state::Status::InProgress { migrations: _ } = &self.state.status {
             println!("Migration already in progress, please complete using 'reshape complete'");
             return Ok(());
         }
@@ -70,7 +73,9 @@ impl Reshape {
 
         let target_migration = remaining_migrations.last().unwrap().name.to_string();
 
-        let mut new_schema = self.state.current_schema.clone();
+        let mut new_schema = Schema::new();
+
+        helpers::setup_helpers(&mut self.db, current_migration)?;
 
         for (migration_index, migration) in remaining_migrations.iter().enumerate() {
             println!("Migrating '{}':", migration.name);
@@ -92,7 +97,7 @@ impl Reshape {
         self.create_schema_for_migration(&target_migration, &new_schema)?;
 
         // Update state once migrations have been performed
-        self.state.in_progress(remaining_migrations, new_schema);
+        self.state.in_progress(remaining_migrations);
         self.state.save(&mut self.db)?;
 
         // If we started from a blank slate, we can finish the migration immediately
@@ -122,19 +127,16 @@ impl Reshape {
     pub fn complete_migration(&mut self) -> anyhow::Result<()> {
         // Make sure a migration is in progress
         let remaining_migrations = match &self.state.status {
-            state::Status::InProgress {
-                migrations,
-                target_schema: _,
-            } => migrations,
+            state::Status::InProgress { migrations } => migrations,
             _ => {
                 println!("No migration in progress");
                 return Ok(());
             }
         };
 
-        let target_migration = remaining_migrations.last().unwrap().name.to_string();
+        helpers::teardown_helpers(&mut self.db)?;
 
-        let mut temp_schema = self.state.current_schema.clone();
+        let mut temp_schema = Schema::new();
 
         // Run all the completion changes as a transaction to avoid incomplete updates
         let mut transaction = self.db.transaction()?;
@@ -163,22 +165,6 @@ impl Reshape {
             println!("");
         }
 
-        // Remove any temporary is new columns from tables
-        for table in temp_schema.tables.iter_mut() {
-            if table.has_is_new {
-                table.has_is_new = false;
-
-                transaction.run(&format!(
-                    "ALTER TABLE {table} DROP COLUMN __reshape_is_new CASCADE",
-                    table = table.name,
-                ))?;
-
-                // The view will automatically be dropped by CASCADE so let's recreate it
-                let schema = schema_name_for_migration(&target_migration);
-                Self::create_view_for_table(&mut transaction, table, &schema, false)?;
-            }
-        }
-
         self.state.complete()?;
         self.state.save(&mut transaction)?;
 
@@ -190,7 +176,7 @@ impl Reshape {
     fn create_schema_for_migration(
         &mut self,
         migration_name: &str,
-        schema: &schema::Schema,
+        schema: &Schema,
     ) -> anyhow::Result<()> {
         // Create schema for migration
         let schema_name = schema_name_for_migration(migration_name);
@@ -198,8 +184,8 @@ impl Reshape {
             .run(&format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name))?;
 
         // Create views inside schema
-        for table in &schema.tables {
-            Self::create_view_for_table(&mut self.db, table, &schema_name, true)?;
+        for table in schema.get_tables(&mut self.db)? {
+            Self::create_view_for_table(&mut self.db, &table, &schema_name)?;
         }
 
         Ok(())
@@ -209,41 +195,22 @@ impl Reshape {
         db: &mut impl Conn,
         table: &Table,
         schema: &str,
-        use_alias: bool,
     ) -> anyhow::Result<()> {
-        let mut select_columns: Vec<String> = table
+        let select_columns: Vec<String> = table
             .columns
             .iter()
-            .map(|column| {
-                if use_alias {
-                    format!("{} AS {}", column.real_name(), column.name)
-                } else {
-                    column.name.to_string()
-                }
-            })
+            .map(|column| format!("{} AS {}", column.real_name, column.name))
             .collect();
 
-        if table.has_is_new {
-            select_columns.push("__reshape_is_new".to_string());
-        }
-
         db.run(&format!(
-            "CREATE OR REPLACE VIEW {schema}.{table_name} AS
+            "CREATE OR REPLACE VIEW {schema}.{view_name} AS
                 SELECT {columns}
-                FROM {table_real_name}",
+                FROM {table_name}",
             schema = schema,
-            table_name = table.name,
-            table_real_name = table.real_name(),
+            table_name = table.real_name,
+            view_name = table.name,
             columns = select_columns.join(","),
         ))?;
-
-        if table.has_is_new {
-            db.run(&format!(
-                "ALTER VIEW {schema}.{view} ALTER __reshape_is_new SET DEFAULT TRUE",
-                schema = schema,
-                view = table.name,
-            ))?;
-        }
 
         Ok(())
     }
@@ -257,11 +224,7 @@ impl Reshape {
             ))?;
         }
 
-        if let Status::InProgress {
-            migrations,
-            target_schema: _,
-        } = &self.state.status
-        {
+        if let Status::InProgress { migrations } = &self.state.status {
             let target_migration = migrations.last().unwrap().name.to_string();
             self.db.run(&format!(
                 "DROP SCHEMA IF EXISTS {} CASCADE",
@@ -270,10 +233,10 @@ impl Reshape {
         }
 
         // Remove all tables
-        let schema = &self.state.current_schema;
-        for table in &schema.tables {
+        let schema = Schema::new();
+        for table in schema.get_tables(&mut self.db)? {
             self.db
-                .run(&format!("DROP TABLE IF EXISTS {} CASCADE", table.name))?;
+                .run(&format!("DROP TABLE IF EXISTS {} CASCADE", table.real_name))?;
         }
 
         // Reset state
@@ -286,16 +249,15 @@ impl Reshape {
 
     pub fn abort(&mut self) -> anyhow::Result<()> {
         let remaining_migrations = match &self.state.status {
-            Status::InProgress {
-                migrations,
-                target_schema: _,
-            } => migrations,
+            Status::InProgress { migrations } => migrations,
             _ => {
                 println!("No migration is in progress");
                 return Ok(());
             }
         };
         let target_migration = remaining_migrations.last().unwrap().name.to_string();
+
+        helpers::teardown_helpers(&mut self.db)?;
 
         // Run all the abort changes as a transaction to avoid incomplete changes
         let mut transaction = self.db.transaction()?;

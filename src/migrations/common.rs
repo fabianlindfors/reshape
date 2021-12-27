@@ -20,26 +20,6 @@ fn nullable_default() -> bool {
     true
 }
 
-pub fn add_is_new_column_query(table: &str) -> String {
-    format!(
-        "
-        ALTER TABLE {table}
-        ADD COLUMN IF NOT EXISTS __reshape_is_new BOOLEAN DEFAULT FALSE NOT NULL;
-        ",
-        table = table,
-    )
-}
-
-pub fn drop_is_new_column_query(table: &str) -> String {
-    format!(
-        "
-        ALTER TABLE {table}
-        DROP COLUMN IF EXISTS __reshape_is_new;
-        ",
-        table = table,
-    )
-}
-
 #[derive(Debug)]
 struct PostgresRawValue {
     bytes: Vec<u8>,
@@ -86,6 +66,8 @@ impl ToSql for PostgresRawValue {
 pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow::Result<()> {
     const BATCH_SIZE: u16 = 1000;
 
+    db.query("SET reshape.is_old_schema = 'YES'")?;
+
     let mut cursor: Option<PostgresRawValue> = None;
 
     loop {
@@ -127,12 +109,12 @@ pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow:
             "
                 WITH rows AS (
                     SELECT {primary_key_columns}
-                    FROM {table}
+                    FROM public.{table}
                     {cursor_where}
                     ORDER BY {primary_key_columns}
                     LIMIT {batch_size}
                 ), update AS (
-                    UPDATE {table}
+                    UPDATE public.{table}
                     SET {column} = {column}
                     FROM rows
                     WHERE {primary_key_where}
@@ -161,6 +143,8 @@ pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow:
 
         cursor = last_value
     }
+
+    db.query("SET reshape.is_old_schema = ''")?;
 
     Ok(())
 }

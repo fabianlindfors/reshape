@@ -1,4 +1,3 @@
-use crate::schema::Schema;
 use crate::{db::Conn, migrations::Migration};
 use anyhow::anyhow;
 
@@ -9,7 +8,6 @@ use version::version;
 pub struct State {
     pub version: String,
     pub status: Status,
-    pub current_schema: Schema,
     pub current_migration: Option<String>,
     pub migrations: Vec<Migration>,
 }
@@ -21,10 +19,7 @@ pub enum Status {
     Idle,
 
     #[serde(rename = "in_progress")]
-    InProgress {
-        migrations: Vec<Migration>,
-        target_schema: Schema,
-    },
+    InProgress { migrations: Vec<Migration> },
 }
 
 impl State {
@@ -61,7 +56,6 @@ impl State {
         let default = Self::default();
         self.status = default.status;
         self.current_migration = default.current_migration;
-        self.current_schema = default.current_schema;
         self.migrations = default.migrations;
 
         Ok(())
@@ -106,24 +100,19 @@ impl State {
                 self.status = current_status;
                 return Err(anyhow!("status is not in progress"));
             }
-            Status::InProgress {
-                mut migrations,
-                target_schema,
-            } => {
+            Status::InProgress { mut migrations } => {
                 let target_migration = migrations.last().unwrap().name.to_string();
                 self.migrations.append(&mut migrations);
                 self.current_migration = Some(target_migration);
-                self.current_schema = target_schema;
             }
         }
 
         Ok(())
     }
 
-    pub fn in_progress(&mut self, new_migrations: Vec<Migration>, new_schema: Schema) {
+    pub fn in_progress(&mut self, new_migrations: Vec<Migration>) {
         self.status = Status::InProgress {
             migrations: new_migrations,
-            target_schema: new_schema,
         };
     }
 
@@ -146,7 +135,6 @@ impl State {
         }
 
         let items: Vec<Migration> = new_iter.collect();
-        println!("Remaining migrations count: {:?}", items);
 
         // Return the remaining migrations
         Ok(items)
@@ -166,7 +154,6 @@ impl Default for State {
             version: version!().to_string(),
             status: Status::Idle,
             current_migration: None,
-            current_schema: Schema::new(),
             migrations: vec![],
         }
     }

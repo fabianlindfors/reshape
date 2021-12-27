@@ -32,16 +32,17 @@ impl Action for RemoveColumn {
     fn run(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
         // Add down trigger
         if let Some(down) = &self.down {
-            let table = schema.find_table(&self.table)?;
+            let table = schema.get_table(db, &self.table)?;
 
             let declarations: Vec<String> = table
                 .columns
                 .iter()
                 .map(|column| {
                     format!(
-                        "{name} public.{table}.{name}%TYPE := NEW.{name};",
-                        table = table.name,
-                        name = column.name,
+                        "{alias} public.{table}.{real_name}%TYPE := NEW.{real_name};",
+                        table = table.real_name,
+                        alias = column.name,
+                        real_name = column.real_name,
                     )
                 })
                 .collect();
@@ -97,8 +98,7 @@ impl Action for RemoveColumn {
     }
 
     fn update_schema(&self, _ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
-        let table = schema.find_table_mut(&self.table)?;
-        table.remove_column(&self.column);
+        schema.set_column_hidden(&self.table, &self.column);
 
         Ok(())
     }

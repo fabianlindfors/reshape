@@ -1,8 +1,5 @@
 use super::{common, Action, Column, Context};
-use crate::{
-    db::Conn,
-    schema::{self, Schema},
-};
+use crate::{db::Conn, schema::Schema};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -42,7 +39,7 @@ impl Action for AddColumn {
     }
 
     fn run(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
-        let table = schema.find_table(&self.table)?;
+        let table = schema.get_table(db, &self.table)?;
 
         let mut definition_parts = vec![
             self.column.name.to_string(),
@@ -65,23 +62,17 @@ impl Action for AddColumn {
         db.run(&query)?;
 
         if let Some(up) = &self.up {
-            let query = format!(
-                "
-                ALTER TABLE {table}
-                ADD COLUMN IF NOT EXISTS __reshape_is_new BOOLEAN DEFAULT FALSE NOT NULL;
-			    ",
-                table = self.table,
-            );
-            db.run(&query)?;
+            let table = schema.get_table(db, &self.table)?;
 
             let declarations: Vec<String> = table
                 .columns
                 .iter()
                 .map(|column| {
                     format!(
-                        "{name} public.{table}.{name}%TYPE := NEW.{name};",
-                        table = table.name,
-                        name = column.name,
+                        "{alias} public.{table}.{real_name}%TYPE := NEW.{real_name};",
+                        table = table.real_name,
+                        alias = column.name,
+                        real_name = column.real_name,
                     )
                 })
                 .collect();
@@ -92,7 +83,7 @@ impl Action for AddColumn {
                 CREATE OR REPLACE FUNCTION {trigger_name}()
                 RETURNS TRIGGER AS $$
                 BEGIN
-                    IF NOT NEW.__reshape_is_new THEN
+                    IF reshape.is_old_schema() THEN
                         DECLARE
                             {declarations}
                         BEGIN
@@ -115,6 +106,11 @@ impl Action for AddColumn {
             db.run(&query)?;
         }
 
+        // Backfill values in batches
+        if self.up.is_some() {
+            common::batch_touch_rows(db, &table.real_name, &self.column.name)?;
+        }
+
         // Add a temporary NOT NULL constraint if the column shouldn't be nullable.
         // This constraint is set as NOT VALID so it doesn't apply to existing rows and
         // the existing rows don't need to be scanned under an exclusive lock.
@@ -131,11 +127,6 @@ impl Action for AddColumn {
                 column = self.column.name,
             );
             db.run(&query)?;
-        }
-
-        // Backfill values in batches
-        if self.up.is_some() {
-            common::batch_touch_rows(db, &table.real_name(), &self.column.name)?;
         }
 
         Ok(())
@@ -196,20 +187,7 @@ impl Action for AddColumn {
         Ok(())
     }
 
-    fn update_schema(&self, _ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
-        let table = schema.find_table_mut(&self.table)?;
-
-        if self.up.is_some() {
-            table.has_is_new = true;
-        }
-
-        table.add_column(schema::Column {
-            name: self.column.name.to_string(),
-            real_name: None,
-            data_type: self.column.data_type.to_string(),
-            nullable: self.column.nullable,
-        });
-
+    fn update_schema(&self, _ctx: &Context, _schema: &mut Schema) -> anyhow::Result<()> {
         Ok(())
     }
 

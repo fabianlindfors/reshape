@@ -1,8 +1,5 @@
 use super::{Action, Column, Context};
-use crate::{
-    db::Conn,
-    schema::{Schema, Table},
-};
+use crate::{db::Conn, schema::Schema};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -73,20 +70,7 @@ impl Action for CreateTable {
         Ok(())
     }
 
-    fn update_schema(&self, _ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
-        let mut table = Table::new(self.name.to_string());
-        table.primary_key = self.primary_key.clone();
-
-        for column in &self.columns {
-            table.add_column(crate::schema::Column {
-                name: column.name.to_string(),
-                real_name: None,
-                data_type: column.data_type.to_string(),
-                nullable: column.nullable,
-            });
-        }
-        schema.add_table(table);
-
+    fn update_schema(&self, _ctx: &Context, _schema: &mut Schema) -> anyhow::Result<()> {
         Ok(())
     }
 

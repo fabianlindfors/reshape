@@ -1,8 +1,5 @@
 use super::{Action, Context};
-use crate::{
-    db::Conn,
-    schema::{Column, Schema},
-};
+use crate::{db::Conn, schema::Schema};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -19,14 +16,13 @@ impl Action for AddIndex {
     }
 
     fn run(&self, _ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
-        let table = schema.find_table(&self.table)?;
-        let column_real_names: Vec<&str> = self
+        let table = schema.get_table(db, &self.table)?;
+
+        let column_real_names: Vec<String> = table
             .columns
             .iter()
-            .map(|col| table.find_column(col))
-            .collect::<anyhow::Result<Vec<&Column>>>()?
-            .iter()
-            .map(|col| col.real_name())
+            .filter(|column| self.columns.contains(&column.name))
+            .map(|column| column.real_name.to_string())
             .collect();
 
         db.run(&format!(

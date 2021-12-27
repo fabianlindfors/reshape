@@ -78,7 +78,18 @@ impl Context {
     }
 
     fn prefix(&self) -> String {
-        format!("reshape_{}_{}", self.migration_index, self.action_index)
+        format!(
+            "__reshape_{:0>4}_{:0>4}",
+            self.migration_index, self.action_index
+        )
+    }
+
+    fn prefix_inverse(&self) -> String {
+        format!(
+            "__reshape_{:0>4}_{:0>4}",
+            1000 - self.migration_index,
+            1000 - self.action_index
+        )
     }
 }
 
