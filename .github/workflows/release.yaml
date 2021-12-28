@@ -37,7 +37,7 @@ jobs:
       env:
         DOCKER_PASSWORD: ${{ secrets.DOCKER_ACCESS_TOKEN }}
       run: |
-        echo $DOCKER_PASSWORD | docker login -u ${{ secret.DOCKER_USER }} --password-stdin
+        echo $DOCKER_PASSWORD | docker login -u ${{ secrets.DOCKER_USER }} --password-stdin
     - name: Build Docker image
       run: docker build . --tag ${{ secrets.DOCKER_USER }}/reshape:$GITHUB_REF
     - name: Push Docker image
