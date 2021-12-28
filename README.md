@@ -44,10 +44,7 @@ Binaries are available for macOS and Linux under [Releases](https://github.com/f
 Reshape is available as a Docker image on [Docker Hub](https://hub.docker.com/repository/docker/fabianlindfors/reshape). 
 
 ```shell
-docker run \
-	-v $(pwd):/usr/share/app \ # 
-	fabianlindfors/reshape \
-	reshape migrate
+docker run -v $(pwd):/usr/share/app fabianlindfors/reshape reshape migrate
 ```
 
 ### Creating your first migration
