@@ -8,7 +8,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  build-linux-amd64:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
@@ -27,3 +27,18 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         args: reshape-linux_amd64
+
+  publish-docker:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Log in to Docker
+      env:
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+      run: |
+        echo $DOCKER_PASSWORD | docker login -u ${{ secret.DOCKER_USER }} --password-stdin
+    - name: Build Docker image
+      run: docker build . --tag ${{ secrets.DOCKER_USER }}/reshape:$GITHUB_REF
+    - name: Push Docker image
+      run: docker push ${{ secrets.DOCKER_USER }}/reshape
