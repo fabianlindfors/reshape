@@ -14,15 +14,17 @@ fn add_index() {
             columns: vec![
                 Column {
                     name: "id".to_string(),
-                    data_type: "SERIAL".to_string(),
-                    nullable: true, // Will be ignored by Postgres as the column is a SERIAL
+                    data_type: "INTEGER".to_string(),
+                    nullable: true,
                     default: None,
+                    generated: None,
                 },
                 Column {
                     name: "name".to_string(),
                     data_type: "TEXT".to_string(),
                     nullable: false,
                     default: None,
+                    generated: None,
                 },
             ],
         });

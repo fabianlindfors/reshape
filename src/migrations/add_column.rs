@@ -45,9 +45,15 @@ impl Action for AddColumn {
             self.column.name.to_string(),
             self.column.data_type.to_string(),
         ];
+
         if let Some(default) = &self.column.default {
             definition_parts.push("DEFAULT".to_string());
             definition_parts.push(default.to_string());
+        }
+
+        if let Some(generated) = &self.column.generated {
+            definition_parts.push("GENERATED".to_string());
+            definition_parts.push(generated.to_string());
         }
 
         // Add column as NOT NULL

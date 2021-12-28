@@ -17,21 +17,24 @@ fn create_table() {
             columns: vec![
                 Column {
                     name: "id".to_string(),
-                    data_type: "SERIAL".to_string(),
-                    nullable: true, // Will be ignored by Postgres as the column is a SERIAL
+                    data_type: "INTEGER".to_string(),
+                    nullable: true,
                     default: None,
+                    generated: Some("ALWAYS AS IDENTITY".to_string()),
                 },
                 Column {
                     name: "name".to_string(),
                     data_type: "TEXT".to_string(),
                     nullable: true,
                     default: None,
+                    generated: None,
                 },
                 Column {
                     name: "created_at".to_string(),
                     data_type: "TIMESTAMP".to_string(),
                     nullable: false,
                     default: Some("NOW()".to_string()),
+                    generated: None,
                 },
             ],
         });
@@ -72,7 +75,7 @@ fn create_table() {
     // id column
     let id_row = &result[0];
     assert_eq!("id", id_row.get::<_, String>("column_name"));
-    assert!(id_row.get::<_, Option<String>>("column_default").is_some());
+    assert!(id_row.get::<_, Option<String>>("column_default").is_none());
     assert_eq!("NO", id_row.get::<_, String>("is_nullable"));
     assert_eq!("integer", id_row.get::<_, String>("data_type"));
 
@@ -133,6 +136,7 @@ fn create_table_with_foreign_keys() {
                 data_type: "SERIAL".to_string(),
                 nullable: true, // Will be ignored by Postgres as the column is a SERIAL
                 default: None,
+                generated: None,
             }],
         });
 
@@ -151,12 +155,14 @@ fn create_table_with_foreign_keys() {
                     data_type: "SERIAL".to_string(),
                     nullable: true,
                     default: None,
+                    generated: None,
                 },
                 Column {
                     name: "user_id".to_string(),
                     data_type: "INTEGER".to_string(),
                     nullable: false,
                     default: None,
+                    generated: None,
                 },
             ],
         });

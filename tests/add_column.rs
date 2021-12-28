@@ -17,12 +17,14 @@ fn add_column() {
                 data_type: "SERIAL".to_string(),
                 nullable: true,
                 default: None,
+                generated: None,
             },
             Column {
                 name: "name".to_string(),
                 data_type: "TEXT".to_string(),
                 nullable: false,
                 default: None,
+                generated: None,
             },
         ],
     });
@@ -34,6 +36,7 @@ fn add_column() {
                 data_type: "TEXT".to_string(),
                 nullable: false,
                 default: None,
+                generated: None,
             },
             up: Some("(STRING_TO_ARRAY(name, ' '))[1]".to_string()),
         })
@@ -44,6 +47,7 @@ fn add_column() {
                 data_type: "TEXT".to_string(),
                 nullable: false,
                 default: None,
+                generated: None,
             },
             up: Some("(STRING_TO_ARRAY(name, ' '))[2]".to_string()),
         });
@@ -128,9 +132,10 @@ fn add_column_nullable() {
         foreign_keys: vec![],
         columns: vec![Column {
             name: "id".to_string(),
-            data_type: "SERIAL".to_string(),
+            data_type: "INTEGER".to_string(),
             nullable: true,
             default: None,
+            generated: None,
         }],
     });
     let add_name_column = Migration::new("add_nullable_name_column", None).with_action(AddColumn {
@@ -140,6 +145,7 @@ fn add_column_nullable() {
             data_type: "TEXT".to_string(),
             nullable: true,
             default: None,
+            generated: None,
         },
         up: None,
     });
@@ -223,9 +229,10 @@ fn add_column_with_default() {
         foreign_keys: vec![],
         columns: vec![Column {
             name: "id".to_string(),
-            data_type: "SERIAL".to_string(),
+            data_type: "INTEGER".to_string(),
             nullable: true,
             default: None,
+            generated: None,
         }],
     });
     let add_name_column =
@@ -236,6 +243,7 @@ fn add_column_with_default() {
                 data_type: "TEXT".to_string(),
                 nullable: false,
                 default: Some("'DEFAULT'".to_string()),
+                generated: None,
             },
             up: None,
         });

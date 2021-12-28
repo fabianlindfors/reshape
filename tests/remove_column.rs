@@ -14,15 +14,17 @@ fn remove_column() {
             columns: vec![
                 Column {
                     name: "id".to_string(),
-                    data_type: "SERIAL".to_string(),
-                    nullable: true, // Will be ignored by Postgres as the column is a SERIAL
+                    data_type: "INTEGER".to_string(),
+                    nullable: true,
                     default: None,
+                    generated: None,
                 },
                 Column {
                     name: "name".to_string(),
                     data_type: "TEXT".to_string(),
                     nullable: false,
                     default: None,
+                    generated: None,
                 },
             ],
         });
@@ -53,7 +55,7 @@ fn remove_column() {
 
     // Insert using old schema and ensure it can be retrieved through new schema
     old_db
-        .simple_query("INSERT INTO users(name) VALUES ('John Doe')")
+        .simple_query("INSERT INTO users(id, name) VALUES (1, 'John Doe')")
         .unwrap();
     let results = new_db
         .query("SELECT id FROM users WHERE id = 1", &[])
@@ -66,7 +68,7 @@ fn remove_column() {
 
     // Insert using new schema and ensure the down function is correctly applied
     new_db
-        .simple_query("INSERT INTO users DEFAULT VALUES")
+        .simple_query("INSERT INTO users(id) VALUES (2)")
         .unwrap();
     let result = old_db
         .query_opt("SELECT name FROM users WHERE id = 2", &[])

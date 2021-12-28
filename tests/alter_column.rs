@@ -14,15 +14,17 @@ fn alter_column_data() {
         columns: vec![
             Column {
                 name: "id".to_string(),
-                data_type: "SERIAL".to_string(),
+                data_type: "INTEGER".to_string(),
                 nullable: true,
                 default: None,
+                generated: None,
             },
             Column {
                 name: "name".to_string(),
                 data_type: "TEXT".to_string(),
                 nullable: false,
                 default: None,
+                generated: None,
             },
         ],
     });
@@ -116,15 +118,17 @@ fn alter_column_set_not_null() {
         columns: vec![
             Column {
                 name: "id".to_string(),
-                data_type: "SERIAL".to_string(),
+                data_type: "INTEGER".to_string(),
                 nullable: true,
                 default: None,
+                generated: None,
             },
             Column {
                 name: "name".to_string(),
                 data_type: "TEXT".to_string(),
                 nullable: true,
                 default: None,
+                generated: None,
             },
         ],
     });
@@ -218,15 +222,17 @@ fn alter_column_rename() {
         columns: vec![
             Column {
                 name: "id".to_string(),
-                data_type: "SERIAL".to_string(),
+                data_type: "INTEGER".to_string(),
                 nullable: true,
                 default: None,
+                generated: None,
             },
             Column {
                 name: "name".to_string(),
                 data_type: "TEXT".to_string(),
                 nullable: true,
                 default: None,
+                generated: None,
             },
         ],
     });
@@ -303,15 +309,17 @@ fn alter_column_multiple() {
         columns: vec![
             Column {
                 name: "id".to_string(),
-                data_type: "SERIAL".to_string(),
+                data_type: "INTEGER".to_string(),
                 nullable: true,
                 default: None,
+                generated: None,
             },
             Column {
                 name: "counter".to_string(),
                 data_type: "INTEGER".to_string(),
                 nullable: false,
                 default: None,
+                generated: None,
             },
         ],
     });

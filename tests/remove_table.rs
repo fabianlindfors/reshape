@@ -16,6 +16,7 @@ fn remove_table() {
                 data_type: "INTEGER".to_string(),
                 nullable: false,
                 default: None,
+                generated: None,
             }],
         });
     let remove_table_migration =

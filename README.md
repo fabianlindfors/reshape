@@ -63,14 +63,15 @@ table = "users"
 
 	[[actions.columns]]
 	name = "id"
-	type = "SERIAL"
+	type = "INTEGER"
+	generated = "ALWAYS AS IDENTITY"
 
 	[[actions.columns]]
 	name = "name"
 	type = "TEXT"
 ```
 
-This is the equivalent of running `CREATE TABLE users (id SERIAL, name TEXT)`.
+This is the equivalent of running `CREATE TABLE users (id INTEGER GENERATED ALWAYS AS IDENTITY, name TEXT)`.
 
 ### Preparing your application
 
@@ -109,7 +110,8 @@ table = "customers"
 
 	[[actions.columns]]
 	name = "id"
-	type = "SERIAL"
+	type = "INTEGER"
+	generated = "ALWAYS AS IDENTITY"
 
 [[actions]]
 type = "create_table"
@@ -138,11 +140,12 @@ primary_key = "id"
 
 	[[actions.columns]]
 	name = "id"
-	type = "SERIAL"
+	type = "INTEGER"
+	generated = "ALWAYS AS IDENTITY"
 
 	[[actions.columns]]
 	name = "name"
-	type = "SERIAL"
+	type = "TEXT"
 
 	# Columns default to nullable
 	nullable = false 
@@ -161,7 +164,8 @@ primary_key = "id"
 
 	[[actions.columns]]
 	name = "id"
-	type = "SERIAL"
+	type = "INTEGER"
+	generated = "ALWAYS AS IDENTITY"
 
 [[actions]]
 type = "create_table"
@@ -170,7 +174,8 @@ primary_key = "id"
 
 	[[actions.columns]]
 	name = "id"
-	type = "SERIAL"
+	type = "INTEGER"
+	generated = "ALWAYS AS IDENTITY"
 
 	[[actions.columns]]
 	name = "user_id"
@@ -343,7 +348,8 @@ primary_key = "id"
 
 	[[actions.columns]]
 	name = "id"
-	type = "SERIAL"
+	type = "INTEGER"
+	generated = "ALWAYS AS IDENTITY"
 
 	[[actions.columns]]
 	name = "name"

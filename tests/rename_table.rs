@@ -16,6 +16,7 @@ fn rename_table() {
                 data_type: "INTEGER".to_string(),
                 nullable: false,
                 default: None,
+                generated: None,
             }],
         });
     let rename_table_migration = Migration::new("rename_users_table_to_customers", None)

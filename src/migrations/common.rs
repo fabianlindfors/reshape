@@ -14,6 +14,8 @@ pub struct Column {
     pub nullable: bool,
 
     pub default: Option<String>,
+
+    pub generated: Option<String>,
 }
 
 fn nullable_default() -> bool {

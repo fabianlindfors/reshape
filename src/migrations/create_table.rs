@@ -39,6 +39,11 @@ impl Action for CreateTable {
                     parts.push("NOT NULL".to_string());
                 }
 
+                if let Some(generated) = &column.generated {
+                    parts.push("GENERATED".to_string());
+                    parts.push(generated.to_string());
+                }
+
                 parts.join(" ")
             })
             .collect();
