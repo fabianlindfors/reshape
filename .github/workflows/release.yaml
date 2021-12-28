@@ -8,8 +8,15 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-linux-amd64:
+  build-binary:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+        - name: linux_amd64
+          target: x86_64-unknown-linux-gnu
+        - name: macos_amd64
+          target: x86_64-apple-darwin
     steps:
     - name: Checkout
       uses: actions/checkout@v2
@@ -17,6 +24,7 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
+          target: ${{ matrix.target }}
     - name: Use cache for Rust dependencies
       uses: Swatinem/rust-cache@v1
     - name: Build
@@ -24,14 +32,15 @@ jobs:
       with:
         command: build
         args: --release
+        use-cross: true
     - name: Rename binary
-      run: mv target/release/reshape ./reshape-linux_amd64
+      run: mv target/release/reshape ./reshape-${{ matrix.name }}
     - name: Save binary to release
       uses: skx/github-action-publish-binaries@master
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        args: reshape-linux_amd64
+        args: reshape-${{ matrix.name }}
 
   publish-docker:
     runs-on: ubuntu-latest
