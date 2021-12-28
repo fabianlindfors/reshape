@@ -20,7 +20,12 @@ jobs:
     - name: Use cache for Rust dependencies
       uses: Swatinem/rust-cache@v1
     - name: Build
-      run: cargo build --release && mv target/release/reshape ./reshape-linux_amd64
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release
+    - name: Rename binary
+      run: mv target/release/reshape ./reshape-linux_amd64
     - name: Save binary to release
       uses: skx/github-action-publish-binaries@master
       env:
