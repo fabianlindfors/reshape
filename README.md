@@ -94,6 +94,8 @@ reshape migrate
 
 As this is the first migration, Reshape will automatically complete it. For subsequent migrations, you will need to first run `reshape migrate`, roll out your application and then complete the migration using `reshape complete`.
 
+If nothing else is specified, Reshape will try to connect to a Postgres database running on `localhost` using `postgres` as both username and password. See [Connection options](#connection-options) for details on how to change the connection settings.
+
 ## Writing migrations
 
 ### Basics
@@ -147,37 +149,6 @@ primary_key = "id"
 
 	# default can be any valid SQL value, in this case a string literal
 	default = "'PLACEHOLDER'" 
-```
-
-*Example: create `users` and `items` tables with a foreign key between them*
-
-```toml
-[[actions]]
-type = "create_table"
-table = "users"
-primary_key = "id"
-
-	[[actions.columns]]
-	name = "id"
-	type = "SERIAL"
-
-[[actions]]
-type = "create_table"
-table = "items"
-primary_key = "id"
-
-	[[actions.columns]]
-	name = "id"
-	type = "SERIAL"
-
-	[[actions.columns]]
-	name = "user_id"
-	type = "INTEGER"
-
-	[[actions.foreign_keys]]
-	columns = ["user_id"]
-	referenced_table = "users"
-	referenced_columns = ["id"]
 ```
 
 *Example: create `users` and `items` tables with a foreign key between them*
@@ -297,7 +268,7 @@ down = "first_name || ' ' || last_name"
 
 The `alter_column` action enables many different changes to an existing column, for example renaming, changing type and changing existing values.
 
-When performing more complex changes than a rename, `up` and `down` must be provided. These should be set to SQL expressions which determine how to transform between the new and old version of the column. Inside those expressions, you can reference the current column value by the column name.
+When performing more complex changes than a rename, `up` and `down` must be provided. These should be SQL expressions which determine how to transform between the new and old version of the column. Inside those expressions, you can reference the current column value by the column name.
 
 *Example: rename `last_name` column on `users` table to `family_name`*
 
@@ -326,7 +297,7 @@ down = "CAST(reference AS INTEGER)" # Converts from text value to integer
 	type = "TEXT" # Previous type was 'INTEGER'
 ```
 
-*Example: increment all values of a `index` column by one*
+*Example: increment all values of an `index` column by one*
 
 ```toml
 [[actions]]
@@ -338,7 +309,6 @@ down = "index - 1" # Decrement to revert for old schema
 
 	[actions.changes]
 	name = "index"
-
 ```
 
 #### Remove column
