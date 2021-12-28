@@ -41,6 +41,6 @@ jobs:
     - name: Build Docker image
       # GITHUB_REF is formatted as: refs/tags/v0.0.1
       # The shell expansion used below will remove everything up to the version number, leaving 0.0.1
-      run: docker build . --tag ${{ secrets.DOCKER_USER }}/reshape:${GITHUB_REF##*/v}
+      run: docker build . --tag ${{ secrets.DOCKER_USER }}/reshape:${GITHUB_REF##*/v} --tag ${{ secrets.DOCKER_USER }}/reshape:latest
     - name: Push Docker image
-      run: docker push ${{ secrets.DOCKER_USER }}/reshape
+      run: docker push --all-tags ${{ secrets.DOCKER_USER }}/reshape
