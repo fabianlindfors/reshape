@@ -35,13 +35,20 @@ Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It 
 
 ### Installation
 
-On macOS:
+#### Binaries
 
-```brew install reshape```
+Binaries are available for macOS and Linux under [Releases](https://github.com/fabianlindfors/reshape/releases).
 
-On Debian:
+#### Docker
 
-```apt-get install reshape```
+Reshape is available as a Docker image on [Docker Hub](https://hub.docker.com/repository/docker/fabianlindfors/reshape). 
+
+```shell
+docker run \
+	-v $(pwd):/usr/share/app \ # 
+	fabianlindfors/reshape \
+	reshape migrate
+```
 
 ### Creating your first migration
 
@@ -69,7 +76,7 @@ This is the equivalent of running `CREATE TABLE users (id SERIAL, name TEXT)`.
 
 Reshape relies on your application using a specific schema. When establishing the connection to Postgres in your application, you need to run a query to select the most recent schema. This query can be generated using: `reshape generate-schema-query`.
 
-To pass it along to your application, you could use an environment variable in your build script: `RESHAPE_SCHEMA_QUERY=$(reshape generate-schema-query)`. Then in your application:
+To pass it along to your application, you can for example use an environment variable in your run script: `RESHAPE_SCHEMA_QUERY=$(reshape generate-schema-query)`. Then in your application:
 
 ```python
 # Example for Python
