@@ -17,9 +17,24 @@ jobs:
           target: x86_64-unknown-linux-gnu
           host: ubuntu-latest
           use-cross: true
+        - name: Linux 32-bit
+          file-name: linux_386
+          target: i686-unknown-linux-gnu
+          host: ubuntu-latest
+          use-cross: true
+        - name: Linux ARM 64-bit
+          file-name: linux_aarch64
+          target: aarch64-unknown-linux-gnu
+          host: ubuntu-latest
+          use-cross: true
         - name: macOS
           file-name: darwin_amd64
           target: x86_64-apple-darwin
+          host: macos-11
+          use-cross: false
+        - name: macOS Apple Silicon
+          file-name: darwin_aarch64
+          target: aarch64-apple-darwin
           host: macos-11
           use-cross: false
 
