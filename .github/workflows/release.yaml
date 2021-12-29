@@ -9,16 +9,22 @@ env:
 
 jobs:
   build-binary:
-    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
         - name: Linux 64-bit
-          file_name: linux_amd64
+          file-name: linux_amd64
           target: x86_64-unknown-linux-gnu
+          host: ubuntu-latest
+          use-cross: true
         - name: macOS
-          file_name: darwin_amd64
+          file-name: darwin_amd64
           target: x86_64-apple-darwin
+          host: macos-11
+          use-cross: false
+
+    runs-on: ${{ matrix.host }}
+
     steps:
     - name: Checkout
       uses: actions/checkout@v2
@@ -34,13 +40,13 @@ jobs:
       with:
         command: build
         args: --release
-        use-cross: true
+        use-cross: ${{ matrix.use-cross }}
     - name: Rename binary
-      run: mv target/release/reshape ./reshape-${{ matrix.file_name }}
+      run: mv target/release/reshape ./reshape-${{ matrix.file-name }}
     - name: Upload binary to release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: gh release upload ${GITHUB_REF##*/} "reshape-${{ matrix.file_name }}#${{ matrix.name }}" --clobber
+      run: gh release upload ${GITHUB_REF##*/} "reshape-${{ matrix.file-name }}#${{ matrix.name }}" --clobber
 
   publish-docker:
     runs-on: ubuntu-latest
