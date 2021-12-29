@@ -393,4 +393,30 @@ fn alter_column_multiple() {
         .map(|row| row.get::<_, i32>("counter"))
         .collect();
     assert_eq!(expected, results);
+
+    // Update data using old schema and make sure it was updated for the new schema
+    old_db
+        .query("UPDATE users SET counter = 50 WHERE id = 1", &[])
+        .unwrap();
+    let result: i32 = new_db
+        .query("SELECT counter FROM users WHERE id = 1", &[])
+        .unwrap()
+        .iter()
+        .map(|row| row.get("counter"))
+        .nth(0)
+        .unwrap();
+    assert_eq!(52, result);
+
+    // Update data using new schema and make sure it was updated for the old schema
+    new_db
+        .query("UPDATE users SET counter = 50 WHERE id = 1", &[])
+        .unwrap();
+    let result: i32 = old_db
+        .query("SELECT counter FROM users WHERE id = 1", &[])
+        .unwrap()
+        .iter()
+        .map(|row| row.get("counter"))
+        .nth(0)
+        .unwrap();
+    assert_eq!(48, result);
 }
