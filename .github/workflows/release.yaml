@@ -13,9 +13,11 @@ jobs:
     strategy:
       matrix:
         include:
-        - name: linux_amd64
+        - name: Linux 64-bit
+          file_name: linux_amd64
           target: x86_64-unknown-linux-gnu
-        - name: macos_amd64
+        - name: macOS
+          file_name: darwin_amd64
           target: x86_64-apple-darwin
     steps:
     - name: Checkout
@@ -34,13 +36,11 @@ jobs:
         args: --release
         use-cross: true
     - name: Rename binary
-      run: mv target/release/reshape ./reshape-${{ matrix.name }}
-    - name: Save binary to release
-      uses: skx/github-action-publish-binaries@master
+      run: mv target/release/reshape ./reshape-${{ matrix.file_name }}
+    - name: Upload binary to release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        args: reshape-${{ matrix.name }}
+      run: gh release upload ${GITHUB_REF##*/} "reshape-${{ matrix.file_name }}#${{ matrix.name }}" --clobber
 
   publish-docker:
     runs-on: ubuntu-latest
