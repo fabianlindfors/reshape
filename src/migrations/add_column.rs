@@ -10,6 +10,15 @@ pub struct AddColumn {
 }
 
 impl AddColumn {
+    fn temp_column_name(&self, ctx: &Context) -> String {
+        format!(
+            "{}_temp_column_{}_{}",
+            ctx.prefix(),
+            self.table,
+            self.column.name,
+        )
+    }
+
     fn trigger_name(&self, ctx: &Context) -> String {
         format!(
             "{}_add_column_{}_{}",
@@ -40,9 +49,10 @@ impl Action for AddColumn {
 
     fn run(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
         let table = schema.get_table(db, &self.table)?;
+        let temp_column_name = self.temp_column_name(ctx);
 
         let mut definition_parts = vec![
-            self.column.name.to_string(),
+            temp_column_name.to_string(),
             self.column.data_type.to_string(),
         ];
 
@@ -93,7 +103,7 @@ impl Action for AddColumn {
                         DECLARE
                             {declarations}
                         BEGIN
-                            NEW.{column_name} = {up};
+                            NEW.{temp_column_name} = {up};
                         END;
                     END IF;
                     RETURN NEW;
@@ -103,7 +113,7 @@ impl Action for AddColumn {
                 DROP TRIGGER IF EXISTS {trigger_name} ON {table};
                 CREATE TRIGGER {trigger_name} BEFORE UPDATE OR INSERT ON {table} FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
                 ",
-                column_name = self.column.name,
+                temp_column_name = temp_column_name,
                 trigger_name = self.trigger_name(ctx),
                 up = up,
                 table = self.table,
@@ -114,7 +124,7 @@ impl Action for AddColumn {
 
         // Backfill values in batches
         if self.up.is_some() {
-            common::batch_touch_rows(db, &table.real_name, &self.column.name)?;
+            common::batch_touch_rows(db, &table.real_name, &temp_column_name)?;
         }
 
         // Add a temporary NOT NULL constraint if the column shouldn't be nullable.
@@ -130,7 +140,7 @@ impl Action for AddColumn {
                 ",
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(&ctx),
-                column = self.column.name,
+                column = temp_column_name,
             );
             db.run(&query)?;
         }
@@ -138,7 +148,9 @@ impl Action for AddColumn {
         Ok(())
     }
 
-    fn complete(&self, ctx: &Context, db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
+    fn complete(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
+        let table = schema.get_table(db, &self.table)?;
+
         // Remove triggers and procedures
         let query = format!(
             "
@@ -174,7 +186,7 @@ impl Action for AddColumn {
                 ALTER COLUMN {column} SET NOT NULL
                 ",
                 table = self.table,
-                column = self.column.name,
+                column = self.temp_column_name(ctx),
             );
             db.run(&query)?;
 
@@ -190,10 +202,26 @@ impl Action for AddColumn {
             db.run(&query)?;
         }
 
+        // Rename the temporary column to its real name
+        db.run(&format!(
+            "
+            ALTER TABLE {table}
+            RENAME COLUMN {temp_column_name} TO {column_name}
+            ",
+            table = table.real_name,
+            temp_column_name = self.temp_column_name(ctx),
+            column_name = self.column.name,
+        ))?;
+
         Ok(())
     }
 
-    fn update_schema(&self, _ctx: &Context, _schema: &mut Schema) -> anyhow::Result<()> {
+    fn update_schema(&self, ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
+        schema.change_table(&self.table, |table_changes| {
+            table_changes.change_column(&self.column.name, |column_changes| {
+                column_changes.set_column(&self.temp_column_name(ctx));
+            })
+        });
         Ok(())
     }
 
@@ -216,7 +244,7 @@ impl Action for AddColumn {
             DROP COLUMN IF EXISTS {column}
             ",
             table = self.table,
-            column = self.column.name,
+            column = self.temp_column_name(ctx),
         );
         db.run(&query)?;
 
