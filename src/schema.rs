@@ -1,144 +1,136 @@
 use crate::db::Conn;
-use anyhow::anyhow;
-use bimap::BiMap;
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
+// Schema tracks changes made to tables and columns during a migration.
+// These changes are not applied until the migration is completed but
+// need to be taken into consideration when creating views for a migration
+// and when a user references a table or column in a migration.
+//
+// The changes to a table are tracked by a `TableChanges` struct. The possible
+// changes are:
+//   - Changing the name which updates `current_name`.
+//   - Removing which sets the `removed` flag.
+//
+// Changes to a column are tracked by a `ColumnChanges` struct which reside in
+// the corresponding `TableChanges`. The possible changes are:
+//   - Changing the name which updates `current_name`.
+//   - Changing the backing column which will add the new column to the end of
+//     `intermediate_columns`. This is used when temporary columns are
+//     introduced which will eventually replace the current column.
+//   - Removing which sets the `removed` flag.
+//
+// Schema provides some schema introspection methods, `get_tables` and `get_table`,
+// which will retrieve the current schema from the database and apply the changes.
 #[derive(Debug)]
 pub struct Schema {
-    table_alias_to_name: BiMap<String, String>,
-    hidden_tables: HashSet<String>,
-    table_schemas_by_name: HashMap<String, TableSchema>,
+    table_changes: Vec<TableChanges>,
 }
 
 impl Schema {
     pub fn new() -> Schema {
         Schema {
-            table_alias_to_name: BiMap::new(),
-            hidden_tables: HashSet::new(),
-            table_schemas_by_name: HashMap::new(),
+            table_changes: Vec::new(),
         }
     }
 
-    pub fn set_table_alias(&mut self, current_name: &str, alias: &str) {
-        self.table_alias_to_name
-            .insert(alias.to_string(), current_name.to_string());
-    }
+    pub fn change_table<F>(&mut self, current_name: &str, f: F)
+    where
+        F: FnOnce(&mut TableChanges),
+    {
+        let table_change_index = self
+            .table_changes
+            .iter()
+            .position(|table| table.current_name == current_name)
+            .unwrap_or_else(|| {
+                let new_changes = TableChanges::new(current_name.to_string());
+                self.table_changes.push(new_changes);
+                self.table_changes.len() - 1
+            });
 
-    pub fn set_table_hidden(&mut self, table: &str) {
-        let real_name = self
-            .get_table_real_name(table)
-            .unwrap_or_else(|| table.to_string());
-        self.hidden_tables.insert(real_name);
-    }
-
-    pub fn set_column_alias(&mut self, table: &str, current_name: &str, alias: &str) {
-        let table_real_name = self
-            .get_table_real_name(table)
-            .unwrap_or_else(|| table.to_string());
-
-        let column = match self.table_schemas_by_name.entry(table_real_name) {
-            Entry::Occupied(o) => o.into_mut(),
-            Entry::Vacant(v) => v.insert(TableSchema::new()),
-        };
-
-        column
-            .column_alias_to_name
-            .insert(alias.to_string(), current_name.to_string());
-    }
-
-    pub fn set_column_hidden(&mut self, table: &str, name: &str) {
-        let table_real_name = self
-            .get_table_real_name(table)
-            .unwrap_or_else(|| table.to_string());
-        let column = match self.table_schemas_by_name.entry(table_real_name) {
-            Entry::Occupied(o) => o.into_mut(),
-            Entry::Vacant(v) => v.insert(TableSchema::new()),
-        };
-
-        column.hidden_columns.insert(name.to_string());
-    }
-
-    fn get_table_real_name(&self, name: &str) -> Option<String> {
-        self.table_alias_to_name
-            .get_by_left(name)
-            .map(|real_name| real_name.to_string())
-    }
-
-    fn get_table_alias_from_real_name<'a>(&'a self, real_name: &'a str) -> Option<String> {
-        self.table_alias_to_name
-            .get_by_right(real_name)
-            .map(|name| name.to_string())
-    }
-
-    fn is_table_hidden(&self, table: &str) -> bool {
-        let table_real_name = self
-            .get_table_real_name(table)
-            .unwrap_or_else(|| table.to_string());
-        self.hidden_tables.contains(&table_real_name)
-    }
-
-    fn get_column_real_name<'a>(&'a self, table: &'a str, name: &'a str) -> Option<&'a str> {
-        let table_real_name = self
-            .get_table_real_name(table)
-            .unwrap_or_else(|| table.to_string());
-
-        self.table_schemas_by_name
-            .get(&table_real_name)
-            .map(|column| column.get_column_real_name(name))
-    }
-
-    fn get_column_alias_from_real_name(&self, table: &str, real_name: &str) -> Option<String> {
-        let table_real_name = self
-            .get_table_real_name(table)
-            .unwrap_or_else(|| table.to_string());
-
-        self.table_schemas_by_name
-            .get(&table_real_name)
-            .and_then(|column| column.get_column_alias_from_real_name(real_name))
-    }
-
-    fn is_column_hidden(&self, table: &str, name: &str) -> bool {
-        let table_real_name = self
-            .get_table_real_name(table)
-            .unwrap_or_else(|| table.to_string());
-        self.table_schemas_by_name
-            .get(&table_real_name)
-            .map(|column| {
-                let alias = column
-                    .get_column_alias_from_real_name(name)
-                    .unwrap_or_else(|| name.to_string());
-                column.hidden_columns.contains(&alias)
-            })
-            .unwrap_or(false)
+        let table_changes = &mut self.table_changes[table_change_index];
+        f(table_changes)
     }
 }
 
 #[derive(Debug)]
-struct TableSchema {
-    column_alias_to_name: BiMap<String, String>,
-    hidden_columns: HashSet<String>,
+pub struct TableChanges {
+    current_name: String,
+    real_name: String,
+    column_changes: Vec<ColumnChanges>,
+    removed: bool,
 }
 
-impl TableSchema {
-    fn new() -> TableSchema {
-        TableSchema {
-            column_alias_to_name: BiMap::new(),
-            hidden_columns: HashSet::new(),
+impl TableChanges {
+    fn new(name: String) -> Self {
+        Self {
+            current_name: name.to_string(),
+            real_name: name.to_string(),
+            column_changes: Vec::new(),
+            removed: false,
         }
     }
 
-    fn get_column_real_name<'a>(&'a self, name: &'a str) -> &'a str {
-        if let Some(real_name) = self.column_alias_to_name.get_by_left(name) {
-            real_name
-        } else {
-            name
+    pub fn set_name(&mut self, name: &str) {
+        self.current_name = name.to_string();
+    }
+
+    pub fn change_column<F>(&mut self, current_name: &str, f: F)
+    where
+        F: FnOnce(&mut ColumnChanges),
+    {
+        let column_change_index = self
+            .column_changes
+            .iter()
+            .position(|column| column.current_name == current_name)
+            .unwrap_or_else(|| {
+                let new_changes = ColumnChanges::new(current_name.to_string());
+                self.column_changes.push(new_changes);
+                self.column_changes.len() - 1
+            });
+
+        let column_changes = &mut self.column_changes[column_change_index];
+        f(column_changes)
+    }
+
+    pub fn set_removed(&mut self) {
+        self.removed = true;
+    }
+}
+
+#[derive(Debug)]
+pub struct ColumnChanges {
+    current_name: String,
+    original_name: String,
+    intermediate_names: Vec<String>,
+    removed: bool,
+}
+
+impl ColumnChanges {
+    fn new(name: String) -> Self {
+        Self {
+            current_name: name.to_string(),
+            original_name: name.to_string(),
+            intermediate_names: Vec::new(),
+            removed: false,
         }
     }
 
-    fn get_column_alias_from_real_name(&self, real_name: &str) -> Option<String> {
-        self.column_alias_to_name
-            .get_by_right(real_name)
-            .map(|name| name.to_string())
+    pub fn set_name(&mut self, name: &str) {
+        self.current_name = name.to_string();
+    }
+
+    pub fn set_column(&mut self, column_name: &str) {
+        self.intermediate_names.push(column_name.to_string())
+    }
+
+    pub fn set_removed(&mut self) {
+        self.removed = true;
+    }
+
+    fn real_name(&self) -> &str {
+        self.intermediate_names
+            .last()
+            .unwrap_or_else(|| &self.original_name)
     }
 }
 
@@ -168,26 +160,46 @@ impl Schema {
         )?
         .iter()
         .map(|row| row.get::<'_, _, String>("table_name"))
-        .filter(|real_name| !self.is_table_hidden(real_name))
-        .map(|real_name| self.get_table_by_real_name(db, &real_name))
+        .filter_map(|real_name| {
+            let table_changes = self
+                .table_changes
+                .iter()
+                .find(|changes| changes.real_name == real_name);
+
+            // Skip table if it has been removed
+            if let Some(changes) = table_changes {
+                if changes.removed {
+                    return None;
+                }
+            }
+
+            Some(self.get_table_by_real_name(db, &real_name))
+        })
         .collect()
     }
 
     pub fn get_table(&self, db: &mut dyn Conn, table_name: &str) -> anyhow::Result<Table> {
-        let real_table_name = self
-            .get_table_real_name(table_name)
+        let table_changes = self
+            .table_changes
+            .iter()
+            .find(|changes| changes.current_name == table_name);
+
+        let real_table_name = table_changes
+            .map(|changes| changes.real_name.to_string())
             .unwrap_or_else(|| table_name.to_string());
+
         self.get_table_by_real_name(db, &real_table_name)
     }
 
-    pub fn get_table_by_real_name(
+    fn get_table_by_real_name(
         &self,
         db: &mut dyn Conn,
         real_table_name: &str,
     ) -> anyhow::Result<Table> {
-        if self.is_table_hidden(real_table_name) {
-            return Err(anyhow!("no table named {}", real_table_name));
-        }
+        let table_changes = self
+            .table_changes
+            .iter()
+            .find(|changes| changes.real_name == real_table_name);
 
         let real_columns: Vec<(String, String, bool)> = db
             .query(&format!(
@@ -209,27 +221,43 @@ impl Schema {
             })
             .collect();
 
+        let mut ignore_columns: HashSet<String> = HashSet::new();
+        let mut aliases: HashMap<String, &str> = HashMap::new();
+
+        if let Some(changes) = table_changes {
+            for column_changes in &changes.column_changes {
+                if column_changes.removed {
+                    ignore_columns.insert(column_changes.real_name().to_string());
+                } else {
+                    aliases.insert(
+                        column_changes.real_name().to_string(),
+                        &column_changes.current_name,
+                    );
+                }
+
+                if !column_changes.intermediate_names.is_empty() {
+                    ignore_columns.insert(column_changes.original_name.to_string());
+
+                    let non_used_intermediate = &column_changes.intermediate_names
+                        [..column_changes.intermediate_names.len() - 1];
+                    for intermediate in non_used_intermediate {
+                        ignore_columns.insert(intermediate.to_string());
+                    }
+                }
+            }
+        }
+
         let mut columns: Vec<Column> = Vec::new();
 
-        for (column_name, data_type, nullable) in real_columns {
-            if self.is_column_hidden(real_table_name, &column_name) {
+        for (real_name, data_type, nullable) in real_columns {
+            if ignore_columns.contains(&*real_name) {
                 continue;
             }
 
-            if is_column_temporary(&column_name) {
-                continue;
-            }
-
-            let (name, real_name) = if let Some(alias) =
-                self.get_column_alias_from_real_name(real_table_name, &column_name)
-            {
-                (alias, column_name)
-            } else {
-                let real_name = self
-                    .get_column_real_name(real_table_name, &column_name)
-                    .unwrap_or(&column_name);
-                (column_name.to_string(), real_name.to_string())
-            };
+            let name = aliases
+                .get(&real_name)
+                .map(|alias| alias.to_string())
+                .unwrap_or_else(|| real_name.to_string());
 
             columns.push(Column {
                 name,
@@ -239,20 +267,16 @@ impl Schema {
             });
         }
 
-        let table_name = self
-            .get_table_alias_from_real_name(real_table_name)
-            .unwrap_or_else(|| real_table_name.to_string());
+        let current_table_name = table_changes
+            .map(|changes| changes.current_name.as_ref())
+            .unwrap_or_else(|| real_table_name);
 
         let table = Table {
-            name: table_name,
+            name: current_table_name.to_string(),
             real_name: real_table_name.to_string(),
             columns: columns,
         };
 
         Ok(table)
     }
-}
-
-fn is_column_temporary(name: &str) -> bool {
-    name.starts_with("__reshape_")
 }

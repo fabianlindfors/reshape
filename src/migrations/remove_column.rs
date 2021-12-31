@@ -98,7 +98,11 @@ impl Action for RemoveColumn {
     }
 
     fn update_schema(&self, _ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
-        schema.set_column_hidden(&self.table, &self.column);
+        schema.change_table(&self.table, |table_changes| {
+            table_changes.change_column(&self.column, |column_changes| {
+                column_changes.set_removed();
+            })
+        });
 
         Ok(())
     }

@@ -31,7 +31,9 @@ impl Action for RemoveTable {
     }
 
     fn update_schema(&self, _ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
-        schema.set_table_hidden(&self.table);
+        schema.change_table(&self.table, |table_changes| {
+            table_changes.set_removed();
+        });
 
         Ok(())
     }

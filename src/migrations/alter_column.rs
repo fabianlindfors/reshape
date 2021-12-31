@@ -303,14 +303,21 @@ impl Action for AlterColumn {
         // Instead, we rename the schema column but point it to the old column
         if self.can_short_circuit() {
             if let Some(new_name) = &self.changes.name {
-                schema.set_column_alias(&self.table, &self.column, new_name);
-                println!("Schema is now: {:?}", schema);
+                schema.change_table(&self.table, |table_changes| {
+                    table_changes.change_column(&self.column, |column_changes| {
+                        column_changes.set_name(new_name);
+                    });
+                });
             }
 
             return Ok(());
         }
 
-        schema.set_column_alias(&self.table, &self.temporary_column_name(ctx), &self.column);
+        schema.change_table(&self.table, |table_changes| {
+            table_changes.change_column(&self.column, |column_changes| {
+                column_changes.set_column(&self.temporary_column_name(ctx));
+            });
+        });
 
         Ok(())
     }
