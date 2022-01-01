@@ -422,3 +422,7 @@ Reshape works by creating views that encapsulate the underlying tables, which yo
 1. **Start migration** (`reshape migrate`): Create new views to ensure both the new and old schema are usable at the same time.
 	- After phase one is complete, you can start the roll out of your application. Once the roll out is complete, the second phase can be run.
 2. **Complete migration** (`reshape complete`): Removes the old schema and any intermediate data.
+
+## License
+
+Reshape is released under the [MIT license](https://choosealicense.com/licenses/mit/).
