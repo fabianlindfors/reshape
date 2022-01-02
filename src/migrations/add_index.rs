@@ -40,9 +40,7 @@ impl Action for AddIndex {
         Ok(())
     }
 
-    fn update_schema(&self, _ctx: &Context, _schema: &mut Schema) -> anyhow::Result<()> {
-        Ok(())
-    }
+    fn update_schema(&self, _ctx: &Context, _schema: &mut Schema) {}
 
     fn abort(&self, _ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {
         db.run(&format!(

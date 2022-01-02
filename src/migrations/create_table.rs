@@ -75,9 +75,7 @@ impl Action for CreateTable {
         Ok(())
     }
 
-    fn update_schema(&self, _ctx: &Context, _schema: &mut Schema) -> anyhow::Result<()> {
-        Ok(())
-    }
+    fn update_schema(&self, _ctx: &Context, _schema: &mut Schema) {}
 
     fn abort(&self, _ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {
         let query = format!("DROP TABLE IF EXISTS {table}", table = self.name,);

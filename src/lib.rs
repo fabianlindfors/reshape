@@ -85,7 +85,7 @@ impl Reshape {
 
                 let ctx = Context::new(migration_index, action_index);
                 action.run(&ctx, &mut self.db, &new_schema)?;
-                action.update_schema(&ctx, &mut new_schema)?;
+                action.update_schema(&ctx, &mut new_schema);
 
                 println!("{}", "done".green());
             }
@@ -157,7 +157,7 @@ impl Reshape {
 
                 let ctx = Context::new(migration_index, action_index);
                 action.complete(&ctx, &mut transaction, &temp_schema)?;
-                action.update_schema(&ctx, &mut temp_schema)?;
+                action.update_schema(&ctx, &mut temp_schema);
 
                 println!("{}", "done".green());
             }

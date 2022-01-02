@@ -98,6 +98,6 @@ pub trait Action: Debug {
     fn describe(&self) -> String;
     fn run(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()>;
     fn complete(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()>;
-    fn update_schema(&self, ctx: &Context, schema: &mut Schema) -> anyhow::Result<()>;
+    fn update_schema(&self, ctx: &Context, schema: &mut Schema);
     fn abort(&self, ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()>;
 }

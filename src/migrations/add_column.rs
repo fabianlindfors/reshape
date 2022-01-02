@@ -216,13 +216,12 @@ impl Action for AddColumn {
         Ok(())
     }
 
-    fn update_schema(&self, ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
+    fn update_schema(&self, ctx: &Context, schema: &mut Schema) {
         schema.change_table(&self.table, |table_changes| {
             table_changes.change_column(&self.column.name, |column_changes| {
                 column_changes.set_column(&self.temp_column_name(ctx));
             })
         });
-        Ok(())
     }
 
     fn abort(&self, ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {

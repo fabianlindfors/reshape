@@ -298,7 +298,7 @@ impl Action for AlterColumn {
         Ok(())
     }
 
-    fn update_schema(&self, ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
+    fn update_schema(&self, ctx: &Context, schema: &mut Schema) {
         // If we are only changing the name of a column, we haven't created a temporary column
         // Instead, we rename the schema column but point it to the old column
         if self.can_short_circuit() {
@@ -310,7 +310,7 @@ impl Action for AlterColumn {
                 });
             }
 
-            return Ok(());
+            return;
         }
 
         schema.change_table(&self.table, |table_changes| {
@@ -318,8 +318,6 @@ impl Action for AlterColumn {
                 column_changes.set_column(&self.temporary_column_name(ctx));
             });
         });
-
-        Ok(())
     }
 
     fn abort(&self, ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {

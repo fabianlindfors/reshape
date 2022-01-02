@@ -30,12 +30,10 @@ impl Action for RemoveTable {
         Ok(())
     }
 
-    fn update_schema(&self, _ctx: &Context, schema: &mut Schema) -> anyhow::Result<()> {
+    fn update_schema(&self, _ctx: &Context, schema: &mut Schema) {
         schema.change_table(&self.table, |table_changes| {
             table_changes.set_removed();
         });
-
-        Ok(())
     }
 
     fn abort(&self, _ctx: &Context, _db: &mut dyn Conn) -> anyhow::Result<()> {
