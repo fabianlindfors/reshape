@@ -58,13 +58,9 @@ struct FindMigrationsOptions {
     dirs: Vec<String>,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let opts: Opts = Opts::parse();
-
-    let result = run(opts);
-    if let Err(e) = result {
-        println!("Error: {}", e);
-    }
+    run(opts)
 }
 
 fn run(opts: Opts) -> anyhow::Result<()> {
