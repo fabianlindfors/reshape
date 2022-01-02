@@ -1,4 +1,4 @@
-use super::{Action, Column, Context};
+use super::{Action, Column, MigrationContext};
 use crate::{db::Conn, schema::Schema};
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +23,12 @@ impl Action for CreateTable {
         format!("Creating table \"{}\"", self.name)
     }
 
-    fn run(&self, _ctx: &Context, db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
+    fn run(
+        &self,
+        _ctx: &MigrationContext,
+        db: &mut dyn Conn,
+        _schema: &Schema,
+    ) -> anyhow::Result<()> {
         let mut definition_rows: Vec<String> = self
             .columns
             .iter()
@@ -70,14 +75,19 @@ impl Action for CreateTable {
         Ok(())
     }
 
-    fn complete(&self, _ctx: &Context, _db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
+    fn complete(
+        &self,
+        _ctx: &MigrationContext,
+        _db: &mut dyn Conn,
+        _schema: &Schema,
+    ) -> anyhow::Result<()> {
         // Do nothing
         Ok(())
     }
 
-    fn update_schema(&self, _ctx: &Context, _schema: &mut Schema) {}
+    fn update_schema(&self, _ctx: &MigrationContext, _schema: &mut Schema) {}
 
-    fn abort(&self, _ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn abort(&self, _ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         let query = format!("DROP TABLE IF EXISTS {table}", table = self.name,);
         db.run(&query)?;
 

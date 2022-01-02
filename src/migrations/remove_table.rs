@@ -1,4 +1,4 @@
-use super::{Action, Context};
+use super::{Action, MigrationContext};
 use crate::{db::Conn, schema::Schema};
 use serde::{Deserialize, Serialize};
 
@@ -13,11 +13,21 @@ impl Action for RemoveTable {
         format!("Removing table \"{}\"", self.table)
     }
 
-    fn run(&self, _ctx: &Context, _db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
+    fn run(
+        &self,
+        _ctx: &MigrationContext,
+        _db: &mut dyn Conn,
+        _schema: &Schema,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
 
-    fn complete(&self, _ctx: &Context, db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
+    fn complete(
+        &self,
+        _ctx: &MigrationContext,
+        db: &mut dyn Conn,
+        _schema: &Schema,
+    ) -> anyhow::Result<()> {
         // Remove table
         let query = format!(
             "
@@ -30,13 +40,13 @@ impl Action for RemoveTable {
         Ok(())
     }
 
-    fn update_schema(&self, _ctx: &Context, schema: &mut Schema) {
+    fn update_schema(&self, _ctx: &MigrationContext, schema: &mut Schema) {
         schema.change_table(&self.table, |table_changes| {
             table_changes.set_removed();
         });
     }
 
-    fn abort(&self, _ctx: &Context, _db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn abort(&self, _ctx: &MigrationContext, _db: &mut dyn Conn) -> anyhow::Result<()> {
         Ok(())
     }
 }

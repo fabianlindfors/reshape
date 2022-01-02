@@ -1,4 +1,4 @@
-use super::{common, Action, Column, Context};
+use super::{common, Action, Column, MigrationContext};
 use crate::{db::Conn, schema::Schema};
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,7 @@ pub struct AddColumn {
 }
 
 impl AddColumn {
-    fn temp_column_name(&self, ctx: &Context) -> String {
+    fn temp_column_name(&self, ctx: &MigrationContext) -> String {
         format!(
             "{}_temp_column_{}_{}",
             ctx.prefix(),
@@ -19,7 +19,7 @@ impl AddColumn {
         )
     }
 
-    fn trigger_name(&self, ctx: &Context) -> String {
+    fn trigger_name(&self, ctx: &MigrationContext) -> String {
         format!(
             "{}_add_column_{}_{}",
             ctx.prefix(),
@@ -28,7 +28,7 @@ impl AddColumn {
         )
     }
 
-    fn not_null_constraint_name(&self, ctx: &Context) -> String {
+    fn not_null_constraint_name(&self, ctx: &MigrationContext) -> String {
         format!(
             "{}_add_column_not_null_{}_{}",
             ctx.prefix(),
@@ -47,7 +47,12 @@ impl Action for AddColumn {
         )
     }
 
-    fn run(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
+    fn run(
+        &self,
+        ctx: &MigrationContext,
+        db: &mut dyn Conn,
+        schema: &Schema,
+    ) -> anyhow::Result<()> {
         let table = schema.get_table(db, &self.table)?;
         let temp_column_name = self.temp_column_name(ctx);
 
@@ -148,7 +153,12 @@ impl Action for AddColumn {
         Ok(())
     }
 
-    fn complete(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
+    fn complete(
+        &self,
+        ctx: &MigrationContext,
+        db: &mut dyn Conn,
+        schema: &Schema,
+    ) -> anyhow::Result<()> {
         let table = schema.get_table(db, &self.table)?;
 
         // Remove triggers and procedures
@@ -216,7 +226,7 @@ impl Action for AddColumn {
         Ok(())
     }
 
-    fn update_schema(&self, ctx: &Context, schema: &mut Schema) {
+    fn update_schema(&self, ctx: &MigrationContext, schema: &mut Schema) {
         schema.change_table(&self.table, |table_changes| {
             table_changes.change_column(&self.column.name, |column_changes| {
                 column_changes.set_column(&self.temp_column_name(ctx));
@@ -224,7 +234,7 @@ impl Action for AddColumn {
         });
     }
 
-    fn abort(&self, ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove triggers and procedures
         let query = format!(
             "

@@ -1,4 +1,4 @@
-use super::{Action, Context};
+use super::{Action, MigrationContext};
 use crate::{db::Conn, schema::Schema};
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,12 @@ impl Action for AddIndex {
         format!("Adding index \"{}\" to table \"{}\"", self.name, self.table)
     }
 
-    fn run(&self, _ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
+    fn run(
+        &self,
+        _ctx: &MigrationContext,
+        db: &mut dyn Conn,
+        schema: &Schema,
+    ) -> anyhow::Result<()> {
         let table = schema.get_table(db, &self.table)?;
 
         let column_real_names: Vec<String> = table
@@ -36,13 +41,18 @@ impl Action for AddIndex {
         Ok(())
     }
 
-    fn complete(&self, _ctx: &Context, _db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
+    fn complete(
+        &self,
+        _ctx: &MigrationContext,
+        _db: &mut dyn Conn,
+        _schema: &Schema,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
 
-    fn update_schema(&self, _ctx: &Context, _schema: &mut Schema) {}
+    fn update_schema(&self, _ctx: &MigrationContext, _schema: &mut Schema) {}
 
-    fn abort(&self, _ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn abort(&self, _ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         db.run(&format!(
             "
 			DROP INDEX {name} ON {table}

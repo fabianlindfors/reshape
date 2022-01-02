@@ -1,4 +1,4 @@
-use super::{Action, Context};
+use super::{Action, MigrationContext};
 use crate::{db::Conn, migrations::common, schema::Schema};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -21,11 +21,11 @@ pub struct ColumnChanges {
 }
 
 impl AlterColumn {
-    fn temporary_column_name(&self, ctx: &Context) -> String {
+    fn temporary_column_name(&self, ctx: &MigrationContext) -> String {
         format!("{}_new_{}", ctx.prefix(), self.column)
     }
 
-    fn up_trigger_name(&self, ctx: &Context) -> String {
+    fn up_trigger_name(&self, ctx: &MigrationContext) -> String {
         format!(
             "{}_alter_column_up_trigger_{}_{}",
             ctx.prefix(),
@@ -34,7 +34,7 @@ impl AlterColumn {
         )
     }
 
-    fn down_trigger_name(&self, ctx: &Context) -> String {
+    fn down_trigger_name(&self, ctx: &MigrationContext) -> String {
         format!(
             "{}_alter_column_down_trigger_{}_{}",
             ctx.prefix_inverse(),
@@ -43,7 +43,7 @@ impl AlterColumn {
         )
     }
 
-    fn not_null_constraint_name(&self, ctx: &Context) -> String {
+    fn not_null_constraint_name(&self, ctx: &MigrationContext) -> String {
         format!(
             "{}_alter_column_temporary_not_null_{}_{}",
             ctx.prefix(),
@@ -65,7 +65,12 @@ impl Action for AlterColumn {
         format!("Altering column \"{}\" on \"{}\"", self.column, self.table)
     }
 
-    fn run(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
+    fn run(
+        &self,
+        ctx: &MigrationContext,
+        db: &mut dyn Conn,
+        schema: &Schema,
+    ) -> anyhow::Result<()> {
         // If we are only changing the name of a column, we don't have to do anything at this stage
         // We'll set the new schema to point to the old column. When the migration is completed,
         // we rename the actual column.
@@ -194,7 +199,12 @@ impl Action for AlterColumn {
         Ok(())
     }
 
-    fn complete(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
+    fn complete(
+        &self,
+        ctx: &MigrationContext,
+        db: &mut dyn Conn,
+        schema: &Schema,
+    ) -> anyhow::Result<()> {
         if self.can_short_circuit() {
             if let Some(new_name) = &self.changes.name {
                 let query = format!(
@@ -298,7 +308,7 @@ impl Action for AlterColumn {
         Ok(())
     }
 
-    fn update_schema(&self, ctx: &Context, schema: &mut Schema) {
+    fn update_schema(&self, ctx: &MigrationContext, schema: &mut Schema) {
         // If we are only changing the name of a column, we haven't created a temporary column
         // Instead, we rename the schema column but point it to the old column
         if self.can_short_circuit() {
@@ -320,7 +330,7 @@ impl Action for AlterColumn {
         });
     }
 
-    fn abort(&self, ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove triggers and procedures
         let query = format!(
             "

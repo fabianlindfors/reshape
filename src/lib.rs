@@ -1,5 +1,5 @@
 use crate::{
-    migrations::{Context, Migration},
+    migrations::{Migration, MigrationContext},
     schema::Schema,
 };
 
@@ -109,7 +109,7 @@ impl Reshape {
             for (action_index, action) in migration.actions.iter().enumerate() {
                 print!("  + {} ", action.describe());
 
-                let ctx = Context::new(migration_index, action_index);
+                let ctx = MigrationContext::new(migration_index, action_index);
                 result = action.run(&ctx, &mut self.db, &new_schema);
 
                 if result.is_ok() {
@@ -197,7 +197,7 @@ impl Reshape {
             for (action_index, action) in migration.actions.iter().enumerate() {
                 print!("  + {} ", action.describe());
 
-                let ctx = Context::new(migration_index, action_index);
+                let ctx = MigrationContext::new(migration_index, action_index);
                 action.complete(&ctx, &mut transaction, &temp_schema)?;
                 action.update_schema(&ctx, &mut temp_schema);
 
@@ -330,7 +330,7 @@ fn abort_migrations(db: &mut dyn Conn, migrations: &[Migration]) -> anyhow::Resu
     for (migration_index, migration) in migrations.iter().rev().enumerate() {
         print!("Aborting '{}' ", migration.name);
         for (action_index, action) in migration.actions.iter().rev().enumerate() {
-            let ctx = Context::new(migration_index, action_index);
+            let ctx = MigrationContext::new(migration_index, action_index);
             action.abort(&ctx, db)?;
         }
         println!("{}", "done".green());

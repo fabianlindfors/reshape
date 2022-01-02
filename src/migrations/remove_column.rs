@@ -1,4 +1,4 @@
-use super::{Action, Context};
+use super::{Action, MigrationContext};
 use crate::{db::Conn, schema::Schema};
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,7 @@ pub struct RemoveColumn {
 }
 
 impl RemoveColumn {
-    fn trigger_name(&self, ctx: &Context) -> String {
+    fn trigger_name(&self, ctx: &MigrationContext) -> String {
         format!(
             "{}_remove_column_{}_{}",
             ctx.prefix(),
@@ -29,7 +29,12 @@ impl Action for RemoveColumn {
         )
     }
 
-    fn run(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()> {
+    fn run(
+        &self,
+        ctx: &MigrationContext,
+        db: &mut dyn Conn,
+        schema: &Schema,
+    ) -> anyhow::Result<()> {
         // Add down trigger
         if let Some(down) = &self.down {
             let table = schema.get_table(db, &self.table)?;
@@ -78,7 +83,12 @@ impl Action for RemoveColumn {
         Ok(())
     }
 
-    fn complete(&self, ctx: &Context, db: &mut dyn Conn, _schema: &Schema) -> anyhow::Result<()> {
+    fn complete(
+        &self,
+        ctx: &MigrationContext,
+        db: &mut dyn Conn,
+        _schema: &Schema,
+    ) -> anyhow::Result<()> {
         // Remove column, function and trigger
         let query = format!(
             "
@@ -97,7 +107,7 @@ impl Action for RemoveColumn {
         Ok(())
     }
 
-    fn update_schema(&self, _ctx: &Context, schema: &mut Schema) {
+    fn update_schema(&self, _ctx: &MigrationContext, schema: &mut Schema) {
         schema.change_table(&self.table, |table_changes| {
             table_changes.change_column(&self.column, |column_changes| {
                 column_changes.set_removed();
@@ -105,7 +115,7 @@ impl Action for RemoveColumn {
         });
     }
 
-    fn abort(&self, ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove function and trigger
         db.query(&format!(
             "

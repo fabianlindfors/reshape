@@ -64,14 +64,14 @@ impl Clone for Migration {
     }
 }
 
-pub struct Context {
+pub struct MigrationContext {
     migration_index: usize,
     action_index: usize,
 }
 
-impl Context {
+impl MigrationContext {
     pub fn new(migration_index: usize, action_index: usize) -> Self {
-        Context {
+        MigrationContext {
             migration_index,
             action_index,
         }
@@ -96,8 +96,14 @@ impl Context {
 #[typetag::serde(tag = "type")]
 pub trait Action: Debug {
     fn describe(&self) -> String;
-    fn run(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()>;
-    fn complete(&self, ctx: &Context, db: &mut dyn Conn, schema: &Schema) -> anyhow::Result<()>;
-    fn update_schema(&self, ctx: &Context, schema: &mut Schema);
-    fn abort(&self, ctx: &Context, db: &mut dyn Conn) -> anyhow::Result<()>;
+    fn run(&self, ctx: &MigrationContext, db: &mut dyn Conn, schema: &Schema)
+        -> anyhow::Result<()>;
+    fn complete(
+        &self,
+        ctx: &MigrationContext,
+        db: &mut dyn Conn,
+        schema: &Schema,
+    ) -> anyhow::Result<()>;
+    fn update_schema(&self, ctx: &MigrationContext, schema: &mut Schema);
+    fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()>;
 }
