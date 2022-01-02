@@ -71,29 +71,43 @@ impl Reshape {
 
         println!(" Applying {} migrations\n", remaining_migrations.len());
 
-        let target_migration = remaining_migrations.last().unwrap().name.to_string();
+        helpers::setup_helpers(&mut self.db, current_migration)?;
 
         let mut new_schema = Schema::new();
-
-        helpers::setup_helpers(&mut self.db, current_migration)?;
+        let mut processed_migrations: &[Migration] = &[];
+        let mut result: anyhow::Result<()> = Ok(());
 
         for (migration_index, migration) in remaining_migrations.iter().enumerate() {
             println!("Migrating '{}':", migration.name);
+            processed_migrations = &remaining_migrations[..migration_index + 1];
 
             for (action_index, action) in migration.actions.iter().enumerate() {
                 print!("  + {} ", action.describe());
 
                 let ctx = Context::new(migration_index, action_index);
-                action.run(&ctx, &mut self.db, &new_schema)?;
-                action.update_schema(&ctx, &mut new_schema);
+                result = action.run(&ctx, &mut self.db, &new_schema);
 
-                println!("{}", "done".green());
+                if result.is_ok() {
+                    action.update_schema(&ctx, &mut new_schema);
+                    println!("{}", "done".green());
+                } else {
+                    println!("{}", "failed".red());
+                    break;
+                }
             }
 
             println!("");
         }
 
+        // If a migration failed, we abort all the migrations that were applied
+        if let Err(err) = result {
+            println!("A migration failed, aborting migrations that have already been applied");
+            abort_migrations(&mut self.db, &processed_migrations)?;
+            return Err(err);
+        }
+
         // Create schema and views for migration
+        let target_migration = remaining_migrations.last().unwrap().name.to_string();
         self.create_schema_for_migration(&target_migration, &new_schema)?;
 
         // Update state once migrations have been performed
@@ -268,15 +282,8 @@ impl Reshape {
             schema_name_for_migration(&target_migration)
         ))?;
 
-        // Abort all pending migrations in reverse order
-        for (migration_index, migration) in remaining_migrations.iter().rev().enumerate() {
-            print!("Aborting'{}' ", migration.name);
-            for (action_index, action) in migration.actions.iter().rev().enumerate() {
-                let ctx = Context::new(migration_index, action_index);
-                action.abort(&ctx, &mut transaction)?;
-            }
-            println!("{}", "done".green());
-        }
+        // Abort all pending migrations
+        abort_migrations(&mut transaction, &remaining_migrations)?;
 
         let keep_count = self.state.migrations.len() - remaining_migrations.len();
         self.state.migrations.truncate(keep_count);
@@ -287,6 +294,19 @@ impl Reshape {
 
         Ok(())
     }
+}
+
+fn abort_migrations(db: &mut dyn Conn, migrations: &[Migration]) -> anyhow::Result<()> {
+    // Abort all migrations in reverse order
+    for (migration_index, migration) in migrations.iter().rev().enumerate() {
+        print!("Aborting '{}' ", migration.name);
+        for (action_index, action) in migration.actions.iter().rev().enumerate() {
+            let ctx = Context::new(migration_index, action_index);
+            action.abort(&ctx, db)?;
+        }
+        println!("{}", "done".green());
+    }
+    Ok(())
 }
 
 pub fn latest_schema_from_migrations(migrations: &[Migration]) -> Option<String> {
