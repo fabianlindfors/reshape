@@ -3,6 +3,7 @@ use crate::{
     schema::Schema,
 };
 
+use anyhow::anyhow;
 use colored::*;
 use db::{Conn, DbConn};
 use postgres::Config;
@@ -62,12 +63,36 @@ impl Reshape {
             return Ok(());
         }
 
+        // Determine which migrations need to be applied by comparing the provided migrations
+        // with the already applied ones stored in the state. This will throw an error if the
+        // two sets of migrations don't agree, for example if a new migration has been added
+        // in between two existing ones.
         let current_migration = &self.state.current_migration.clone();
         let remaining_migrations = self.state.get_remaining_migrations(migrations)?;
         if remaining_migrations.is_empty() {
             println!("No migrations left to apply");
             return Ok(());
         }
+
+        // If we have already started applying some migrations we need to ensure that
+        // they are the same ones we want to apply now
+        if let state::Status::Applying {
+            migrations: existing_migrations,
+        } = &self.state.status
+        {
+            if existing_migrations != &remaining_migrations {
+                return Err(anyhow!(
+                    "a previous migration seems to have failed without cleaning up. Please run `reshape abort` and then run migrate again."
+                ));
+            }
+        }
+
+        // Move to the "Applying" state which is necessary as we can't run the migrations
+        // and state update as a single transaction. If a migration unexpectedly fails without
+        // automatically aborting, this state saves us from dangling migrations. It forces the user
+        // to either run migrate again (which works as all migrations are idempotent) or abort.
+        self.state.applying(remaining_migrations.clone());
+        self.state.save(&mut self.db)?;
 
         println!(" Applying {} migrations\n", remaining_migrations.len());
 
@@ -142,7 +167,10 @@ impl Reshape {
         // Make sure a migration is in progress
         let remaining_migrations = match &self.state.status {
             state::Status::InProgress { migrations } => migrations,
-            _ => {
+            state::Status::Applying { migrations: _ } => {
+                return Err(anyhow!("a previous migration unexpectedly failed. Please run `reshape migrate` to try applying the migration again."))
+            }
+            state::Status::Idle => {
                 println!("No migration in progress");
                 return Ok(());
             }
@@ -264,7 +292,8 @@ impl Reshape {
     pub fn abort(&mut self) -> anyhow::Result<()> {
         let remaining_migrations = match &self.state.status {
             Status::InProgress { migrations } => migrations,
-            _ => {
+            Status::Applying { migrations } => migrations,
+            Status::Idle => {
                 println!("No migration is in progress");
                 return Ok(());
             }

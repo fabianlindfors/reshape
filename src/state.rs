@@ -18,6 +18,9 @@ pub enum Status {
     #[serde(rename = "idle")]
     Idle,
 
+    #[serde(rename = "applying")]
+    Applying { migrations: Vec<Migration> },
+
     #[serde(rename = "in_progress")]
     InProgress { migrations: Vec<Migration> },
 }
@@ -61,53 +64,30 @@ impl State {
         Ok(())
     }
 
-    pub fn set_migrations<T>(&mut self, migrations: T) -> Result<(), anyhow::Error>
-    where
-        T: IntoIterator<Item = Migration>,
-    {
-        let mut new_iter = migrations.into_iter();
-
-        // Ensure the new migration match up with the existing ones
-        for pair in self.migrations.iter().zip(new_iter.by_ref()) {
-            let (existing, ref new) = pair;
-            if existing != new {
-                return Err(anyhow!(
-                    "existing migration {} does not match new migration {}",
-                    existing.name,
-                    new.name
-                ));
-            }
-        }
-
-        // Add any new migrations
-        self.migrations.extend(new_iter);
-        Ok(())
-    }
-
-    pub fn add_migrations<'a>(&mut self, new_migrations: impl IntoIterator<Item = &'a Migration>) {
-        for migration in new_migrations.into_iter() {
-            self.migrations.push(migration.clone());
-        }
-    }
-
     // Complete will change the status from InProgress to Idle
     pub fn complete(&mut self) -> anyhow::Result<()> {
         let current_status = std::mem::replace(&mut self.status, Status::Idle);
 
         match current_status {
-            Status::Idle => {
-                // Move old status back
-                self.status = current_status;
-                return Err(anyhow!("status is not in progress"));
-            }
             Status::InProgress { mut migrations } => {
                 let target_migration = migrations.last().unwrap().name.to_string();
                 self.migrations.append(&mut migrations);
                 self.current_migration = Some(target_migration);
             }
+            _ => {
+                // Move old status back
+                self.status = current_status;
+                return Err(anyhow!("status "));
+            }
         }
 
         Ok(())
+    }
+
+    pub fn applying(&mut self, new_migrations: Vec<Migration>) {
+        self.status = Status::Applying {
+            migrations: new_migrations,
+        };
     }
 
     pub fn in_progress(&mut self, new_migrations: Vec<Migration>) {
