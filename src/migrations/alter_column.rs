@@ -1,6 +1,6 @@
 use super::{Action, MigrationContext};
 use crate::{db::Conn, migrations::common, schema::Schema};
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -90,7 +90,7 @@ impl Action for AlterColumn {
             .columns
             .iter()
             .find(|column| column.name == self.column)
-            .ok_or_else(|| anyhow!("no such column exists"))?;
+            .ok_or_else(|| anyhow!("no such column {} exists", self.column))?;
 
         let temporary_column_type = self
             .changes
@@ -108,7 +108,7 @@ impl Action for AlterColumn {
             temp_column = self.temporary_column_name(ctx),
             temp_column_type = temporary_column_type,
         );
-        db.run(&query)?;
+        db.run(&query).context("failed to add temporary column")?;
 
         let declarations: Vec<String> = table
             .columns
@@ -173,10 +173,12 @@ impl Action for AlterColumn {
             down_trigger = self.down_trigger_name(ctx),
             declarations = declarations.join("\n"),
         );
-        db.run(&query)?;
+        db.run(&query)
+            .context("failed to create up and down triggers")?;
 
         // Backfill values in batches by touching the previous column
-        common::batch_touch_rows(db, &table.real_name, &column.real_name)?;
+        common::batch_touch_rows(db, &table.real_name, &column.real_name)
+            .context("failed to batch update existing rows")?;
 
         // Add a temporary NOT NULL constraint if the column shouldn't be nullable.
         // This constraint is set as NOT VALID so it doesn't apply to existing rows and
@@ -193,7 +195,8 @@ impl Action for AlterColumn {
                 constraint_name = self.not_null_constraint_name(ctx),
                 column = self.temporary_column_name(ctx),
             );
-            db.run(&query)?;
+            db.run(&query)
+                .context("failed to add NOT NULL constraint")?;
         }
 
         Ok(())
@@ -216,7 +219,7 @@ impl Action for AlterColumn {
                     existing_name = self.column,
                     new_name = new_name,
                 );
-                db.run(&query)?;
+                db.run(&query).context("failed to rename column")?;
             }
             return Ok(());
         }
@@ -237,7 +240,7 @@ impl Action for AlterColumn {
 			",
             self.table, column.real_name
         );
-        db.run(&query)?;
+        db.run(&query).context("failed to drop old column")?;
 
         // Rename temporary column
         let query = format!(
@@ -248,7 +251,8 @@ impl Action for AlterColumn {
             temp_column = self.temporary_column_name(ctx),
             name = column_name,
         );
-        db.run(&query)?;
+        db.run(&query)
+            .context("failed to rename temporary column")?;
 
         // Remove triggers and procedures
         let query = format!(
@@ -263,7 +267,8 @@ impl Action for AlterColumn {
             up_trigger = self.up_trigger_name(ctx),
             down_trigger = self.down_trigger_name(ctx),
         );
-        db.run(&query)?;
+        db.run(&query)
+            .context("failed to drop up and down triggers")?;
 
         // Update column to be NOT NULL if necessary
         if !column.nullable {
@@ -277,7 +282,8 @@ impl Action for AlterColumn {
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(ctx),
             );
-            db.run(&query)?;
+            db.run(&query)
+                .context("failed to validate NOT NULL constraint")?;
 
             // Update the column to be NOT NULL.
             // This requires an exclusive lock but since PG 12 it can check
@@ -291,7 +297,7 @@ impl Action for AlterColumn {
                 table = self.table,
                 column = column_name,
             );
-            db.run(&query)?;
+            db.run(&query).context("failed to set column as NOT NULL")?;
 
             // Drop the temporary constraint
             let query = format!(
@@ -302,7 +308,8 @@ impl Action for AlterColumn {
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(ctx),
             );
-            db.run(&query)?;
+            db.run(&query)
+                .context("failed to drop NOT NULL constraint")?;
         }
 
         Ok(())
@@ -344,7 +351,8 @@ impl Action for AlterColumn {
             up_trigger = self.up_trigger_name(ctx),
             down_trigger = self.down_trigger_name(ctx),
         );
-        db.run(&query)?;
+        db.run(&query)
+            .context("failed to drop up and down triggers")?;
 
         // Drop temporary column
         let query = format!(
@@ -355,7 +363,7 @@ impl Action for AlterColumn {
             table = self.table,
             temp_column = self.temporary_column_name(ctx),
         );
-        db.run(&query)?;
+        db.run(&query).context("failed to drop temporary column")?;
 
         Ok(())
     }

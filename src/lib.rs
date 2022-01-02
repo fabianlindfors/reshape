@@ -3,7 +3,7 @@ use crate::{
     schema::Schema,
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use colored::*;
 use db::{Conn, DbConn};
 use postgres::Config;
@@ -96,7 +96,8 @@ impl Reshape {
 
         println!(" Applying {} migrations\n", remaining_migrations.len());
 
-        helpers::setup_helpers(&mut self.db, current_migration)?;
+        helpers::set_up_helpers(&mut self.db, current_migration)
+            .context("failed to set up helpers")?;
 
         let mut new_schema = Schema::new();
         let mut processed_migrations: &[Migration] = &[];
@@ -107,10 +108,13 @@ impl Reshape {
             processed_migrations = &remaining_migrations[..migration_index + 1];
 
             for (action_index, action) in migration.actions.iter().enumerate() {
-                print!("  + {} ", action.describe());
+                let description = action.describe();
+                print!("  + {} ", description);
 
                 let ctx = MigrationContext::new(migration_index, action_index);
-                result = action.run(&ctx, &mut self.db, &new_schema);
+                result = action
+                    .run(&ctx, &mut self.db, &new_schema)
+                    .with_context(|| format!("failed to {}", description));
 
                 if result.is_ok() {
                     action.update_schema(&ctx, &mut new_schema);
@@ -133,16 +137,22 @@ impl Reshape {
 
         // Create schema and views for migration
         let target_migration = remaining_migrations.last().unwrap().name.to_string();
-        self.create_schema_for_migration(&target_migration, &new_schema)?;
+        self.create_schema_for_migration(&target_migration, &new_schema)
+            .with_context(|| {
+                format!("failed to create schema for migration {}", target_migration)
+            })?;
 
         // Update state once migrations have been performed
         self.state.in_progress(remaining_migrations);
-        self.state.save(&mut self.db)?;
+        self.state
+            .save(&mut self.db)
+            .context("failed to save in-progress state")?;
 
         // If we started from a blank slate, we can finish the migration immediately
         if current_migration.is_none() {
             println!("Automatically completing migrations\n");
-            self.complete_migration()?;
+            self.complete_migration()
+                .context("failed to automatically complete migrations")?;
 
             println!("Migrations complete:");
             println!(
@@ -176,41 +186,61 @@ impl Reshape {
             }
         };
 
-        helpers::teardown_helpers(&mut self.db)?;
+        helpers::tear_down_helpers(&mut self.db).context("failed to tear down helpers")?;
 
         let mut temp_schema = Schema::new();
 
         // Run all the completion changes as a transaction to avoid incomplete updates
-        let mut transaction = self.db.transaction()?;
+        let mut transaction = self
+            .db
+            .transaction()
+            .context("failed to start transaction")?;
 
         // Remove previous migration's schema
         if let Some(current_migration) = &self.state.current_migration {
-            transaction.run(&format!(
-                "DROP SCHEMA IF EXISTS {} CASCADE",
-                schema_name_for_migration(current_migration)
-            ))?;
+            transaction
+                .run(&format!(
+                    "DROP SCHEMA IF EXISTS {} CASCADE",
+                    schema_name_for_migration(current_migration)
+                ))
+                .context("failed to remove previous migration's schema")?;
         }
 
         for (migration_index, migration) in remaining_migrations.iter().enumerate() {
             println!("Completing '{}':", migration.name);
 
             for (action_index, action) in migration.actions.iter().enumerate() {
-                print!("  + {} ", action.describe());
+                let description = action.describe();
+                print!("  + {} ", description);
 
                 let ctx = MigrationContext::new(migration_index, action_index);
-                action.complete(&ctx, &mut transaction, &temp_schema)?;
-                action.update_schema(&ctx, &mut temp_schema);
+                let result = action
+                    .complete(&ctx, &mut transaction, &temp_schema)
+                    .with_context(|| format!("failed to complete migration {}", migration.name))
+                    .with_context(|| format!("failed to complete action: {}", description));
 
-                println!("{}", "done".green());
+                if result.is_ok() {
+                    action.update_schema(&ctx, &mut temp_schema);
+                    println!("{}", "done".green());
+                } else {
+                    println!("{}", "failed".green());
+                    return result;
+                }
             }
 
             println!("");
         }
 
-        self.state.complete()?;
-        self.state.save(&mut transaction)?;
+        self.state
+            .complete()
+            .context("failed to update state as completed")?;
+        self.state
+            .save(&mut transaction)
+            .context("failed to save state after setting as completed")?;
 
-        transaction.commit()?;
+        transaction
+            .commit()
+            .context("failed to apply transaction")?;
 
         Ok(())
     }
@@ -223,7 +253,13 @@ impl Reshape {
         // Create schema for migration
         let schema_name = schema_name_for_migration(migration_name);
         self.db
-            .run(&format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name))?;
+            .run(&format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name))
+            .with_context(|| {
+                format!(
+                    "failed to create schema {} for migration {}",
+                    schema_name, migration_name
+                )
+            })?;
 
         // Create views inside schema
         for table in schema.get_tables(&mut self.db)? {
@@ -252,7 +288,8 @@ impl Reshape {
             table_name = table.real_name,
             view_name = table.name,
             columns = select_columns.join(","),
-        ))?;
+        ))
+        .with_context(|| format!("failed to create view for table {}", table.name))?;
 
         Ok(())
     }
@@ -300,16 +337,19 @@ impl Reshape {
         };
         let target_migration = remaining_migrations.last().unwrap().name.to_string();
 
-        helpers::teardown_helpers(&mut self.db)?;
+        helpers::tear_down_helpers(&mut self.db).context("failed to tear down helpers")?;
 
         // Run all the abort changes as a transaction to avoid incomplete changes
-        let mut transaction = self.db.transaction()?;
+        let mut transaction = self
+            .db
+            .transaction()
+            .context("failed to start transaction")?;
 
         // Remove new migration's schema
-        transaction.run(&format!(
-            "DROP SCHEMA IF EXISTS {} CASCADE",
-            schema_name_for_migration(&target_migration)
-        ))?;
+        let schema_name = schema_name_for_migration(&target_migration);
+        transaction
+            .run(&format!("DROP SCHEMA IF EXISTS {} CASCADE", schema_name,))
+            .with_context(|| format!("failed to drop schema {}", schema_name))?;
 
         // Abort all pending migrations
         abort_migrations(&mut transaction, &remaining_migrations)?;
@@ -317,9 +357,13 @@ impl Reshape {
         let keep_count = self.state.migrations.len() - remaining_migrations.len();
         self.state.migrations.truncate(keep_count);
         self.state.status = state::Status::Idle;
-        self.state.save(&mut transaction)?;
+        self.state
+            .save(&mut transaction)
+            .context("failed to save state")?;
 
-        transaction.commit()?;
+        transaction
+            .commit()
+            .context("failed to commit transaction")?;
 
         Ok(())
     }
@@ -331,7 +375,10 @@ fn abort_migrations(db: &mut dyn Conn, migrations: &[Migration]) -> anyhow::Resu
         print!("Aborting '{}' ", migration.name);
         for (action_index, action) in migration.actions.iter().rev().enumerate() {
             let ctx = MigrationContext::new(migration_index, action_index);
-            action.abort(&ctx, db)?;
+            action
+                .abort(&ctx, db)
+                .with_context(|| format!("failed to abort migration {}", migration.name))
+                .with_context(|| format!("failed to abort action: {}", action.describe()))?;
         }
         println!("{}", "done".green());
     }

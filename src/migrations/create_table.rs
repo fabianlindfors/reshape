@@ -1,5 +1,6 @@
 use super::{Action, Column, MigrationContext};
 use crate::{db::Conn, schema::Schema};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -71,7 +72,8 @@ impl Action for CreateTable {
             )",
             self.name,
             definition_rows.join(",\n"),
-        ))?;
+        ))
+        .context("failed to create table")?;
         Ok(())
     }
 
@@ -88,8 +90,8 @@ impl Action for CreateTable {
     fn update_schema(&self, _ctx: &MigrationContext, _schema: &mut Schema) {}
 
     fn abort(&self, _ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
-        let query = format!("DROP TABLE IF EXISTS {table}", table = self.name,);
-        db.run(&query)?;
+        db.run(&format!("DROP TABLE IF EXISTS {}", self.name,))
+            .context("failed to drop table")?;
 
         Ok(())
     }

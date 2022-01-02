@@ -1,5 +1,6 @@
 use super::{Action, MigrationContext};
 use crate::{db::Conn, schema::Schema};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -38,7 +39,7 @@ impl Action for RenameTable {
             table = self.table,
             new_name = self.new_name,
         );
-        db.run(&query)?;
+        db.run(&query).context("failed to rename table")?;
 
         Ok(())
     }

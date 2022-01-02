@@ -1,5 +1,6 @@
 use super::{common, Action, Column, MigrationContext};
 use crate::{db::Conn, schema::Schema};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -80,7 +81,7 @@ impl Action for AddColumn {
             table = self.table,
             definition = definition_parts.join(" "),
         );
-        db.run(&query)?;
+        db.run(&query).context("failed to add column")?;
 
         if let Some(up) = &self.up {
             let table = schema.get_table(db, &self.table)?;
@@ -124,12 +125,13 @@ impl Action for AddColumn {
                 table = self.table,
                 declarations = declarations.join("\n"),
             );
-            db.run(&query)?;
+            db.run(&query).context("failed to create up trigger")?;
         }
 
         // Backfill values in batches
         if self.up.is_some() {
-            common::batch_touch_rows(db, &table.real_name, &temp_column_name)?;
+            common::batch_touch_rows(db, &table.real_name, &temp_column_name)
+                .context("failed to batch update existing rows")?;
         }
 
         // Add a temporary NOT NULL constraint if the column shouldn't be nullable.
@@ -147,7 +149,8 @@ impl Action for AddColumn {
                 constraint_name = self.not_null_constraint_name(&ctx),
                 column = temp_column_name,
             );
-            db.run(&query)?;
+            db.run(&query)
+                .context("failed to add NOT NULL constraint")?;
         }
 
         Ok(())
@@ -170,7 +173,7 @@ impl Action for AddColumn {
             table = self.table,
             trigger_name = self.trigger_name(ctx),
         );
-        db.run(&query)?;
+        db.run(&query).context("failed to drop up trigger")?;
 
         // Update column to be NOT NULL if necessary
         if !self.column.nullable {
@@ -184,7 +187,8 @@ impl Action for AddColumn {
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(ctx),
             );
-            db.run(&query)?;
+            db.run(&query)
+                .context("failed to validate NOT NULL constraint")?;
 
             // Update the column to be NOT NULL.
             // This requires an exclusive lock but since PG 12 it can check
@@ -198,7 +202,7 @@ impl Action for AddColumn {
                 table = self.table,
                 column = self.temp_column_name(ctx),
             );
-            db.run(&query)?;
+            db.run(&query).context("failed to set column as NOT NULL")?;
 
             // Drop the temporary constraint
             let query = format!(
@@ -209,7 +213,8 @@ impl Action for AddColumn {
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(ctx),
             );
-            db.run(&query)?;
+            db.run(&query)
+                .context("failed to drop NOT NULL constraint")?;
         }
 
         // Rename the temporary column to its real name
@@ -221,7 +226,8 @@ impl Action for AddColumn {
             table = table.real_name,
             temp_column_name = self.temp_column_name(ctx),
             column_name = self.column.name,
-        ))?;
+        ))
+        .context("failed to rename column to final name")?;
 
         Ok(())
     }
@@ -244,7 +250,7 @@ impl Action for AddColumn {
             table = self.table,
             trigger_name = self.trigger_name(ctx),
         );
-        db.run(&query)?;
+        db.run(&query).context("failed to drop up trigger")?;
 
         // Remove column
         let query = format!(
@@ -255,7 +261,7 @@ impl Action for AddColumn {
             table = self.table,
             column = self.temp_column_name(ctx),
         );
-        db.run(&query)?;
+        db.run(&query).context("failed to drop column")?;
 
         Ok(())
     }

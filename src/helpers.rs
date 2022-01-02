@@ -2,7 +2,7 @@ use anyhow::Context;
 
 use crate::db::Conn;
 
-pub fn setup_helpers(db: &mut dyn Conn, current_migration: &Option<String>) -> anyhow::Result<()> {
+pub fn set_up_helpers(db: &mut dyn Conn, current_migration: &Option<String>) -> anyhow::Result<()> {
     let predicate = if let Some(current_migration) = current_migration {
         format!(
             "current_setting('search_path') = 'migration_{}' OR setting_bool",
@@ -32,7 +32,7 @@ pub fn setup_helpers(db: &mut dyn Conn, current_migration: &Option<String>) -> a
     Ok(())
 }
 
-pub fn teardown_helpers(db: &mut dyn Conn) -> anyhow::Result<()> {
+pub fn tear_down_helpers(db: &mut dyn Conn) -> anyhow::Result<()> {
     db.query("DROP FUNCTION reshape.is_old_schema;")?;
     Ok(())
 }

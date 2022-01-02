@@ -1,5 +1,6 @@
 use super::{Action, MigrationContext};
 use crate::{db::Conn, schema::Schema};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -37,7 +38,8 @@ impl Action for AddIndex {
             name = self.name,
             table = self.table,
             columns = column_real_names.join(", "),
-        ))?;
+        ))
+        .context("failed to create index")?;
         Ok(())
     }
 
@@ -59,7 +61,8 @@ impl Action for AddIndex {
 			",
             name = self.name,
             table = self.table,
-        ))?;
+        ))
+        .context("failed to drop index")?;
         Ok(())
     }
 }

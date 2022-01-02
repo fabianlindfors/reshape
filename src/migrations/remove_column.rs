@@ -1,5 +1,6 @@
 use super::{Action, MigrationContext};
 use crate::{db::Conn, schema::Schema};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -77,7 +78,7 @@ impl Action for RemoveColumn {
                 table = self.table,
                 declarations = declarations.join("\n"),
             );
-            db.run(&query)?;
+            db.run(&query).context("failed to create down trigger")?;
         }
 
         Ok(())
@@ -102,7 +103,8 @@ impl Action for RemoveColumn {
             column = self.column,
             trigger_name = self.trigger_name(&ctx),
         );
-        db.run(&query)?;
+        db.run(&query)
+            .context("failed to drop column and down trigger")?;
 
         Ok(())
     }
@@ -124,7 +126,8 @@ impl Action for RemoveColumn {
             ",
             table = self.table,
             trigger_name = self.trigger_name(&ctx),
-        ))?;
+        ))
+        .context("failed to drop down trigger")?;
 
         Ok(())
     }

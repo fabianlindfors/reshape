@@ -1,5 +1,6 @@
 use super::{Action, MigrationContext};
 use crate::{db::Conn, schema::Schema};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -35,7 +36,7 @@ impl Action for RemoveTable {
             ",
             table = self.table,
         );
-        db.run(&query)?;
+        db.run(&query).context("failed to drop table")?;
 
         Ok(())
     }
