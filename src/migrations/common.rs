@@ -75,7 +75,7 @@ pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow:
     loop {
         let mut params: Vec<&(dyn ToSql + Sync)> = Vec::new();
 
-        let primary_key = get_primary_key_columns_for_table(db, &table)?;
+        let primary_key = get_primary_key_columns_for_table(db, table)?;
         let primary_key_columns = primary_key.join(", ");
 
         let primary_key_where = primary_key

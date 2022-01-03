@@ -77,11 +77,7 @@ impl Action for AlterColumn {
             .find(|column| column.name == self.column)
             .ok_or_else(|| anyhow!("no such column {} exists", self.column))?;
 
-        let temporary_column_type = self
-            .changes
-            .data_type
-            .as_ref()
-            .unwrap_or_else(|| &column.data_type);
+        let temporary_column_type = self.changes.data_type.as_ref().unwrap_or(&column.data_type);
 
         // Add temporary, nullable column
         let query = format!(

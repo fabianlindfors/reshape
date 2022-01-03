@@ -103,10 +103,10 @@ fn run(opts: Opts) -> anyhow::Result<()> {
 
 fn reshape_from_connection_options(opts: &ConnectionOptions) -> anyhow::Result<Reshape> {
     let env_url = std::env::var("POSTGRES_URL").ok();
-    let url = env_url.as_ref().or(opts.url.as_ref());
+    let url = env_url.as_ref().or_else(|| opts.url.as_ref());
 
     match url {
-        Some(url) => Reshape::new(&url),
+        Some(url) => Reshape::new(url),
         None => Reshape::new_with_options(&opts.host, opts.port, &opts.username, &opts.password),
     }
 }
@@ -115,7 +115,7 @@ fn find_migrations(opts: &FindMigrationsOptions) -> anyhow::Result<Vec<Migration
     let search_paths = opts
         .dirs
         .iter()
-        .map(|path| Path::new(path))
+        .map(Path::new)
         // Filter out all directories that don't exist
         .filter(|path| path.exists());
 

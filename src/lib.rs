@@ -125,13 +125,13 @@ impl Reshape {
                 }
             }
 
-            println!("");
+            println!();
         }
 
         // If a migration failed, we abort all the migrations that were applied
         if let Err(err) = result {
             println!("A migration failed, aborting migrations that have already been applied");
-            abort_migrations(&mut self.db, &processed_migrations)?;
+            abort_migrations(&mut self.db, processed_migrations)?;
             return Err(err);
         }
 
@@ -225,7 +225,7 @@ impl Reshape {
                 }
             }
 
-            println!("");
+            println!();
         }
 
         self.state
@@ -349,7 +349,7 @@ impl Reshape {
             .with_context(|| format!("failed to drop schema {}", schema_name))?;
 
         // Abort all pending migrations
-        abort_migrations(&mut transaction, &remaining_migrations)?;
+        abort_migrations(&mut transaction, remaining_migrations)?;
 
         let keep_count = self.state.migrations.len() - remaining_migrations.len();
         self.state.migrations.truncate(keep_count);

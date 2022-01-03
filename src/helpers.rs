@@ -9,7 +9,7 @@ pub fn set_up_helpers(db: &mut dyn Conn, current_migration: &Option<String>) -> 
             current_migration
         )
     } else {
-        format!("setting_bool")
+        "setting_bool".to_string()
     };
 
     let query = format!(

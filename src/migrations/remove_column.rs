@@ -73,7 +73,7 @@ impl Action for RemoveColumn {
                 CREATE TRIGGER {trigger_name} BEFORE UPDATE OR INSERT ON {table} FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
                 ",
                 column_name = self.column,
-                trigger_name = self.trigger_name(&ctx),
+                trigger_name = self.trigger_name(ctx),
                 down = down,
                 table = self.table,
                 declarations = declarations.join("\n"),
@@ -96,7 +96,7 @@ impl Action for RemoveColumn {
             ",
             table = self.table,
             column = self.column,
-            trigger_name = self.trigger_name(&ctx),
+            trigger_name = self.trigger_name(ctx),
         );
         db.run(&query)
             .context("failed to drop column and down trigger")?;
@@ -120,7 +120,7 @@ impl Action for RemoveColumn {
             DROP FUNCTION IF EXISTS {trigger_name};
             ",
             table = self.table,
-            trigger_name = self.trigger_name(&ctx),
+            trigger_name = self.trigger_name(ctx),
         ))
         .context("failed to drop down trigger")?;
 

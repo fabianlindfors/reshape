@@ -52,6 +52,12 @@ impl Schema {
     }
 }
 
+impl Default for Schema {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug)]
 pub struct TableChanges {
     current_name: String,
@@ -64,7 +70,7 @@ impl TableChanges {
     fn new(name: String) -> Self {
         Self {
             current_name: name.to_string(),
-            real_name: name.to_string(),
+            real_name: name,
             column_changes: Vec::new(),
             removed: false,
         }
@@ -108,7 +114,7 @@ impl ColumnChanges {
     fn new(name: String) -> Self {
         Self {
             current_name: name.to_string(),
-            backing_columns: vec![name.to_string()],
+            backing_columns: vec![name],
             removed: false,
         }
     }

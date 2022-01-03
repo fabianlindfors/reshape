@@ -146,7 +146,7 @@ impl Action for AddColumn {
                 CHECK ({column} IS NOT NULL) NOT VALID
                 ",
                 table = self.table,
-                constraint_name = self.not_null_constraint_name(&ctx),
+                constraint_name = self.not_null_constraint_name(ctx),
                 column = temp_column_name,
             );
             db.run(&query)
