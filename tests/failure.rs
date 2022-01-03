@@ -78,4 +78,6 @@ fn invalid_migration() {
         reshape.migrate(second_migrations.clone()).is_err(),
         "invalid migration succeeded"
     );
+
+    common::assert_cleaned_up(&mut new_db);
 }

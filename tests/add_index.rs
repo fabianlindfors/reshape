@@ -46,7 +46,6 @@ fn add_index() {
         reshape::schema_query_for_migration(&first_migrations.last().unwrap().name);
     let new_schema_query =
         reshape::schema_query_for_migration(&second_migrations.last().unwrap().name);
-    println!("{}", new_schema_query);
     old_db.simple_query(&old_schema_query).unwrap();
     new_db.simple_query(&new_schema_query).unwrap();
 
@@ -69,4 +68,5 @@ fn add_index() {
     assert_eq!(vec![(true, true)], result);
 
     reshape.complete_migration().unwrap();
+    common::assert_cleaned_up(&mut new_db);
 }

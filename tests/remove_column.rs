@@ -79,4 +79,5 @@ fn remove_column() {
     );
 
     reshape.complete_migration().unwrap();
+    common::assert_cleaned_up(&mut new_db);
 }

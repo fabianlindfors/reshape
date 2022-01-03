@@ -77,4 +77,5 @@ fn rename_table() {
     assert!(new_db.simple_query("SELECT id FROM users").is_err());
 
     reshape.complete_migration().unwrap();
+    common::assert_cleaned_up(&mut new_db);
 }

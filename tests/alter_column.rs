@@ -105,6 +105,7 @@ fn alter_column_data() {
     assert_eq!("test testsson", result.get::<_, &str>("name"));
 
     reshape.complete_migration().unwrap();
+    common::assert_cleaned_up(&mut new_db);
 }
 
 #[test]
@@ -209,6 +210,7 @@ fn alter_column_set_not_null() {
     assert_eq!("Jane Doe", result.get::<_, &str>("name"));
 
     reshape.complete_migration().unwrap();
+    common::assert_cleaned_up(&mut new_db);
 }
 
 #[test]
@@ -296,6 +298,7 @@ fn alter_column_rename() {
         .eq(expected));
 
     reshape.complete_migration().unwrap();
+    common::assert_cleaned_up(&mut new_db);
 }
 
 #[test]
@@ -419,4 +422,7 @@ fn alter_column_multiple() {
         .nth(0)
         .unwrap();
     assert_eq!(48, result);
+
+    reshape.complete_migration().unwrap();
+    common::assert_cleaned_up(&mut new_db);
 }

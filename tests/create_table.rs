@@ -120,6 +120,7 @@ fn create_table() {
         .collect();
 
     assert_eq!(vec!["id"], primary_key_columns);
+    common::assert_cleaned_up(&mut db);
 }
 
 #[test]
@@ -208,4 +209,6 @@ fn create_table_with_foreign_keys() {
         vec![("user_id".to_string(), "users".to_string(), "id".to_string())],
         foreign_key_columns
     );
+
+    common::assert_cleaned_up(&mut db);
 }
