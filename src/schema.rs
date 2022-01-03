@@ -100,8 +100,7 @@ impl TableChanges {
 #[derive(Debug)]
 pub struct ColumnChanges {
     current_name: String,
-    original_name: String,
-    intermediate_names: Vec<String>,
+    backing_columns: Vec<String>,
     removed: bool,
 }
 
@@ -109,8 +108,7 @@ impl ColumnChanges {
     fn new(name: String) -> Self {
         Self {
             current_name: name.to_string(),
-            original_name: name.to_string(),
-            intermediate_names: Vec::new(),
+            backing_columns: vec![name.to_string()],
             removed: false,
         }
     }
@@ -120,7 +118,7 @@ impl ColumnChanges {
     }
 
     pub fn set_column(&mut self, column_name: &str) {
-        self.intermediate_names.push(column_name.to_string())
+        self.backing_columns.push(column_name.to_string())
     }
 
     pub fn set_removed(&mut self) {
@@ -128,9 +126,9 @@ impl ColumnChanges {
     }
 
     fn real_name(&self) -> &str {
-        self.intermediate_names
+        self.backing_columns
             .last()
-            .unwrap_or_else(|| &self.original_name)
+            .expect("backing_columns should never be empty")
     }
 }
 
@@ -235,14 +233,13 @@ impl Schema {
                     );
                 }
 
-                if !column_changes.intermediate_names.is_empty() {
-                    ignore_columns.insert(column_changes.original_name.to_string());
+                let (_, rest) = column_changes
+                    .backing_columns
+                    .split_last()
+                    .expect("backing_columns should never be empty");
 
-                    let non_used_intermediate = &column_changes.intermediate_names
-                        [..column_changes.intermediate_names.len() - 1];
-                    for intermediate in non_used_intermediate {
-                        ignore_columns.insert(intermediate.to_string());
-                    }
+                for column in rest {
+                    ignore_columns.insert(column.to_string());
                 }
             }
         }
@@ -274,7 +271,7 @@ impl Schema {
         let table = Table {
             name: current_table_name.to_string(),
             real_name: real_table_name.to_string(),
-            columns: columns,
+            columns,
         };
 
         Ok(table)
