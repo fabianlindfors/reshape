@@ -84,12 +84,7 @@ impl Action for RemoveColumn {
         Ok(())
     }
 
-    fn complete(
-        &self,
-        ctx: &MigrationContext,
-        db: &mut dyn Conn,
-        _schema: &Schema,
-    ) -> anyhow::Result<()> {
+    fn complete(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove column, function and trigger
         let query = format!(
             "

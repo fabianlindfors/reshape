@@ -188,8 +188,6 @@ impl Reshape {
 
         helpers::tear_down_helpers(&mut self.db).context("failed to tear down helpers")?;
 
-        let mut temp_schema = Schema::new();
-
         // Run all the completion changes as a transaction to avoid incomplete updates
         let mut transaction = self
             .db
@@ -215,15 +213,14 @@ impl Reshape {
 
                 let ctx = MigrationContext::new(migration_index, action_index);
                 let result = action
-                    .complete(&ctx, &mut transaction, &temp_schema)
+                    .complete(&ctx, &mut transaction)
                     .with_context(|| format!("failed to complete migration {}", migration.name))
                     .with_context(|| format!("failed to complete action: {}", description));
 
                 if result.is_ok() {
-                    action.update_schema(&ctx, &mut temp_schema);
                     println!("{}", "done".green());
                 } else {
-                    println!("{}", "failed".green());
+                    println!("{}", "failed".red());
                     return result;
                 }
             }

@@ -156,14 +156,7 @@ impl Action for AddColumn {
         Ok(())
     }
 
-    fn complete(
-        &self,
-        ctx: &MigrationContext,
-        db: &mut dyn Conn,
-        schema: &Schema,
-    ) -> anyhow::Result<()> {
-        let table = schema.get_table(db, &self.table)?;
-
+    fn complete(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove triggers and procedures
         let query = format!(
             "
@@ -223,7 +216,7 @@ impl Action for AddColumn {
             ALTER TABLE {table}
             RENAME COLUMN {temp_column_name} TO {column_name}
             ",
-            table = table.real_name,
+            table = self.table,
             temp_column_name = self.temp_column_name(ctx),
             column_name = self.column.name,
         ))

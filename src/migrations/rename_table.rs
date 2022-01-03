@@ -24,12 +24,7 @@ impl Action for RenameTable {
         Ok(())
     }
 
-    fn complete(
-        &self,
-        _ctx: &MigrationContext,
-        db: &mut dyn Conn,
-        _schema: &Schema,
-    ) -> anyhow::Result<()> {
+    fn complete(&self, _ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Rename table
         let query = format!(
             "

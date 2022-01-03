@@ -23,12 +23,7 @@ impl Action for RemoveTable {
         Ok(())
     }
 
-    fn complete(
-        &self,
-        _ctx: &MigrationContext,
-        db: &mut dyn Conn,
-        _schema: &Schema,
-    ) -> anyhow::Result<()> {
+    fn complete(&self, _ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove table
         let query = format!(
             "

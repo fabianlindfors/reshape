@@ -43,12 +43,7 @@ impl Action for AddIndex {
         Ok(())
     }
 
-    fn complete(
-        &self,
-        _ctx: &MigrationContext,
-        _db: &mut dyn Conn,
-        _schema: &Schema,
-    ) -> anyhow::Result<()> {
+    fn complete(&self, _ctx: &MigrationContext, _db: &mut dyn Conn) -> anyhow::Result<()> {
         Ok(())
     }
 

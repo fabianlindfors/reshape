@@ -98,12 +98,7 @@ pub trait Action: Debug {
     fn describe(&self) -> String;
     fn run(&self, ctx: &MigrationContext, db: &mut dyn Conn, schema: &Schema)
         -> anyhow::Result<()>;
-    fn complete(
-        &self,
-        ctx: &MigrationContext,
-        db: &mut dyn Conn,
-        schema: &Schema,
-    ) -> anyhow::Result<()>;
+    fn complete(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()>;
     fn update_schema(&self, ctx: &MigrationContext, schema: &mut Schema);
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()>;
 }

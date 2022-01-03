@@ -26,30 +26,15 @@ impl AlterColumn {
     }
 
     fn up_trigger_name(&self, ctx: &MigrationContext) -> String {
-        format!(
-            "{}_alter_column_up_trigger_{}_{}",
-            ctx.prefix(),
-            self.table,
-            self.column
-        )
+        format!("{}_alter_column_up_trigger", ctx.prefix())
     }
 
     fn down_trigger_name(&self, ctx: &MigrationContext) -> String {
-        format!(
-            "{}_alter_column_down_trigger_{}_{}",
-            ctx.prefix_inverse(),
-            self.table,
-            self.column
-        )
+        format!("{}_alter_column_down_trigger", ctx.prefix_inverse())
     }
 
     fn not_null_constraint_name(&self, ctx: &MigrationContext) -> String {
-        format!(
-            "{}_alter_column_temporary_not_null_{}_{}",
-            ctx.prefix(),
-            self.table,
-            self.column
-        )
+        format!("{}_alter_column_temporary", ctx.prefix())
     }
 
     fn can_short_circuit(&self) -> bool {
@@ -202,12 +187,7 @@ impl Action for AlterColumn {
         Ok(())
     }
 
-    fn complete(
-        &self,
-        ctx: &MigrationContext,
-        db: &mut dyn Conn,
-        schema: &Schema,
-    ) -> anyhow::Result<()> {
+    fn complete(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         if self.can_short_circuit() {
             if let Some(new_name) = &self.changes.name {
                 let query = format!(
@@ -224,25 +204,70 @@ impl Action for AlterColumn {
             return Ok(());
         }
 
-        let table = schema.get_table(db, &self.table)?;
+        // Update column to be NOT NULL if necessary
+        let has_not_null_constraint = !db
+            .query_with_params(
+                "
+                SELECT constraint_name
+                FROM information_schema.constraint_column_usage
+                WHERE constraint_name = $1
+                ",
+                &[&self.not_null_constraint_name(ctx)],
+            )
+            .context("failed to get any NOT NULL constraint")?
+            .is_empty();
+        if has_not_null_constraint {
+            // Validate the temporary constraint (should always be valid).
+            // This performs a sequential scan but does not take an exclusive lock.
+            let query = format!(
+                "
+                ALTER TABLE {table}
+                VALIDATE CONSTRAINT {constraint_name}
+                ",
+                table = self.table,
+                constraint_name = self.not_null_constraint_name(ctx),
+            );
+            db.run(&query)
+                .context("failed to validate NOT NULL constraint")?;
 
-        let column = table
-            .columns
-            .iter()
-            .find(|column| column.name == self.column)
-            .ok_or_else(|| anyhow!("no such column exists"))?;
-        let column_name = self.changes.name.as_deref().unwrap_or(&column.real_name);
+            // Update the column to be NOT NULL.
+            // This requires an exclusive lock but since PG 12 it can check
+            // the existing constraint for correctness which makes the lock short-lived.
+            // Source: https://dba.stackexchange.com/a/268128
+            let query = format!(
+                "
+                ALTER TABLE {table}
+                ALTER COLUMN {column} SET NOT NULL
+                ",
+                table = self.table,
+                column = self.temporary_column_name(ctx),
+            );
+            db.run(&query).context("failed to set column as NOT NULL")?;
+
+            // Drop the temporary constraint
+            let query = format!(
+                "
+                ALTER TABLE {table}
+                DROP CONSTRAINT {constraint_name}
+                ",
+                table = self.table,
+                constraint_name = self.not_null_constraint_name(ctx),
+            );
+            db.run(&query)
+                .context("failed to drop NOT NULL constraint")?;
+        }
 
         // Remove old column
         let query = format!(
             "
             ALTER TABLE {} DROP COLUMN {} CASCADE
 			",
-            self.table, column.real_name
+            self.table, self.column
         );
         db.run(&query).context("failed to drop old column")?;
 
         // Rename temporary column
+        let column_name = self.changes.name.as_deref().unwrap_or(&self.column);
         let query = format!(
             "
             ALTER TABLE {table} RENAME COLUMN {temp_column} TO {name}
@@ -269,48 +294,6 @@ impl Action for AlterColumn {
         );
         db.run(&query)
             .context("failed to drop up and down triggers")?;
-
-        // Update column to be NOT NULL if necessary
-        if !column.nullable {
-            // Validate the temporary constraint (should always be valid).
-            // This performs a sequential scan but does not take an exclusive lock.
-            let query = format!(
-                "
-                ALTER TABLE {table}
-                VALIDATE CONSTRAINT {constraint_name}
-                ",
-                table = self.table,
-                constraint_name = self.not_null_constraint_name(ctx),
-            );
-            db.run(&query)
-                .context("failed to validate NOT NULL constraint")?;
-
-            // Update the column to be NOT NULL.
-            // This requires an exclusive lock but since PG 12 it can check
-            // the existing constraint for correctness which makes the lock short-lived.
-            // Source: https://dba.stackexchange.com/a/268128
-            let query = format!(
-                "
-                ALTER TABLE {table}
-                ALTER COLUMN {column} SET NOT NULL
-                ",
-                table = self.table,
-                column = column_name,
-            );
-            db.run(&query).context("failed to set column as NOT NULL")?;
-
-            // Drop the temporary constraint
-            let query = format!(
-                "
-                ALTER TABLE {table}
-                DROP CONSTRAINT {constraint_name}
-                ",
-                table = self.table,
-                constraint_name = self.not_null_constraint_name(ctx),
-            );
-            db.run(&query)
-                .context("failed to drop NOT NULL constraint")?;
-        }
 
         Ok(())
     }
