@@ -11,6 +11,7 @@ Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It 
 	- [Creating your first migration](#creating-your-first-migration)
 	- [Preparing your application](#preparing-your-application)
 	- [Running your migration](#running-your-migration)
+	- [Using during development](#using-during-development)
 - [Writing migrations](#writing-migrations)
 	- [Basics](#basics)
 	- [Tables](#tables)
@@ -30,6 +31,7 @@ Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It 
 	- [`reshape generate-schema-query`](#reshape-generate-schema-query)
 	- [Connection options](#connection-options)
 - [How it works](#how-it-works)
+- [License](#license)
 
 ## Getting started
 
@@ -49,9 +51,9 @@ docker run -v $(pwd):/usr/share/app fabianlindfors/reshape reshape migrate
 
 ### Creating your first migration
 
-Each migration should be stored as a separate file under `migrations/`. The files can be in either JSON or TOML format. The name of the file will become the name of your migration and they will be sorted by file name. We recommend prefixing every migration with an incrementing number.
+Each migration should be stored as a separate file in a `migrations/` directory. The files can be in either JSON or TOML format and the name of the file will become the name of your migration. We recommend prefixing every migration with an incrementing number as migrations are sorted by file name.
 
-Let's create a simple migration to set up a new table `users` with two fields, `id` and `name`. We'll create a file called `migration/1_create_users_table.toml`:
+Let's create a simple migration to set up a new table `users` with two fields, `id` and `name`. We'll create a file called `migrations/1_create_users_table.toml`:
 
 ```toml
 [[actions]]
@@ -93,6 +95,10 @@ reshape migrate
 As this is the first migration, Reshape will automatically complete it. For subsequent migrations, you will need to first run `reshape migrate`, roll out your application and then complete the migration using `reshape complete`.
 
 If nothing else is specified, Reshape will try to connect to a Postgres database running on `localhost` using `postgres` as both username and password. See [Connection options](#connection-options) for details on how to change the connection settings.
+
+### Using during development
+
+When adding new migrations during development, we recommend running `reshape migrate` but skipping `reshape complete`. This way, the new migrations can be iterated on by updating the migration file and running `reshape abort` followed by `reshape migrate`.
 
 ## Writing migrations
 
@@ -371,7 +377,7 @@ Starts a new migration, applying all migrations under `migrations/` that haven't
 
 | Option | Default | Description |
 | ------ | ------- | ----------- |
-| `--complete`, `-c` | `false` | Automatically complete migration after applying it. Useful during development. |
+| `--complete`, `-c` | `false` | Automatically complete migration after applying it. |
 | `--dirs` | `migrations/` | Directories to search for migration files. Multiple directories can be specified using `--dirs dir1 dir2 dir3`. |
 
 ### `reshape complete`
@@ -417,11 +423,13 @@ The options below can be used with all commands that communicate with Postgres. 
 
 ## How it works
 
-Reshape works by creating views that encapsulate the underlying tables, which your application will interact with. During a migration, Reshape will automatically create a new set of views and set up triggers to translate inserts and updates between the old and new schema. This means that every migration is a two phase process:
+Reshape works by creating views that encapsulate the underlying tables, which your application will interact with. During a migration, Reshape will automatically create a new set of views and set up triggers to translate inserts and updates between the old and new schema. This means that every deployment is a three-phase process:
 
-1. **Start migration** (`reshape migrate`): Create new views to ensure both the new and old schema are usable at the same time.
-	- After phase one is complete, you can start the roll out of your application. Once the roll out is complete, the second phase can be run.
-2. **Complete migration** (`reshape complete`): Removes the old schema and any intermediate data.
+1. **Start migration** (`reshape migrate`): Sets up views and triggers to ensure both the new and old schema are usable at the same time.
+2. **Roll out application**: Your application can be gradually rolled out without downtime. The existing deployment will continue using the old schema whilst the new deployment uses the new schema.
+3. **Complete migration** (`reshape complete`): Removes the old schema and any intermediate data and triggers. 
+
+If the application deployment fails, you should run `reshape abort` which will roll back any changes made by `reshape migrate` without losing data.
 
 ## License
 
