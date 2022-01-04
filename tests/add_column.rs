@@ -218,6 +218,7 @@ fn add_column_nullable() {
         .unwrap();
 
     reshape.complete_migration().unwrap();
+    common::assert_cleaned_up(&mut new_db);
 }
 
 #[test]
@@ -305,4 +306,5 @@ fn add_column_with_default() {
     assert_eq!("DEFAULT", name);
 
     reshape.complete_migration().unwrap();
+    common::assert_cleaned_up(&mut new_db);
 }
