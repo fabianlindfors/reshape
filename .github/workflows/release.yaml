@@ -47,6 +47,7 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
+          override: true
           target: ${{ matrix.target }}
     - name: Use cache for Rust dependencies
       uses: Swatinem/rust-cache@v1
@@ -54,7 +55,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: build
-        args: --release
+        args: --release --target ${{ matrix.target }}
         use-cross: ${{ matrix.use-cross }}
     - name: Rename binary
       run: mv target/release/reshape ./reshape-${{ matrix.file-name }}
