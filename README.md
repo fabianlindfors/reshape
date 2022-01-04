@@ -43,6 +43,14 @@ Reshape is designed for Postgres 12 and later.
 
 Binaries are available for macOS and Linux under [Releases](https://github.com/fabianlindfors/reshape/releases).
 
+#### Cargo
+
+Reshape can be installed using [Cargo](https://doc.rust-lang.org/cargo/):
+
+```shell
+cargo install reshape
+```
+
 #### Docker
 
 Reshape is available as a Docker image on [Docker Hub](https://hub.docker.com/repository/docker/fabianlindfors/reshape). 
