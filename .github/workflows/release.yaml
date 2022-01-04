@@ -58,7 +58,7 @@ jobs:
         args: --release --target ${{ matrix.target }}
         use-cross: ${{ matrix.use-cross }}
     - name: Rename binary
-      run: mv target/release/reshape ./reshape-${{ matrix.file-name }}
+      run: mv target/${{ matrix.target }}/release/reshape ./reshape-${{ matrix.file-name }}
     - name: Upload binary to release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
