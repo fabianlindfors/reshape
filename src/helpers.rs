@@ -33,6 +33,6 @@ pub fn set_up_helpers(db: &mut dyn Conn, current_migration: &Option<String>) -> 
 }
 
 pub fn tear_down_helpers(db: &mut dyn Conn) -> anyhow::Result<()> {
-    db.query("DROP FUNCTION reshape.is_old_schema;")?;
+    db.query("DROP FUNCTION IF EXISTS reshape.is_old_schema;")?;
     Ok(())
 }
