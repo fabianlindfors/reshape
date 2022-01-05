@@ -94,7 +94,7 @@ impl Reshape {
         self.state.applying(remaining_migrations.clone());
         self.state.save(&mut self.db)?;
 
-        println!(" Applying {} migrations\n", remaining_migrations.len());
+        println!("Applying {} migrations\n", remaining_migrations.len());
 
         helpers::set_up_helpers(&mut self.db, current_migration)
             .context("failed to set up helpers")?;
@@ -351,8 +351,6 @@ impl Reshape {
         // Abort all pending migrations
         abort_migrations(&mut transaction, remaining_migrations)?;
 
-        let keep_count = self.state.migrations.len() - remaining_migrations.len();
-        self.state.migrations.truncate(keep_count);
         self.state.status = state::Status::Idle;
         self.state
             .save(&mut transaction)
@@ -368,9 +366,10 @@ impl Reshape {
 
 fn abort_migrations(db: &mut dyn Conn, migrations: &[Migration]) -> anyhow::Result<()> {
     // Abort all migrations in reverse order
-    for (migration_index, migration) in migrations.iter().rev().enumerate() {
+    for (migration_index, migration) in migrations.iter().enumerate().rev() {
         print!("Aborting '{}' ", migration.name);
-        for (action_index, action) in migration.actions.iter().rev().enumerate() {
+
+        for (action_index, action) in migration.actions.iter().enumerate().rev() {
             let ctx = MigrationContext::new(migration_index, action_index);
             action
                 .abort(&ctx, db)
