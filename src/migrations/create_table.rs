@@ -8,6 +8,7 @@ pub struct CreateTable {
     pub name: String,
     pub columns: Vec<Column>,
     pub primary_key: Vec<String>,
+    #[serde(default)]
     pub foreign_keys: Vec<ForeignKey>,
 }
 
