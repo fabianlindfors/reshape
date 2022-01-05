@@ -68,7 +68,8 @@ Let's create a simple migration to set up a new table `users` with two fields, `
 ```toml
 [[actions]]
 type = "create_table"
-table = "users"
+name = "users"
+primary_key = ["id"]
 
 	[[actions.columns]]
 	name = "id"
