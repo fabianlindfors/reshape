@@ -44,7 +44,7 @@ impl AlterColumn {
     }
 }
 
-#[typetag::serde(name = "uppercase_column")]
+#[typetag::serde(name = "alter_column")]
 impl Action for AlterColumn {
     fn describe(&self) -> String {
         format!("Altering column \"{}\" on \"{}\"", self.column, self.table)
