@@ -58,7 +58,7 @@ impl Action for RemoveColumn {
                 CREATE OR REPLACE FUNCTION {trigger_name}()
                 RETURNS TRIGGER AS $$
                 BEGIN
-                    IF NEW.{column_name} IS NULL THEN
+                    IF NOT reshape.is_old_schema() IS NULL THEN
                         DECLARE
                             {declarations}
                         BEGIN
@@ -114,7 +114,7 @@ impl Action for RemoveColumn {
 
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove function and trigger
-        db.query(&format!(
+        db.run(&format!(
             "
             DROP TRIGGER IF EXISTS {trigger_name} ON {table};
             DROP FUNCTION IF EXISTS {trigger_name};
