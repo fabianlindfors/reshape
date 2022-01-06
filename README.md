@@ -120,7 +120,8 @@ Every migration consists of one or more actions. The actions will be run sequent
 ```toml
 [[actions]]
 type = "create_table"
-table = "customers"
+name = "customers"
+primary_key = ["id"]
 
 	[[actions.columns]]
 	name = "id"
@@ -129,7 +130,8 @@ table = "customers"
 
 [[actions]]
 type = "create_table"
-table = "products"
+name = "products"
+primary_key = ["sku"]
 
 	[[actions.columns]]
 	name = "sku"
@@ -149,8 +151,8 @@ The `create_table` action will create a new table with the specified columns, in
 ```toml
 [[actions]]
 type = "create_table"
-table = "customers"
-primary_key = "id"
+name = "customers"
+primary_key = ["id"]
 
 	[[actions.columns]]
 	name = "id"
@@ -173,8 +175,8 @@ primary_key = "id"
 ```toml
 [[actions]]
 type = "create_table"
-table = "users"
-primary_key = "id"
+name = "users"
+primary_key = ["id"]
 
 	[[actions.columns]]
 	name = "id"
@@ -183,8 +185,8 @@ primary_key = "id"
 
 [[actions]]
 type = "create_table"
-table = "items"
-primary_key = "id"
+name = "items"
+primary_key = ["id"]
 
 	[[actions.columns]]
 	name = "id"
