@@ -1,6 +1,6 @@
 [package]
 name = "reshape"
-version = "0.1.0"
+version = "0.1.1"
 description = "An easy-to-use, zero-downtime schema migration tool for Postgres"
 homepage = "https://github.com/fabianlindfors/reshape"
 documentation = "https://github.com/fabianlindfors/reshape"
