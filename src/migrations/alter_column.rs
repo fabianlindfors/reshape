@@ -18,30 +18,7 @@ pub struct ColumnChanges {
     #[serde(rename = "type")]
     pub data_type: Option<String>,
     pub nullable: Option<bool>,
-}
-
-impl AlterColumn {
-    fn temporary_column_name(&self, ctx: &MigrationContext) -> String {
-        format!("{}_new_{}", ctx.prefix(), self.column)
-    }
-
-    fn up_trigger_name(&self, ctx: &MigrationContext) -> String {
-        format!("{}_alter_column_up_trigger", ctx.prefix())
-    }
-
-    fn down_trigger_name(&self, ctx: &MigrationContext) -> String {
-        format!("{}_alter_column_down_trigger", ctx.prefix_inverse())
-    }
-
-    fn not_null_constraint_name(&self, ctx: &MigrationContext) -> String {
-        format!("{}_alter_column_temporary", ctx.prefix())
-    }
-
-    fn can_short_circuit(&self) -> bool {
-        self.changes.name.is_some()
-            && self.changes.data_type.is_none()
-            && self.changes.nullable.is_none()
-    }
+    pub default: Option<String>,
 }
 
 #[typetag::serde(name = "alter_column")]
@@ -63,12 +40,6 @@ impl Action for AlterColumn {
             return Ok(());
         }
 
-        // If we couldn't short circuit, then we need up and down functions
-        let (up, down) = match (&self.up, &self.down) {
-            (Some(up), Some(down)) => (up, down),
-            _ => return Err(anyhow!("missing up or down values")),
-        };
-
         let table = schema.get_table(db, &self.table)?;
 
         let column = table
@@ -77,19 +48,35 @@ impl Action for AlterColumn {
             .find(|column| column.name == self.column)
             .ok_or_else(|| anyhow!("no such column {} exists", self.column))?;
 
+        let temporary_column_name = self.temporary_column_name(ctx);
         let temporary_column_type = self.changes.data_type.as_ref().unwrap_or(&column.data_type);
 
         // Add temporary, nullable column
+        let mut temp_column_definition_parts: Vec<&str> =
+            vec![&temporary_column_name, &temporary_column_type];
+
+        // Use either new default value or existing one if one exists
+        let default_value = self.changes.default.as_ref().or(column.default.as_ref());
+        if let Some(default) = default_value {
+            temp_column_definition_parts.push("DEFAULT");
+            temp_column_definition_parts.push(default);
+        }
+
         let query = format!(
             "
 			ALTER TABLE {table}
-            ADD COLUMN IF NOT EXISTS {temp_column} {temp_column_type};
+            ADD COLUMN IF NOT EXISTS {temp_column_definition}
 			",
             table = self.table,
-            temp_column = self.temporary_column_name(ctx),
-            temp_column_type = temporary_column_type,
+            temp_column_definition = temp_column_definition_parts.join(" "),
         );
+        println!("Query {}", query);
         db.run(&query).context("failed to add temporary column")?;
+
+        // If up or down wasn't provided, we default to simply moving the value over.
+        // This is the correct behaviour for example when only changing the default value.
+        let up = self.up.as_ref().unwrap_or(&self.column);
+        let down = self.down.as_ref().unwrap_or(&self.column);
 
         let declarations: Vec<String> = table
             .columns
@@ -105,55 +92,54 @@ impl Action for AlterColumn {
             })
             .collect();
 
-        // Add triggers to fill in values as they are inserted/updated
         let query = format!(
-            "
-            CREATE OR REPLACE FUNCTION {up_trigger}()
-            RETURNS TRIGGER AS $$
-            BEGIN
-                IF reshape.is_old_schema() THEN
-                    DECLARE
-                        {declarations}
-                        {existing_column} public.{table}.{existing_column_real}%TYPE := NEW.{existing_column_real};
-                    BEGIN
-                        NEW.{temp_column} = {up};
-                    END;
-                END IF;
-                RETURN NEW;
-            END
-            $$ language 'plpgsql';
+                "
+                CREATE OR REPLACE FUNCTION {up_trigger}()
+                RETURNS TRIGGER AS $$
+                BEGIN
+                    IF reshape.is_old_schema() THEN
+                        DECLARE
+                            {declarations}
+                            {existing_column} public.{table}.{existing_column_real}%TYPE := NEW.{existing_column_real};
+                        BEGIN
+                            NEW.{temp_column} = {up};
+                        END;
+                    END IF;
+                    RETURN NEW;
+                END
+                $$ language 'plpgsql';
 
-            DROP TRIGGER IF EXISTS {up_trigger} ON {table};
-            CREATE TRIGGER {up_trigger} BEFORE INSERT OR UPDATE ON {table} FOR EACH ROW EXECUTE PROCEDURE {up_trigger}();
+                DROP TRIGGER IF EXISTS {up_trigger} ON {table};
+                CREATE TRIGGER {up_trigger} BEFORE INSERT OR UPDATE ON {table} FOR EACH ROW EXECUTE PROCEDURE {up_trigger}();
 
-            CREATE OR REPLACE FUNCTION {down_trigger}()
-            RETURNS TRIGGER AS $$
-            BEGIN
-                IF NOT reshape.is_old_schema() THEN
-                    DECLARE
-                        {declarations}
-                        {existing_column} public.{table}.{temp_column}%TYPE := NEW.{temp_column};
-                    BEGIN
-                        NEW.{existing_column_real} = {down};
-                    END;
-                END IF;
-                RETURN NEW;
-            END
-            $$ language 'plpgsql';
+                CREATE OR REPLACE FUNCTION {down_trigger}()
+                RETURNS TRIGGER AS $$
+                BEGIN
+                    IF NOT reshape.is_old_schema() THEN
+                        DECLARE
+                            {declarations}
+                            {existing_column} public.{table}.{temp_column}%TYPE := NEW.{temp_column};
+                        BEGIN
+                            NEW.{existing_column_real} = {down};
+                        END;
+                    END IF;
+                    RETURN NEW;
+                END
+                $$ language 'plpgsql';
 
-            DROP TRIGGER IF EXISTS {down_trigger} ON {table};
-            CREATE TRIGGER {down_trigger} BEFORE INSERT OR UPDATE ON {table} FOR EACH ROW EXECUTE PROCEDURE {down_trigger}();
-            ",
-            existing_column = &self.column,
-            existing_column_real = column.real_name,
-            temp_column = self.temporary_column_name(ctx),
-            up = up,
-            down = down,
-            table = self.table,
-            up_trigger = self.up_trigger_name(ctx),
-            down_trigger = self.down_trigger_name(ctx),
-            declarations = declarations.join("\n"),
-        );
+                DROP TRIGGER IF EXISTS {down_trigger} ON {table};
+                CREATE TRIGGER {down_trigger} BEFORE INSERT OR UPDATE ON {table} FOR EACH ROW EXECUTE PROCEDURE {down_trigger}();
+                ",
+                existing_column = &self.column,
+                existing_column_real = column.real_name,
+                temp_column = self.temporary_column_name(ctx),
+                up = up,
+                down = down,
+                table = self.table,
+                up_trigger = self.up_trigger_name(ctx),
+                down_trigger = self.down_trigger_name(ctx),
+                declarations = declarations.join("\n"),
+            );
         db.run(&query)
             .context("failed to create up and down triggers")?;
 
@@ -345,5 +331,30 @@ impl Action for AlterColumn {
         db.run(&query).context("failed to drop temporary column")?;
 
         Ok(())
+    }
+}
+
+impl AlterColumn {
+    fn temporary_column_name(&self, ctx: &MigrationContext) -> String {
+        format!("{}_new_{}", ctx.prefix(), self.column)
+    }
+
+    fn up_trigger_name(&self, ctx: &MigrationContext) -> String {
+        format!("{}_alter_column_up_trigger", ctx.prefix())
+    }
+
+    fn down_trigger_name(&self, ctx: &MigrationContext) -> String {
+        format!("{}_alter_column_down_trigger", ctx.prefix_inverse())
+    }
+
+    fn not_null_constraint_name(&self, ctx: &MigrationContext) -> String {
+        format!("{}_alter_column_temporary", ctx.prefix())
+    }
+
+    fn can_short_circuit(&self) -> bool {
+        self.changes.name.is_some()
+            && self.changes.data_type.is_none()
+            && self.changes.nullable.is_none()
+            && self.changes.default.is_none()
     }
 }

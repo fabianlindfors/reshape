@@ -324,12 +324,25 @@ down = "CAST(reference AS INTEGER)" # Converts from text value to integer
 [[actions]]
 type = "alter_column"
 table = "users"
+column = "index"
 
 up = "index + 1" # Increment for new schema
 down = "index - 1" # Decrement to revert for old schema
 
 	[actions.changes]
 	name = "index"
+```
+
+*Example: change default value of `created_at` column to current time*
+
+```toml
+[[actions]]
+type = "alter_column"
+table = "users"
+column = "created_at"
+
+	[actions.changes]
+	default = "NOW()"
 ```
 
 #### Remove column

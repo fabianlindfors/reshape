@@ -151,6 +151,7 @@ pub struct Column {
     pub real_name: String,
     pub data_type: String,
     pub nullable: bool,
+    pub default: Option<String>,
 }
 
 impl Schema {
@@ -205,10 +206,10 @@ impl Schema {
             .iter()
             .find(|changes| changes.real_name == real_table_name);
 
-        let real_columns: Vec<(String, String, bool)> = db
+        let real_columns: Vec<(String, String, bool, Option<String>)> = db
             .query(&format!(
                 "
-                SELECT column_name, data_type, is_nullable
+                SELECT column_name, data_type, is_nullable, column_default
                 FROM information_schema.columns
                 WHERE table_name = '{table}' AND table_schema = 'public'
                 ORDER BY ordinal_position
@@ -221,6 +222,7 @@ impl Schema {
                     row.get("column_name"),
                     row.get("data_type"),
                     row.get::<'_, _, String>("is_nullable") == "YES",
+                    row.get("column_default"),
                 )
             })
             .collect();
@@ -252,7 +254,7 @@ impl Schema {
 
         let mut columns: Vec<Column> = Vec::new();
 
-        for (real_name, data_type, nullable) in real_columns {
+        for (real_name, data_type, nullable, default) in real_columns {
             if ignore_columns.contains(&*real_name) {
                 continue;
             }
@@ -267,6 +269,7 @@ impl Schema {
                 real_name,
                 data_type,
                 nullable,
+                default,
             });
         }
 

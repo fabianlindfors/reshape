@@ -431,3 +431,108 @@ fn alter_column_multiple() {
     reshape.complete_migration().unwrap();
     common::assert_cleaned_up(&mut new_db);
 }
+
+#[test]
+fn alter_column_default() {
+    let (mut reshape, mut old_db, mut new_db) = common::setup();
+
+    let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
+        name: "users".to_string(),
+        primary_key: vec!["id".to_string()],
+        foreign_keys: vec![],
+        columns: vec![
+            Column {
+                name: "id".to_string(),
+                data_type: "INTEGER".to_string(),
+                nullable: true,
+                default: None,
+                generated: None,
+            },
+            Column {
+                name: "name".to_string(),
+                data_type: "TEXT".to_string(),
+                nullable: false,
+                default: Some("'DEFAULT'".to_string()),
+                generated: None,
+            },
+        ],
+    });
+    let change_name_default =
+        Migration::new("change_name_default", None).with_action(AlterColumn {
+            table: "users".to_string(),
+            column: "name".to_string(),
+            up: None,
+            down: None,
+            changes: ColumnChanges {
+                data_type: None,
+                nullable: None,
+                name: None,
+                default: Some("'NEW DEFAULT'".to_string()),
+            },
+        });
+
+    let first_migrations = vec![create_users_table.clone()];
+    let second_migrations = vec![create_users_table.clone(), change_name_default.clone()];
+
+    // Run first migration, should automatically finish
+    reshape.migrate(first_migrations.clone()).unwrap();
+    assert!(matches!(reshape.state.status, Status::Idle));
+    assert_eq!(
+        Some(&create_users_table.name),
+        reshape.state.current_migration.as_ref()
+    );
+
+    // Update search paths
+    old_db
+        .simple_query(&reshape::schema_query_for_migration(
+            &first_migrations.last().unwrap().name,
+        ))
+        .unwrap();
+
+    // Insert a test user
+    old_db
+        .simple_query(
+            "
+            INSERT INTO users (id) VALUES (1)
+            ",
+        )
+        .unwrap();
+
+    // Run second migration
+    reshape.migrate(second_migrations.clone()).unwrap();
+    new_db
+        .simple_query(&reshape::schema_query_for_migration(
+            &second_migrations.last().unwrap().name,
+        ))
+        .unwrap();
+
+    // Check that the existing users has the old default value
+    let expected = vec!["DEFAULT"];
+    assert!(new_db
+        .query("SELECT name FROM users", &[],)
+        .unwrap()
+        .iter()
+        .map(|row| row.get::<_, String>("name"))
+        .eq(expected));
+
+    // Insert data using old schema and make those get the old default value
+    old_db
+        .simple_query("INSERT INTO users (id) VALUES (2)")
+        .unwrap();
+    let result = new_db
+        .query_one("SELECT name from users WHERE id = 2", &[])
+        .unwrap();
+    assert_eq!("DEFAULT", result.get::<_, &str>("name"));
+
+    // Insert data using new schema and make sure it gets the new default value
+    new_db
+        .simple_query("INSERT INTO users (id) VALUES (3)")
+        .unwrap();
+    let result = old_db
+        .query_one("SELECT name from users WHERE id = 3", &[])
+        .unwrap();
+    assert_eq!("NEW DEFAULT", result.get::<_, &str>("name"));
+
+    reshape.complete_migration().unwrap();
+    common::assert_cleaned_up(&mut new_db);
+}
