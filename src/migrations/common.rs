@@ -1,9 +1,11 @@
+use derive_builder::Builder;
 use postgres::types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 
 use crate::db::Conn;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Builder, Clone, Debug)]
+#[builder(setter(into))]
 pub struct Column {
     pub name: String,
 
@@ -11,10 +13,13 @@ pub struct Column {
     pub data_type: String,
 
     #[serde(default = "nullable_default")]
+    #[builder(default = "true")]
     pub nullable: bool,
 
+    #[builder(setter(name = "default_value", strip_option), default)]
     pub default: Option<String>,
 
+    #[builder(setter(strip_option), default)]
     pub generated: Option<String>,
 }
 

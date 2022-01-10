@@ -1,4 +1,4 @@
-use reshape::migrations::{Column, CreateTable, Migration, RenameTable};
+use reshape::migrations::{ColumnBuilder, CreateTableBuilder, Migration, RenameTable};
 
 mod common;
 
@@ -6,19 +6,18 @@ mod common;
 fn rename_table() {
     let (mut reshape, mut old_db, mut new_db) = common::setup();
 
-    let create_table_migration =
-        Migration::new("create_users_table", None).with_action(CreateTable {
-            name: "users".to_string(),
-            primary_key: vec!["id".to_string()],
-            foreign_keys: vec![],
-            columns: vec![Column {
-                name: "id".to_string(),
-                data_type: "INTEGER".to_string(),
-                nullable: false,
-                default: None,
-                generated: None,
-            }],
-        });
+    let create_table_migration = Migration::new("create_user_table", None).with_action(
+        CreateTableBuilder::default()
+            .name("users")
+            .primary_key(vec!["id".to_string()])
+            .columns(vec![ColumnBuilder::default()
+                .name("id")
+                .data_type("INTEGER")
+                .build()
+                .unwrap()])
+            .build()
+            .unwrap(),
+    );
     let rename_table_migration = Migration::new("rename_users_table_to_customers", None)
         .with_action(RenameTable {
             table: "users".to_string(),

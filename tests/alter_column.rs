@@ -37,6 +37,7 @@ fn alter_column_data() {
             data_type: None,
             nullable: None,
             name: None,
+            default: None,
         },
     });
 
@@ -142,6 +143,7 @@ fn alter_column_set_not_null() {
             data_type: None,
             nullable: Some(false),
             name: None,
+            default: None,
         },
     });
 
@@ -248,6 +250,7 @@ fn alter_column_rename() {
                 data_type: None,
                 nullable: None,
                 name: Some("full_name".to_string()),
+                default: None,
             },
         });
 
@@ -336,6 +339,7 @@ fn alter_column_multiple() {
                 data_type: None,
                 nullable: None,
                 name: None,
+                default: None,
             },
         })
         .with_action(AlterColumn {
@@ -347,6 +351,7 @@ fn alter_column_multiple() {
                 data_type: None,
                 nullable: None,
                 name: None,
+                default: None,
             },
         });
 

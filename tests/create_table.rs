@@ -1,5 +1,5 @@
 use reshape::{
-    migrations::{Column, CreateTable, ForeignKey, Migration},
+    migrations::{ColumnBuilder, CreateTableBuilder, ForeignKey, Migration},
     Status,
 };
 
@@ -9,35 +9,33 @@ mod common;
 fn create_table() {
     let (mut reshape, mut db, _) = common::setup();
 
-    let create_table_migration =
-        Migration::new("create_users_table", None).with_action(CreateTable {
-            name: "users".to_string(),
-            primary_key: vec!["id".to_string()],
-            foreign_keys: vec![],
-            columns: vec![
-                Column {
-                    name: "id".to_string(),
-                    data_type: "INTEGER".to_string(),
-                    nullable: true,
-                    default: None,
-                    generated: Some("ALWAYS AS IDENTITY".to_string()),
-                },
-                Column {
-                    name: "name".to_string(),
-                    data_type: "TEXT".to_string(),
-                    nullable: true,
-                    default: None,
-                    generated: None,
-                },
-                Column {
-                    name: "created_at".to_string(),
-                    data_type: "TIMESTAMP".to_string(),
-                    nullable: false,
-                    default: Some("NOW()".to_string()),
-                    generated: None,
-                },
-            ],
-        });
+    let create_table_migration = Migration::new("create_users_table", None).with_action(
+        CreateTableBuilder::default()
+            .name("users")
+            .primary_key(vec!["id".to_string()])
+            .columns(vec![
+                ColumnBuilder::default()
+                    .name("id")
+                    .data_type("INTEGER")
+                    .generated("ALWAYS AS IDENTITY")
+                    .build()
+                    .unwrap(),
+                ColumnBuilder::default()
+                    .name("name")
+                    .data_type("TEXT")
+                    .build()
+                    .unwrap(),
+                ColumnBuilder::default()
+                    .name("created_at")
+                    .data_type("TIMESTAMP")
+                    .nullable(false)
+                    .default_value("NOW()")
+                    .build()
+                    .unwrap(),
+            ])
+            .build()
+            .unwrap(),
+    );
 
     reshape
         .migrate(vec![create_table_migration.clone()])
@@ -127,46 +125,46 @@ fn create_table() {
 fn create_table_with_foreign_keys() {
     let (mut reshape, mut db, _) = common::setup();
 
-    let create_table_migration =
-        Migration::new("create_users_table", None).with_action(CreateTable {
-            name: "users".to_string(),
-            primary_key: vec!["id".to_string()],
-            foreign_keys: vec![],
-            columns: vec![Column {
-                name: "id".to_string(),
-                data_type: "SERIAL".to_string(),
-                nullable: true, // Will be ignored by Postgres as the column is a SERIAL
-                default: None,
-                generated: None,
-            }],
-        });
+    let create_table_migration = Migration::new("create_users_table", None).with_action(
+        CreateTableBuilder::default()
+            .name("users")
+            .primary_key(vec!["id".to_string()])
+            .columns(vec![ColumnBuilder::default()
+                .name("id")
+                .data_type("INTEGER")
+                .generated("ALWAYS AS IDENTITY")
+                .build()
+                .unwrap()])
+            .build()
+            .unwrap(),
+    );
 
-    let create_second_table_migration =
-        Migration::new("create_items_table", None).with_action(CreateTable {
-            name: "items".to_string(),
-            primary_key: vec!["id".to_string()],
-            foreign_keys: vec![ForeignKey {
+    let create_second_table_migration = Migration::new("create_items_table", None).with_action(
+        CreateTableBuilder::default()
+            .name("items")
+            .primary_key(vec!["id".to_string()])
+            .foreign_keys(vec![ForeignKey {
                 columns: vec!["user_id".to_string()],
                 referenced_table: "users".to_string(),
                 referenced_columns: vec!["id".to_string()],
-            }],
-            columns: vec![
-                Column {
-                    name: "id".to_string(),
-                    data_type: "SERIAL".to_string(),
-                    nullable: true,
-                    default: None,
-                    generated: None,
-                },
-                Column {
-                    name: "user_id".to_string(),
-                    data_type: "INTEGER".to_string(),
-                    nullable: false,
-                    default: None,
-                    generated: None,
-                },
-            ],
-        });
+            }])
+            .columns(vec![
+                ColumnBuilder::default()
+                    .name("id")
+                    .data_type("INTEGER")
+                    .generated("ALWAYS AS IDENTITY")
+                    .build()
+                    .unwrap(),
+                ColumnBuilder::default()
+                    .name("user_id")
+                    .data_type("INTEGER")
+                    .nullable(false)
+                    .build()
+                    .unwrap(),
+            ])
+            .build()
+            .unwrap(),
+    );
 
     reshape
         .migrate(vec![

@@ -1,4 +1,4 @@
-use reshape::migrations::{AddColumn, Column, CreateTable, Migration};
+use reshape::migrations::{AddColumn, Column, ColumnBuilder, CreateTableBuilder, Migration};
 use reshape::Status;
 
 mod common;
@@ -7,27 +7,26 @@ mod common;
 fn add_column() {
     let (mut reshape, mut old_db, mut new_db) = common::setup();
 
-    let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
-        name: "users".to_string(),
-        primary_key: vec!["id".to_string()],
-        foreign_keys: vec![],
-        columns: vec![
-            Column {
-                name: "id".to_string(),
-                data_type: "SERIAL".to_string(),
-                nullable: true,
-                default: None,
-                generated: None,
-            },
-            Column {
-                name: "name".to_string(),
-                data_type: "TEXT".to_string(),
-                nullable: false,
-                default: None,
-                generated: None,
-            },
-        ],
-    });
+    let create_users_table = Migration::new("create_user_table", None).with_action(
+        CreateTableBuilder::default()
+            .name("users")
+            .primary_key(vec!["id".to_string()])
+            .columns(vec![
+                ColumnBuilder::default()
+                    .name("id")
+                    .data_type("INTEGER")
+                    .build()
+                    .unwrap(),
+                ColumnBuilder::default()
+                    .name("name")
+                    .data_type("TEXT")
+                    .build()
+                    .unwrap(),
+            ])
+            .build()
+            .unwrap(),
+    );
+
     let add_first_last_name_columns = Migration::new("add_first_and_last_name_columns", None)
         .with_action(AddColumn {
             table: "users".to_string(),
@@ -127,18 +126,18 @@ fn add_column() {
 fn add_column_nullable() {
     let (mut reshape, mut old_db, mut new_db) = common::setup();
 
-    let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
-        name: "users".to_string(),
-        primary_key: vec!["id".to_string()],
-        foreign_keys: vec![],
-        columns: vec![Column {
-            name: "id".to_string(),
-            data_type: "INTEGER".to_string(),
-            nullable: true,
-            default: None,
-            generated: None,
-        }],
-    });
+    let create_users_table = Migration::new("create_user_table", None).with_action(
+        CreateTableBuilder::default()
+            .name("users")
+            .primary_key(vec!["id".to_string()])
+            .columns(vec![ColumnBuilder::default()
+                .name("id")
+                .data_type("INTEGER")
+                .build()
+                .unwrap()])
+            .build()
+            .unwrap(),
+    );
     let add_name_column = Migration::new("add_nullable_name_column", None).with_action(AddColumn {
         table: "users".to_string(),
         column: Column {
@@ -225,18 +224,18 @@ fn add_column_nullable() {
 fn add_column_with_default() {
     let (mut reshape, mut old_db, mut new_db) = common::setup();
 
-    let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
-        name: "users".to_string(),
-        primary_key: vec!["id".to_string()],
-        foreign_keys: vec![],
-        columns: vec![Column {
-            name: "id".to_string(),
-            data_type: "INTEGER".to_string(),
-            nullable: true,
-            default: None,
-            generated: None,
-        }],
-    });
+    let create_users_table = Migration::new("create_user_table", None).with_action(
+        CreateTableBuilder::default()
+            .name("users")
+            .primary_key(vec!["id".to_string()])
+            .columns(vec![ColumnBuilder::default()
+                .name("id")
+                .data_type("INTEGER")
+                .build()
+                .unwrap()])
+            .build()
+            .unwrap(),
+    );
     let add_name_column =
         Migration::new("add_name_column_with_default", None).with_action(AddColumn {
             table: "users".to_string(),

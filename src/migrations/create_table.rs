@@ -1,18 +1,22 @@
 use super::{Action, Column, MigrationContext};
 use crate::{db::Conn, schema::Schema};
 use anyhow::Context;
+use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Builder, Debug)]
+#[builder(setter(into))]
 pub struct CreateTable {
     pub name: String,
     pub columns: Vec<Column>,
     pub primary_key: Vec<String>,
+
     #[serde(default)]
+    #[builder(default)]
     pub foreign_keys: Vec<ForeignKey>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ForeignKey {
     pub columns: Vec<String>,
     pub referenced_table: String,

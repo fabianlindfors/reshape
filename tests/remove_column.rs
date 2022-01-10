@@ -1,4 +1,4 @@
-use reshape::migrations::{Column, CreateTable, Migration, RemoveColumn};
+use reshape::migrations::{ColumnBuilder, CreateTableBuilder, Migration, RemoveColumn};
 
 mod common;
 
@@ -6,28 +6,26 @@ mod common;
 fn remove_column() {
     let (mut reshape, mut old_db, mut new_db) = common::setup();
 
-    let create_table_migration =
-        Migration::new("create_users_table", None).with_action(CreateTable {
-            name: "users".to_string(),
-            primary_key: vec!["id".to_string()],
-            foreign_keys: vec![],
-            columns: vec![
-                Column {
-                    name: "id".to_string(),
-                    data_type: "INTEGER".to_string(),
-                    nullable: true,
-                    default: None,
-                    generated: None,
-                },
-                Column {
-                    name: "name".to_string(),
-                    data_type: "TEXT".to_string(),
-                    nullable: false,
-                    default: None,
-                    generated: None,
-                },
-            ],
-        });
+    let create_table_migration = Migration::new("create_user_table", None).with_action(
+        CreateTableBuilder::default()
+            .name("users")
+            .primary_key(vec!["id".to_string()])
+            .columns(vec![
+                ColumnBuilder::default()
+                    .name("id")
+                    .data_type("INTEGER")
+                    .build()
+                    .unwrap(),
+                ColumnBuilder::default()
+                    .name("name")
+                    .data_type("TEXT")
+                    .nullable(false)
+                    .build()
+                    .unwrap(),
+            ])
+            .build()
+            .unwrap(),
+    );
     let remove_column_migration =
         Migration::new("remove_name_column", None).with_action(RemoveColumn {
             table: "users".to_string(),
