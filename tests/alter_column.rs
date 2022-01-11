@@ -1,4 +1,6 @@
-use reshape::migrations::{AlterColumn, Column, ColumnChanges, CreateTable, Migration};
+use reshape::migrations::{
+    AlterColumn, ColumnBuilder, ColumnChanges, CreateTableBuilder, Migration,
+};
 use reshape::Status;
 
 mod common;
@@ -7,27 +9,25 @@ mod common;
 fn alter_column_data() {
     let (mut reshape, mut old_db, mut new_db) = common::setup();
 
-    let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
-        name: "users".to_string(),
-        primary_key: vec!["id".to_string()],
-        foreign_keys: vec![],
-        columns: vec![
-            Column {
-                name: "id".to_string(),
-                data_type: "INTEGER".to_string(),
-                nullable: true,
-                default: None,
-                generated: None,
-            },
-            Column {
-                name: "name".to_string(),
-                data_type: "TEXT".to_string(),
-                nullable: false,
-                default: None,
-                generated: None,
-            },
-        ],
-    });
+    let create_users_table = Migration::new("create_user_table", None).with_action(
+        CreateTableBuilder::default()
+            .name("users")
+            .primary_key(vec!["id".to_string()])
+            .columns(vec![
+                ColumnBuilder::default()
+                    .name("id")
+                    .data_type("INTEGER")
+                    .build()
+                    .unwrap(),
+                ColumnBuilder::default()
+                    .name("name")
+                    .data_type("TEXT")
+                    .build()
+                    .unwrap(),
+            ])
+            .build()
+            .unwrap(),
+    );
     let uppercase_name = Migration::new("uppercase_name", None).with_action(AlterColumn {
         table: "users".to_string(),
         column: "name".to_string(),
@@ -113,27 +113,25 @@ fn alter_column_data() {
 fn alter_column_set_not_null() {
     let (mut reshape, mut old_db, mut new_db) = common::setup();
 
-    let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
-        name: "users".to_string(),
-        primary_key: vec!["id".to_string()],
-        foreign_keys: vec![],
-        columns: vec![
-            Column {
-                name: "id".to_string(),
-                data_type: "INTEGER".to_string(),
-                nullable: true,
-                default: None,
-                generated: None,
-            },
-            Column {
-                name: "name".to_string(),
-                data_type: "TEXT".to_string(),
-                nullable: true,
-                default: None,
-                generated: None,
-            },
-        ],
-    });
+    let create_users_table = Migration::new("create_user_table", None).with_action(
+        CreateTableBuilder::default()
+            .name("users")
+            .primary_key(vec!["id".to_string()])
+            .columns(vec![
+                ColumnBuilder::default()
+                    .name("id")
+                    .data_type("INTEGER")
+                    .build()
+                    .unwrap(),
+                ColumnBuilder::default()
+                    .name("name")
+                    .data_type("TEXT")
+                    .build()
+                    .unwrap(),
+            ])
+            .build()
+            .unwrap(),
+    );
     let set_name_not_null = Migration::new("set_name_not_null", None).with_action(AlterColumn {
         table: "users".to_string(),
         column: "name".to_string(),
@@ -219,27 +217,25 @@ fn alter_column_set_not_null() {
 fn alter_column_rename() {
     let (mut reshape, mut old_db, mut new_db) = common::setup();
 
-    let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
-        name: "users".to_string(),
-        primary_key: vec!["id".to_string()],
-        foreign_keys: vec![],
-        columns: vec![
-            Column {
-                name: "id".to_string(),
-                data_type: "INTEGER".to_string(),
-                nullable: true,
-                default: None,
-                generated: None,
-            },
-            Column {
-                name: "name".to_string(),
-                data_type: "TEXT".to_string(),
-                nullable: true,
-                default: None,
-                generated: None,
-            },
-        ],
-    });
+    let create_users_table = Migration::new("create_user_table", None).with_action(
+        CreateTableBuilder::default()
+            .name("users")
+            .primary_key(vec!["id".to_string()])
+            .columns(vec![
+                ColumnBuilder::default()
+                    .name("id")
+                    .data_type("INTEGER")
+                    .build()
+                    .unwrap(),
+                ColumnBuilder::default()
+                    .name("name")
+                    .data_type("TEXT")
+                    .build()
+                    .unwrap(),
+            ])
+            .build()
+            .unwrap(),
+    );
     let rename_to_full_name =
         Migration::new("rename_to_full_name", None).with_action(AlterColumn {
             table: "users".to_string(),
@@ -308,27 +304,26 @@ fn alter_column_rename() {
 fn alter_column_multiple() {
     let (mut reshape, mut old_db, mut new_db) = common::setup();
 
-    let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
-        name: "users".to_string(),
-        primary_key: vec!["id".to_string()],
-        foreign_keys: vec![],
-        columns: vec![
-            Column {
-                name: "id".to_string(),
-                data_type: "INTEGER".to_string(),
-                nullable: true,
-                default: None,
-                generated: None,
-            },
-            Column {
-                name: "counter".to_string(),
-                data_type: "INTEGER".to_string(),
-                nullable: false,
-                default: None,
-                generated: None,
-            },
-        ],
-    });
+    let create_users_table = Migration::new("create_user_table", None).with_action(
+        CreateTableBuilder::default()
+            .name("users")
+            .primary_key(vec!["id".to_string()])
+            .columns(vec![
+                ColumnBuilder::default()
+                    .name("id")
+                    .data_type("INTEGER")
+                    .build()
+                    .unwrap(),
+                ColumnBuilder::default()
+                    .name("counter")
+                    .data_type("INTEGER")
+                    .nullable(false)
+                    .build()
+                    .unwrap(),
+            ])
+            .build()
+            .unwrap(),
+    );
     let increment_counter_twice = Migration::new("increment_counter_twice", None)
         .with_action(AlterColumn {
             table: "users".to_string(),
@@ -436,27 +431,27 @@ fn alter_column_multiple() {
 fn alter_column_default() {
     let (mut reshape, mut old_db, mut new_db) = common::setup();
 
-    let create_users_table = Migration::new("create_users_table", None).with_action(CreateTable {
-        name: "users".to_string(),
-        primary_key: vec!["id".to_string()],
-        foreign_keys: vec![],
-        columns: vec![
-            Column {
-                name: "id".to_string(),
-                data_type: "INTEGER".to_string(),
-                nullable: true,
-                default: None,
-                generated: None,
-            },
-            Column {
-                name: "name".to_string(),
-                data_type: "TEXT".to_string(),
-                nullable: false,
-                default: Some("'DEFAULT'".to_string()),
-                generated: None,
-            },
-        ],
-    });
+    let create_users_table = Migration::new("create_user_table", None).with_action(
+        CreateTableBuilder::default()
+            .name("users")
+            .primary_key(vec!["id".to_string()])
+            .columns(vec![
+                ColumnBuilder::default()
+                    .name("id")
+                    .data_type("INTEGER")
+                    .build()
+                    .unwrap(),
+                ColumnBuilder::default()
+                    .name("name")
+                    .data_type("TEXT")
+                    .nullable(false)
+                    .default_value("'DEFAULT'")
+                    .build()
+                    .unwrap(),
+            ])
+            .build()
+            .unwrap(),
+    );
     let change_name_default =
         Migration::new("change_name_default", None).with_action(AlterColumn {
             table: "users".to_string(),
