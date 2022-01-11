@@ -28,6 +28,7 @@ pub enum Status {
     Completing {
         migrations: Vec<Migration>,
         current_migration_index: usize,
+        current_action_index: usize,
     },
 }
 
@@ -75,10 +76,7 @@ impl State {
         let current_status = std::mem::replace(&mut self.status, Status::Idle);
 
         match current_status {
-            Status::Completing {
-                mut migrations,
-                current_migration_index: _,
-            } => {
+            Status::Completing { mut migrations, .. } => {
                 let target_migration = migrations.last().unwrap().name.to_string();
                 self.migrations.append(&mut migrations);
                 self.current_migration = Some(target_migration);
@@ -107,10 +105,16 @@ impl State {
         };
     }
 
-    pub fn completing(&mut self, migrations: Vec<Migration>, current_migration_index: usize) {
+    pub fn completing(
+        &mut self,
+        migrations: Vec<Migration>,
+        current_migration_index: usize,
+        current_action_index: usize,
+    ) {
         self.status = Status::Completing {
             migrations,
             current_migration_index,
+            current_action_index,
         }
     }
 
