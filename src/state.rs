@@ -12,7 +12,7 @@ pub struct State {
     pub migrations: Vec<Migration>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "status")]
 pub enum Status {
     #[serde(rename = "idle")]
@@ -23,6 +23,12 @@ pub enum Status {
 
     #[serde(rename = "in_progress")]
     InProgress { migrations: Vec<Migration> },
+
+    #[serde(rename = "completing")]
+    Completing {
+        migrations: Vec<Migration>,
+        current_migration_index: usize,
+    },
 }
 
 impl State {
@@ -64,12 +70,15 @@ impl State {
         Ok(())
     }
 
-    // Complete will change the status from InProgress to Idle
+    // Complete will change the status from Completing to Idle
     pub fn complete(&mut self) -> anyhow::Result<()> {
         let current_status = std::mem::replace(&mut self.status, Status::Idle);
 
         match current_status {
-            Status::InProgress { mut migrations } => {
+            Status::Completing {
+                mut migrations,
+                current_migration_index: _,
+            } => {
                 let target_migration = migrations.last().unwrap().name.to_string();
                 self.migrations.append(&mut migrations);
                 self.current_migration = Some(target_migration);
@@ -77,7 +86,9 @@ impl State {
             _ => {
                 // Move old status back
                 self.status = current_status;
-                return Err(anyhow!("status "));
+                return Err(anyhow!(
+                    "couldn't update state to be completed, not in Completing state"
+                ));
             }
         }
 
@@ -94,6 +105,13 @@ impl State {
         self.status = Status::InProgress {
             migrations: new_migrations,
         };
+    }
+
+    pub fn completing(&mut self, migrations: Vec<Migration>, current_migration_index: usize) {
+        self.status = Status::Completing {
+            migrations,
+            current_migration_index,
+        }
     }
 
     pub fn get_remaining_migrations(
