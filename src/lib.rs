@@ -253,44 +253,69 @@ impl Reshape {
                     continue;
                 }
 
-                // Run each action completion as a separate transaction. We need atomicity
-                // to ensure the completion changes are run only once for each action.
-                let mut transaction = self
-                    .db
-                    .transaction()
-                    .context("failed to start transaction")?;
-
                 let description = action.describe();
                 print!("  + {} ", description);
 
                 let ctx = MigrationContext::new(migration_index, action_index);
-                let result = action
-                    .complete(&ctx, &mut transaction)
-                    .with_context(|| format!("failed to complete migration {}", migration.name))
-                    .with_context(|| format!("failed to complete action: {}", description));
 
-                if result.is_ok() {
-                    println!("{}", "done".green());
-                } else {
-                    println!("{}", "failed".red());
-                    return result;
-                }
-
-                // Update state with which migrations and actions have been completed. By running this
-                // in a transaction, we guarantee that an action is only completed once.
-                // We want to use a single transaction for each action to keep the length
-                // of the transaction as short as possible.
+                // Update state to indicate that this action has been completed.
+                // We won't save this new state until after the action has completed.
                 self.state.completing(
                     remaining_migrations.clone(),
                     migration_index + 1,
                     action_index + 1,
                 );
-                self.state
-                    .save(&mut transaction)
-                    .context("failed to save state after completing action")?;
-                transaction
-                    .commit()
-                    .context("failed to commit transaction")?;
+
+                // This did_save check is necessary because of the borrow checker.
+                // The Transaction which might be returned from action.complete
+                // contains a mutable reference to self.db. We need the Transaction
+                // to be dropped before we can save the state using self.db instead,
+                // which we achieve here by limiting the lifetime of the Transaction
+                // with a new block.
+                let did_save = {
+                    let result = action
+                        .complete(&ctx, &mut self.db)
+                        .with_context(|| format!("failed to complete migration {}", migration.name))
+                        .with_context(|| format!("failed to complete action: {}", description));
+
+                    let maybe_transaction = match result {
+                        Ok(maybe_transaction) => {
+                            println!("{}", "done".green());
+                            maybe_transaction
+                        }
+                        Err(e) => {
+                            println!("{}", "failed".red());
+                            return Err(e);
+                        }
+                    };
+
+                    // Update state with which migrations and actions have been completed.
+                    // Each action can create and return a transaction if they need atomicity.
+                    // We use this transaction to update the state to ensure the action only completes.
+                    // once.
+                    // We want to use a single transaction for each action to keep the length of
+                    // the transaction as short as possible. Wherever possible, we don't want to
+                    // use a transaction at all.
+                    if let Some(mut transaction) = maybe_transaction {
+                        self.state
+                            .save(&mut transaction)
+                            .context("failed to save state after completing action")?;
+                        transaction
+                            .commit()
+                            .context("failed to commit transaction")?;
+
+                        true
+                    } else {
+                        false
+                    }
+                };
+
+                // If the action didn't return a transaction we save the state normally instead
+                if !did_save {
+                    self.state
+                        .save(&mut self.db)
+                        .context("failed to save state after completing action")?;
+                }
             }
 
             println!();

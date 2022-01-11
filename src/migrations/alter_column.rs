@@ -1,5 +1,9 @@
 use super::{Action, MigrationContext};
-use crate::{db::Conn, migrations::common, schema::Schema};
+use crate::{
+    db::{Conn, Transaction},
+    migrations::common,
+    schema::Schema,
+};
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 
@@ -169,7 +173,11 @@ impl Action for AlterColumn {
         Ok(())
     }
 
-    fn complete(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn complete<'a>(
+        &self,
+        ctx: &MigrationContext,
+        db: &'a mut dyn Conn,
+    ) -> anyhow::Result<Option<Transaction<'a>>> {
         if self.can_short_circuit() {
             if let Some(new_name) = &self.changes.name {
                 let query = format!(
@@ -183,7 +191,7 @@ impl Action for AlterColumn {
                 );
                 db.run(&query).context("failed to rename column")?;
             }
-            return Ok(());
+            return Ok(None);
         }
 
         // Update column to be NOT NULL if necessary
@@ -277,7 +285,7 @@ impl Action for AlterColumn {
         db.run(&query)
             .context("failed to drop up and down triggers")?;
 
-        Ok(())
+        Ok(None)
     }
 
     fn update_schema(&self, ctx: &MigrationContext, schema: &mut Schema) {

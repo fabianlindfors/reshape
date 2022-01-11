@@ -1,5 +1,8 @@
 use super::{Action, MigrationContext};
-use crate::{db::Conn, schema::Schema};
+use crate::{
+    db::{Conn, Transaction},
+    schema::Schema,
+};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
@@ -84,12 +87,16 @@ impl Action for RemoveColumn {
         Ok(())
     }
 
-    fn complete(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn complete<'a>(
+        &self,
+        ctx: &MigrationContext,
+        db: &'a mut dyn Conn,
+    ) -> anyhow::Result<Option<Transaction<'a>>> {
         // Remove column, function and trigger
         let query = format!(
             "
             ALTER TABLE {table}
-            DROP COLUMN {column};
+            DROP COLUMN IF EXISTS {column};
 
             DROP TRIGGER IF EXISTS {trigger_name} ON {table};
             DROP FUNCTION IF EXISTS {trigger_name};
@@ -101,7 +108,7 @@ impl Action for RemoveColumn {
         db.run(&query)
             .context("failed to drop column and down trigger")?;
 
-        Ok(())
+        Ok(None)
     }
 
     fn update_schema(&self, _ctx: &MigrationContext, schema: &mut Schema) {

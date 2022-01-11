@@ -1,4 +1,7 @@
-use crate::{db::Conn, schema::Schema};
+use crate::{
+    db::{Conn, Transaction},
+    schema::Schema,
+};
 use core::fmt::Debug;
 use serde::{Deserialize, Serialize};
 
@@ -98,7 +101,11 @@ pub trait Action: Debug {
     fn describe(&self) -> String;
     fn run(&self, ctx: &MigrationContext, db: &mut dyn Conn, schema: &Schema)
         -> anyhow::Result<()>;
-    fn complete(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()>;
+    fn complete<'a>(
+        &self,
+        ctx: &MigrationContext,
+        db: &'a mut dyn Conn,
+    ) -> anyhow::Result<Option<Transaction<'a>>>;
     fn update_schema(&self, ctx: &MigrationContext, schema: &mut Schema);
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()>;
 }

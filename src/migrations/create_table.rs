@@ -1,5 +1,8 @@
 use super::{Action, Column, MigrationContext};
-use crate::{db::Conn, schema::Schema};
+use crate::{
+    db::{Conn, Transaction},
+    schema::Schema,
+};
 use anyhow::Context;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
@@ -82,9 +85,13 @@ impl Action for CreateTable {
         Ok(())
     }
 
-    fn complete(&self, _ctx: &MigrationContext, _db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn complete<'a>(
+        &self,
+        _ctx: &MigrationContext,
+        _db: &'a mut dyn Conn,
+    ) -> anyhow::Result<Option<Transaction<'a>>> {
         // Do nothing
-        Ok(())
+        Ok(None)
     }
 
     fn update_schema(&self, _ctx: &MigrationContext, _schema: &mut Schema) {}

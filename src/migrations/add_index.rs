@@ -1,5 +1,8 @@
 use super::{Action, MigrationContext};
-use crate::{db::Conn, schema::Schema};
+use crate::{
+    db::{Conn, Transaction},
+    schema::Schema,
+};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
@@ -43,8 +46,12 @@ impl Action for AddIndex {
         Ok(())
     }
 
-    fn complete(&self, _ctx: &MigrationContext, _db: &mut dyn Conn) -> anyhow::Result<()> {
-        Ok(())
+    fn complete<'a>(
+        &self,
+        _ctx: &MigrationContext,
+        _db: &'a mut dyn Conn,
+    ) -> anyhow::Result<Option<Transaction<'a>>> {
+        Ok(None)
     }
 
     fn update_schema(&self, _ctx: &MigrationContext, _schema: &mut Schema) {}

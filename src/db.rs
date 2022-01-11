@@ -8,6 +8,7 @@ pub trait Conn {
         query: &str,
         params: &[&(dyn ToSql + Sync)],
     ) -> anyhow::Result<Vec<Row>>;
+    fn transaction(&mut self) -> anyhow::Result<Transaction>;
 }
 
 pub struct DbConn {
@@ -18,11 +19,6 @@ impl DbConn {
     pub fn connect(config: &postgres::Config) -> anyhow::Result<DbConn> {
         let client = config.connect(NoTls)?;
         Ok(DbConn { client })
-    }
-
-    pub fn transaction(&mut self) -> anyhow::Result<Transaction> {
-        let transaction = self.client.transaction()?;
-        Ok(Transaction { transaction })
     }
 }
 
@@ -44,6 +40,11 @@ impl Conn for DbConn {
     ) -> anyhow::Result<Vec<Row>> {
         let rows = self.client.query(query, params)?;
         Ok(rows)
+    }
+
+    fn transaction(&mut self) -> anyhow::Result<Transaction> {
+        let transaction = self.client.transaction()?;
+        Ok(Transaction { transaction })
     }
 }
 
@@ -76,5 +77,10 @@ impl Conn for Transaction<'_> {
     ) -> anyhow::Result<Vec<Row>> {
         let rows = self.transaction.query(query, params)?;
         Ok(rows)
+    }
+
+    fn transaction(&mut self) -> anyhow::Result<Transaction> {
+        let transaction = self.transaction.transaction()?;
+        Ok(Transaction { transaction })
     }
 }

@@ -1,5 +1,8 @@
 use super::{Action, MigrationContext};
-use crate::{db::Conn, schema::Schema};
+use crate::{
+    db::{Conn, Transaction},
+    schema::Schema,
+};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
@@ -23,17 +26,21 @@ impl Action for RemoveTable {
         Ok(())
     }
 
-    fn complete(&self, _ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn complete<'a>(
+        &self,
+        _ctx: &MigrationContext,
+        db: &'a mut dyn Conn,
+    ) -> anyhow::Result<Option<Transaction<'a>>> {
         // Remove table
         let query = format!(
             "
-            DROP TABLE {table};
+            DROP TABLE IF EXISTS {table};
             ",
             table = self.table,
         );
         db.run(&query).context("failed to drop table")?;
 
-        Ok(())
+        Ok(None)
     }
 
     fn update_schema(&self, _ctx: &MigrationContext, schema: &mut Schema) {

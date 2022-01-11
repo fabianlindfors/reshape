@@ -1,5 +1,8 @@
 use super::{Action, MigrationContext};
-use crate::{db::Conn, schema::Schema};
+use crate::{
+    db::{Conn, Transaction},
+    schema::Schema,
+};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
@@ -24,11 +27,15 @@ impl Action for RenameTable {
         Ok(())
     }
 
-    fn complete(&self, _ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
+    fn complete<'a>(
+        &self,
+        _ctx: &MigrationContext,
+        db: &'a mut dyn Conn,
+    ) -> anyhow::Result<Option<Transaction<'a>>> {
         // Rename table
         let query = format!(
             "
-            ALTER TABLE {table}
+            ALTER TABLE IF EXISTS {table}
             RENAME TO {new_name}
             ",
             table = self.table,
@@ -36,7 +43,7 @@ impl Action for RenameTable {
         );
         db.run(&query).context("failed to rename table")?;
 
-        Ok(())
+        Ok(None)
     }
 
     fn update_schema(&self, _ctx: &MigrationContext, schema: &mut Schema) {
