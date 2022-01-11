@@ -30,6 +30,13 @@ pub enum Status {
         current_migration_index: usize,
         current_action_index: usize,
     },
+
+    #[serde(rename = "aborting")]
+    Aborting {
+        migrations: Vec<Migration>,
+        last_migration_index: usize,
+        last_action_index: usize,
+    },
 }
 
 impl State {
@@ -115,6 +122,19 @@ impl State {
             migrations,
             current_migration_index,
             current_action_index,
+        }
+    }
+
+    pub fn aborting(
+        &mut self,
+        migrations: Vec<Migration>,
+        last_migration_index: usize,
+        last_action_index: usize,
+    ) {
+        self.status = Status::Aborting {
+            migrations,
+            last_migration_index,
+            last_action_index,
         }
     }
 
