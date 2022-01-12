@@ -80,3 +80,20 @@ jobs:
       run: docker build . --tag ${{ secrets.DOCKER_USER }}/reshape:${GITHUB_REF##*/v} --tag ${{ secrets.DOCKER_USER }}/reshape:latest
     - name: Push Docker image
       run: docker push --all-tags ${{ secrets.DOCKER_USER }}/reshape
+
+  publish-crate:
+    runs-on: ubuntu-latest
+    needs: ["build-binary", "publish-docker"]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Select Rust toolchain 
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+    - name: Publish to crates.io
+      uses: actions-rs/cargo@v1
+      with:
+        command: publish
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
