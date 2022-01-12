@@ -311,6 +311,17 @@ impl Action for AlterColumn {
     }
 
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
+        // Drop temporary column
+        let query = format!(
+            "
+			ALTER TABLE {table}
+            DROP COLUMN IF EXISTS {temp_column};
+			",
+            table = self.table,
+            temp_column = self.temporary_column_name(ctx),
+        );
+        db.run(&query).context("failed to drop temporary column")?;
+
         // Remove triggers and procedures
         let query = format!(
             "
@@ -326,17 +337,6 @@ impl Action for AlterColumn {
         );
         db.run(&query)
             .context("failed to drop up and down triggers")?;
-
-        // Drop temporary column
-        let query = format!(
-            "
-			ALTER TABLE {table}
-            DROP COLUMN IF EXISTS {temp_column};
-			",
-            table = self.table,
-            temp_column = self.temporary_column_name(ctx),
-        );
-        db.run(&query).context("failed to drop temporary column")?;
 
         Ok(())
     }

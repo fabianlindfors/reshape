@@ -151,13 +151,10 @@ impl Reshape {
                 last_migration_index + 1,
                 last_action_index + 1,
             );
-            self.state.save(&mut self.db)?;
 
-            self.abort_migrations(
-                &remaining_migrations,
-                last_migration_index + 1,
-                last_action_index + 1,
-            )?;
+            // Abort will only
+            self.abort()?;
+
             return Err(err);
         }
 
@@ -494,31 +491,19 @@ impl Reshape {
                     continue;
                 }
 
-                // Run each action abort as a separate transaction. We need atomicity
-                // to ensure the abort changes are run only once for each action.
-                let mut transaction = self
-                    .db
-                    .transaction()
-                    .context("failed to start transaction")?;
-
                 let ctx = MigrationContext::new(migration_index, action_index);
                 action
-                    .abort(&ctx, &mut transaction)
+                    .abort(&ctx, &mut self.db)
                     .with_context(|| format!("failed to abort migration {}", migration.name))
                     .with_context(|| format!("failed to abort action: {}", action.describe()))?;
 
-                // Update state with which migrations and actions have been aborted. By running this
-                // in a transaction, we guarantee that an action is only aborted once.
-                // We want to use a single transaction for each action to keep the length
-                // of the transaction as short as possible.
+                // Update state with which migrations and actions have been aborted.
+                // We don't need to run this in a transaction as aborts are idempotent.
                 self.state
                     .aborting(migrations.to_vec(), migration_index, action_index);
                 self.state
-                    .save(&mut transaction)
+                    .save(&mut self.db)
                     .context("failed to save state")?;
-                transaction
-                    .commit()
-                    .context("failed to commit transaction")?;
             }
 
             println!("{}", "done".green());

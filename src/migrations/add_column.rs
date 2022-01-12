@@ -250,17 +250,6 @@ impl Action for AddColumn {
     }
 
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
-        // Remove triggers and procedures
-        let query = format!(
-            "
-            DROP TRIGGER IF EXISTS {trigger_name} ON {table};
-            DROP FUNCTION IF EXISTS {trigger_name};
-            ",
-            table = self.table,
-            trigger_name = self.trigger_name(ctx),
-        );
-        db.run(&query).context("failed to drop up trigger")?;
-
         // Remove column
         let query = format!(
             "
@@ -271,6 +260,17 @@ impl Action for AddColumn {
             column = self.temp_column_name(ctx),
         );
         db.run(&query).context("failed to drop column")?;
+
+        // Remove triggers and procedures
+        let query = format!(
+            "
+            DROP TRIGGER IF EXISTS {trigger_name} ON {table};
+            DROP FUNCTION IF EXISTS {trigger_name};
+            ",
+            table = self.table,
+            trigger_name = self.trigger_name(ctx),
+        );
+        db.run(&query).context("failed to drop up trigger")?;
 
         Ok(())
     }
