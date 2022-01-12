@@ -24,6 +24,9 @@ pub use remove_column::RemoveColumn;
 mod add_index;
 pub use add_index::AddIndex;
 
+mod remove_index;
+pub use remove_index::RemoveIndex;
+
 mod remove_table;
 pub use remove_table::RemoveTable;
 

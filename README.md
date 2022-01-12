@@ -26,6 +26,7 @@ Reshape is designed for Postgres 12 and later.
 		- [Remove column](#remove-column)
 	- [Indices](#indices)
 		- [Add index](#add-index)
+		- [Remove index](#remove-index)
 - [Commands and options](#commands-and-options)
 	- [`reshape migrate`](#reshape-migrate)
 	- [`reshape complete`](#reshape-complete)
@@ -389,6 +390,18 @@ type = "add_index"
 table = "users"
 name = "name_idx"
 columns = ["name"]
+```
+
+#### Remove index
+
+The `remove_index` action will remove an existing index. The index won't actually be removed until the migration is completed.
+
+*Example: remove the `name_idx` index*
+
+```toml
+[[actions]]
+type = "remove_index"
+index = "name_idx"
 ```
 
 ## Commands and options
