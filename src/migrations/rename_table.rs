@@ -34,10 +34,10 @@ impl Action for RenameTable {
     ) -> anyhow::Result<Option<Transaction<'a>>> {
         // Rename table
         let query = format!(
-            "
-            ALTER TABLE IF EXISTS {table}
-            RENAME TO {new_name}
-            ",
+            r#"
+            ALTER TABLE IF EXISTS "{table}"
+            RENAME TO "{new_name}"
+            "#,
             table = self.table,
             new_name = self.new_name,
         );

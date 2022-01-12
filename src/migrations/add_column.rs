@@ -77,10 +77,10 @@ impl Action for AddColumn {
 
         // Add column as NOT NULL
         let query = format!(
-            "
-			ALTER TABLE {table}
+            r#"
+			ALTER TABLE "{table}"
             ADD COLUMN IF NOT EXISTS {definition};
-			",
+			"#,
             table = self.table,
             definition = definition_parts.join(" "),
         );
@@ -104,7 +104,7 @@ impl Action for AddColumn {
 
             // Add triggers to fill in values as they are inserted/updated
             let query = format!(
-                "
+                r#"
                 CREATE OR REPLACE FUNCTION {trigger_name}()
                 RETURNS TRIGGER AS $$
                 BEGIN
@@ -119,9 +119,9 @@ impl Action for AddColumn {
                 END
                 $$ language 'plpgsql';
 
-                DROP TRIGGER IF EXISTS {trigger_name} ON {table};
-                CREATE TRIGGER {trigger_name} BEFORE UPDATE OR INSERT ON {table} FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
-                ",
+                DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
+                CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{table}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
+                "#,
                 temp_column_name = temp_column_name,
                 trigger_name = self.trigger_name(ctx),
                 up = up,
@@ -143,11 +143,11 @@ impl Action for AddColumn {
         // Thanks to this, we can set the full column as NOT NULL later with minimal locking.
         if !self.column.nullable {
             let query = format!(
-                "
-                ALTER TABLE {table}
-                ADD CONSTRAINT {constraint_name}
-                CHECK ({column} IS NOT NULL) NOT VALID
-                ",
+                r#"
+                ALTER TABLE "{table}"
+                ADD CONSTRAINT "{constraint_name}"
+                CHECK ("{column}" IS NOT NULL) NOT VALID
+                "#,
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(ctx),
                 column = temp_column_name,
@@ -168,10 +168,10 @@ impl Action for AddColumn {
 
         // Remove triggers and procedures
         let query = format!(
-            "
-            DROP TRIGGER IF EXISTS {trigger_name} ON {table};
-            DROP FUNCTION IF EXISTS {trigger_name};
-            ",
+            r#"
+            DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
+            DROP FUNCTION IF EXISTS "{trigger_name}";
+            "#,
             table = self.table,
             trigger_name = self.trigger_name(ctx),
         );
@@ -184,10 +184,10 @@ impl Action for AddColumn {
             // Validate the temporary constraint (should always be valid).
             // This performs a sequential scan but does not take an exclusive lock.
             let query = format!(
-                "
-                ALTER TABLE {table}
-                VALIDATE CONSTRAINT {constraint_name}
-                ",
+                r#"
+                ALTER TABLE "{table}"
+                VALIDATE CONSTRAINT "{constraint_name}"
+                "#,
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(ctx),
             );
@@ -200,10 +200,10 @@ impl Action for AddColumn {
             // the existing constraint for correctness which makes the lock short-lived.
             // Source: https://dba.stackexchange.com/a/268128
             let query = format!(
-                "
-                ALTER TABLE {table}
-                ALTER COLUMN {column} SET NOT NULL
-                ",
+                r#"
+                ALTER TABLE "{table}"
+                ALTER COLUMN "{column}" SET NOT NULL
+                "#,
                 table = self.table,
                 column = self.temp_column_name(ctx),
             );
@@ -213,10 +213,10 @@ impl Action for AddColumn {
 
             // Drop the temporary constraint
             let query = format!(
-                "
-                ALTER TABLE {table}
-                DROP CONSTRAINT {constraint_name}
-                ",
+                r#"
+                ALTER TABLE "{table}"
+                DROP CONSTRAINT "{constraint_name}"
+                "#,
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(ctx),
             );
@@ -228,10 +228,10 @@ impl Action for AddColumn {
         // Rename the temporary column to its real name
         transaction
             .run(&format!(
-                "
-            ALTER TABLE {table}
-            RENAME COLUMN {temp_column_name} TO {column_name}
-            ",
+                r#"
+                ALTER TABLE "{table}"
+                RENAME COLUMN "{temp_column_name}" TO "{column_name}"
+                "#,
                 table = self.table,
                 temp_column_name = self.temp_column_name(ctx),
                 column_name = self.column.name,
@@ -252,10 +252,10 @@ impl Action for AddColumn {
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove column
         let query = format!(
-            "
-            ALTER TABLE {table}
-            DROP COLUMN IF EXISTS {column}
-            ",
+            r#"
+            ALTER TABLE "{table}"
+            DROP COLUMN IF EXISTS "{column}"
+            "#,
             table = self.table,
             column = self.temp_column_name(ctx),
         );
@@ -263,10 +263,10 @@ impl Action for AddColumn {
 
         // Remove triggers and procedures
         let query = format!(
-            "
-            DROP TRIGGER IF EXISTS {trigger_name} ON {table};
-            DROP FUNCTION IF EXISTS {trigger_name};
-            ",
+            r#"
+            DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
+            DROP FUNCTION IF EXISTS "{trigger_name}";
+            "#,
             table = self.table,
             trigger_name = self.trigger_name(ctx),
         );

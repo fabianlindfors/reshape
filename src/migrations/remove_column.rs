@@ -57,7 +57,7 @@ impl Action for RemoveColumn {
                 .collect();
 
             let query = format!(
-                "
+                r#"
                 CREATE OR REPLACE FUNCTION {trigger_name}()
                 RETURNS TRIGGER AS $$
                 BEGIN
@@ -72,9 +72,9 @@ impl Action for RemoveColumn {
                 END
                 $$ language 'plpgsql';
 
-                DROP TRIGGER IF EXISTS {trigger_name} ON {table};
-                CREATE TRIGGER {trigger_name} BEFORE UPDATE OR INSERT ON {table} FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
-                ",
+                DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
+                CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{table}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
+                "#,
                 column_name = self.column,
                 trigger_name = self.trigger_name(ctx),
                 down = down,
@@ -94,13 +94,13 @@ impl Action for RemoveColumn {
     ) -> anyhow::Result<Option<Transaction<'a>>> {
         // Remove column, function and trigger
         let query = format!(
-            "
-            ALTER TABLE {table}
-            DROP COLUMN IF EXISTS {column};
+            r#"
+            ALTER TABLE "{table}"
+            DROP COLUMN IF EXISTS "{column}";
 
-            DROP TRIGGER IF EXISTS {trigger_name} ON {table};
-            DROP FUNCTION IF EXISTS {trigger_name};
-            ",
+            DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
+            DROP FUNCTION IF EXISTS "{trigger_name}";
+            "#,
             table = self.table,
             column = self.column,
             trigger_name = self.trigger_name(ctx),
@@ -122,10 +122,10 @@ impl Action for RemoveColumn {
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove function and trigger
         db.run(&format!(
-            "
-            DROP TRIGGER IF EXISTS {trigger_name} ON {table};
-            DROP FUNCTION IF EXISTS {trigger_name};
-            ",
+            r#"
+            DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
+            DROP FUNCTION IF EXISTS "{trigger_name}";
+            "#,
             table = self.table,
             trigger_name = self.trigger_name(ctx),
         ))

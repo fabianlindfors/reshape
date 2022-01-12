@@ -33,10 +33,10 @@ impl Action for RemoveIndex {
         db: &'a mut dyn Conn,
     ) -> anyhow::Result<Option<Transaction<'a>>> {
         db.run(&format!(
-            "
-            DROP INDEX CONCURRENTLY IF EXISTS {}
-            ",
-            self.index
+            r#"
+            DROP INDEX CONCURRENTLY IF EXISTS "{name}"
+            "#,
+            name = self.index
         ))
         .context("failed to drop index")?;
 

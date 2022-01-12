@@ -31,13 +31,13 @@ impl Action for AddIndex {
             .columns
             .iter()
             .filter(|column| self.columns.contains(&column.name))
-            .map(|column| column.real_name.to_string())
+            .map(|column| format!("\"{}\"", column.real_name))
             .collect();
 
         db.run(&format!(
-            "
-			CREATE INDEX CONCURRENTLY {name} ON {table} ({columns})
-			",
+            r#"
+			CREATE INDEX CONCURRENTLY "{name}" ON "{table}" ({columns})
+			"#,
             name = self.name,
             table = self.table,
             columns = column_real_names.join(", "),
@@ -58,9 +58,9 @@ impl Action for AddIndex {
 
     fn abort(&self, _ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         db.run(&format!(
-            "
-			DROP INDEX CONCURRENTLY IF EXISTS {name}
-			",
+            r#"
+			DROP INDEX CONCURRENTLY IF EXISTS "{name}"
+			"#,
             name = self.name,
         ))
         .context("failed to drop index")?;

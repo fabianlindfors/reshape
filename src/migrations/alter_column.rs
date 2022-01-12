@@ -67,14 +67,13 @@ impl Action for AlterColumn {
         }
 
         let query = format!(
-            "
-			ALTER TABLE {table}
+            r#"
+			ALTER TABLE "{table}"
             ADD COLUMN IF NOT EXISTS {temp_column_definition}
-			",
+			"#,
             table = self.table,
             temp_column_definition = temp_column_definition_parts.join(" "),
         );
-        println!("Query {}", query);
         db.run(&query).context("failed to add temporary column")?;
 
         // If up or down wasn't provided, we default to simply moving the value over.
@@ -97,7 +96,7 @@ impl Action for AlterColumn {
             .collect();
 
         let query = format!(
-                "
+            r#"
                 CREATE OR REPLACE FUNCTION {up_trigger}()
                 RETURNS TRIGGER AS $$
                 BEGIN
@@ -113,8 +112,8 @@ impl Action for AlterColumn {
                 END
                 $$ language 'plpgsql';
 
-                DROP TRIGGER IF EXISTS {up_trigger} ON {table};
-                CREATE TRIGGER {up_trigger} BEFORE INSERT OR UPDATE ON {table} FOR EACH ROW EXECUTE PROCEDURE {up_trigger}();
+                DROP TRIGGER IF EXISTS "{up_trigger}" ON "{table}";
+                CREATE TRIGGER "{up_trigger}" BEFORE INSERT OR UPDATE ON "{table}" FOR EACH ROW EXECUTE PROCEDURE {up_trigger}();
 
                 CREATE OR REPLACE FUNCTION {down_trigger}()
                 RETURNS TRIGGER AS $$
@@ -131,19 +130,19 @@ impl Action for AlterColumn {
                 END
                 $$ language 'plpgsql';
 
-                DROP TRIGGER IF EXISTS {down_trigger} ON {table};
-                CREATE TRIGGER {down_trigger} BEFORE INSERT OR UPDATE ON {table} FOR EACH ROW EXECUTE PROCEDURE {down_trigger}();
-                ",
-                existing_column = &self.column,
-                existing_column_real = column.real_name,
-                temp_column = self.temporary_column_name(ctx),
-                up = up,
-                down = down,
-                table = self.table,
-                up_trigger = self.up_trigger_name(ctx),
-                down_trigger = self.down_trigger_name(ctx),
-                declarations = declarations.join("\n"),
-            );
+                DROP TRIGGER IF EXISTS "{down_trigger}" ON "{table}";
+                CREATE TRIGGER "{down_trigger}" BEFORE INSERT OR UPDATE ON "{table}" FOR EACH ROW EXECUTE PROCEDURE {down_trigger}();
+                "#,
+            existing_column = &self.column,
+            existing_column_real = column.real_name,
+            temp_column = self.temporary_column_name(ctx),
+            up = up,
+            down = down,
+            table = self.table,
+            up_trigger = self.up_trigger_name(ctx),
+            down_trigger = self.down_trigger_name(ctx),
+            declarations = declarations.join("\n"),
+        );
         db.run(&query)
             .context("failed to create up and down triggers")?;
 
@@ -157,11 +156,11 @@ impl Action for AlterColumn {
         // Thanks to this, we can set the full column as NOT NULL later with minimal locking.
         if !column.nullable {
             let query = format!(
-                "
-                ALTER TABLE {table}
-                ADD CONSTRAINT {constraint_name}
-                CHECK ({column} IS NOT NULL) NOT VALID
-                ",
+                r#"
+                ALTER TABLE "{table}"
+                ADD CONSTRAINT "{constraint_name}"
+                CHECK ("{column}" IS NOT NULL) NOT VALID
+                "#,
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(ctx),
                 column = self.temporary_column_name(ctx),
@@ -181,10 +180,10 @@ impl Action for AlterColumn {
         if self.can_short_circuit() {
             if let Some(new_name) = &self.changes.name {
                 let query = format!(
-                    "
-			        ALTER TABLE {table}
-			        RENAME COLUMN {existing_name} TO {new_name}
-			        ",
+                    r#"
+			        ALTER TABLE "{table}"
+			        RENAME COLUMN "{existing_name}" TO "{new_name}"
+			        "#,
                     table = self.table,
                     existing_name = self.column,
                     new_name = new_name,
@@ -210,10 +209,10 @@ impl Action for AlterColumn {
             // Validate the temporary constraint (should always be valid).
             // This performs a sequential scan but does not take an exclusive lock.
             let query = format!(
-                "
-                ALTER TABLE {table}
-                VALIDATE CONSTRAINT {constraint_name}
-                ",
+                r#"
+                ALTER TABLE "{table}"
+                VALIDATE CONSTRAINT "{constraint_name}"
+                "#,
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(ctx),
             );
@@ -225,10 +224,10 @@ impl Action for AlterColumn {
             // the existing constraint for correctness which makes the lock short-lived.
             // Source: https://dba.stackexchange.com/a/268128
             let query = format!(
-                "
-                ALTER TABLE {table}
-                ALTER COLUMN {column} SET NOT NULL
-                ",
+                r#"
+                ALTER TABLE "{table}"
+                ALTER COLUMN "{column}" SET NOT NULL
+                "#,
                 table = self.table,
                 column = self.temporary_column_name(ctx),
             );
@@ -236,10 +235,10 @@ impl Action for AlterColumn {
 
             // Drop the temporary constraint
             let query = format!(
-                "
-                ALTER TABLE {table}
-                DROP CONSTRAINT {constraint_name}
-                ",
+                r#"
+                ALTER TABLE "{table}"
+                DROP CONSTRAINT "{constraint_name}"
+                "#,
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(ctx),
             );
@@ -249,19 +248,20 @@ impl Action for AlterColumn {
 
         // Remove old column
         let query = format!(
-            "
-            ALTER TABLE {} DROP COLUMN {} CASCADE
-			",
-            self.table, self.column
+            r#"
+            ALTER TABLE "{table}" DROP COLUMN "{column}" CASCADE
+			"#,
+            table = self.table,
+            column = self.column,
         );
         db.run(&query).context("failed to drop old column")?;
 
         // Rename temporary column
         let column_name = self.changes.name.as_deref().unwrap_or(&self.column);
         let query = format!(
-            "
-            ALTER TABLE {table} RENAME COLUMN {temp_column} TO {name}
-			",
+            r#"
+            ALTER TABLE "{table}" RENAME COLUMN "{temp_column}" TO "{name}"
+			"#,
             table = self.table,
             temp_column = self.temporary_column_name(ctx),
             name = column_name,
@@ -271,13 +271,13 @@ impl Action for AlterColumn {
 
         // Remove triggers and procedures
         let query = format!(
-            "
-            DROP TRIGGER IF EXISTS {up_trigger} ON {table};
-            DROP FUNCTION IF EXISTS {up_trigger};
+            r#"
+            DROP TRIGGER IF EXISTS "{up_trigger}" ON "{table}";
+            DROP FUNCTION IF EXISTS "{up_trigger}";
 
-            DROP TRIGGER IF EXISTS {down_trigger} ON {table};
-            DROP FUNCTION IF EXISTS {down_trigger};
-            ",
+            DROP TRIGGER IF EXISTS "{down_trigger}" ON "{table}";
+            DROP FUNCTION IF EXISTS "{down_trigger}";
+            "#,
             table = self.table,
             up_trigger = self.up_trigger_name(ctx),
             down_trigger = self.down_trigger_name(ctx),
@@ -313,10 +313,10 @@ impl Action for AlterColumn {
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Drop temporary column
         let query = format!(
-            "
-			ALTER TABLE {table}
-            DROP COLUMN IF EXISTS {temp_column};
-			",
+            r#"
+			ALTER TABLE "{table}"
+            DROP COLUMN IF EXISTS "{temp_column}";
+			"#,
             table = self.table,
             temp_column = self.temporary_column_name(ctx),
         );
@@ -324,13 +324,13 @@ impl Action for AlterColumn {
 
         // Remove triggers and procedures
         let query = format!(
-            "
-            DROP TRIGGER IF EXISTS {up_trigger} ON {table};
-            DROP FUNCTION IF EXISTS {up_trigger};
+            r#"
+            DROP TRIGGER IF EXISTS "{up_trigger}" ON "{table}";
+            DROP FUNCTION IF EXISTS "{up_trigger}";
 
-            DROP TRIGGER IF EXISTS {down_trigger} ON {table};
-            DROP FUNCTION IF EXISTS {down_trigger};
-            ",
+            DROP TRIGGER IF EXISTS "{down_trigger}" ON "{table}";
+            DROP FUNCTION IF EXISTS "{down_trigger}";
+            "#,
             table = self.table,
             up_trigger = self.up_trigger_name(ctx),
             down_trigger = self.down_trigger_name(ctx),

@@ -42,7 +42,7 @@ impl Action for CreateTable {
             .columns
             .iter()
             .map(|column| {
-                let mut parts = vec![column.name.to_string(), column.data_type.to_string()];
+                let mut parts = vec![format!("\"{}\"", column.name), column.data_type.to_string()];
 
                 if let Some(default) = &column.default {
                     parts.push("DEFAULT".to_string());
@@ -62,24 +62,46 @@ impl Action for CreateTable {
             })
             .collect();
 
-        let primary_key_columns = self.primary_key.join(", ");
+        let primary_key_columns = self
+            .primary_key
+            .iter()
+            // Add quotes around all column names
+            .map(|col| format!("\"{}\"", col))
+            .collect::<Vec<String>>()
+            .join(", ");
         definition_rows.push(format!("PRIMARY KEY ({})", primary_key_columns));
 
         for foreign_key in &self.foreign_keys {
+            // Add quotes around all column names
+            let columns: Vec<String> = foreign_key
+                .columns
+                .iter()
+                .map(|col| format!("\"{}\"", col))
+                .collect();
+            let referenced_columns: Vec<String> = foreign_key
+                .referenced_columns
+                .iter()
+                .map(|col| format!("\"{}\"", col))
+                .collect();
+
             definition_rows.push(format!(
-                "FOREIGN KEY ({columns}) REFERENCES {table} ({referenced_columns})",
-                columns = foreign_key.columns.join(", "),
+                r#"
+                FOREIGN KEY ({columns}) REFERENCES "{table}" ({referenced_columns})
+                "#,
+                columns = columns.join(", "),
                 table = foreign_key.referenced_table,
-                referenced_columns = foreign_key.referenced_columns.join(", "),
+                referenced_columns = referenced_columns.join(", "),
             ));
         }
 
         db.run(&format!(
-            "CREATE TABLE {} (
-                {}
-            )",
-            self.name,
-            definition_rows.join(",\n"),
+            r#"
+            CREATE TABLE "{name}" (
+                {definition}
+            )
+            "#,
+            name = self.name,
+            definition = definition_rows.join(",\n"),
         ))
         .context("failed to create table")?;
         Ok(())
@@ -97,8 +119,13 @@ impl Action for CreateTable {
     fn update_schema(&self, _ctx: &MigrationContext, _schema: &mut Schema) {}
 
     fn abort(&self, _ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
-        db.run(&format!("DROP TABLE IF EXISTS {}", self.name,))
-            .context("failed to drop table")?;
+        db.run(&format!(
+            r#"
+            DROP TABLE IF EXISTS {name}
+            "#,
+            name = self.name,
+        ))
+        .context("failed to drop table")?;
 
         Ok(())
     }

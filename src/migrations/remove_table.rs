@@ -33,9 +33,9 @@ impl Action for RemoveTable {
     ) -> anyhow::Result<Option<Transaction<'a>>> {
         // Remove table
         let query = format!(
-            "
-            DROP TABLE IF EXISTS {table};
-            ",
+            r#"
+            DROP TABLE IF EXISTS "{table}";
+            "#,
             table = self.table,
         );
         db.run(&query).context("failed to drop table")?;

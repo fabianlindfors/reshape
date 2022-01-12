@@ -363,13 +363,23 @@ impl Reshape {
         let select_columns: Vec<String> = table
             .columns
             .iter()
-            .map(|column| format!("{} AS {}", column.real_name, column.name))
+            .map(|column| {
+                format!(
+                    r#"
+                    "{real_name}" AS "{alias}"
+                    "#,
+                    real_name = column.real_name,
+                    alias = column.name,
+                )
+            })
             .collect();
 
         db.run(&format!(
-            "CREATE OR REPLACE VIEW {schema}.{view_name} AS
+            r#"
+            CREATE OR REPLACE VIEW {schema}."{view_name}" AS
                 SELECT {columns}
-                FROM {table_name}",
+                FROM "{table_name}"
+            "#,
             schema = schema,
             table_name = table.real_name,
             view_name = table.name,
@@ -400,8 +410,12 @@ impl Reshape {
         // Remove all tables
         let schema = Schema::new();
         for table in schema.get_tables(&mut self.db)? {
-            self.db
-                .run(&format!("DROP TABLE IF EXISTS {} CASCADE", table.real_name))?;
+            self.db.run(&format!(
+                r#"
+                DROP TABLE IF EXISTS "{}" CASCADE
+                "#,
+                table.real_name
+            ))?;
         }
 
         // Reset state

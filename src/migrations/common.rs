@@ -87,7 +87,9 @@ pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow:
             .iter()
             .map(|column| {
                 format!(
-                    "{table}.{column} = rows.{column}",
+                    r#"
+                    "{table}"."{column}" = rows."{column}"
+                    "#,
                     table = table,
                     column = column,
                 )
@@ -97,7 +99,7 @@ pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow:
 
         let returning_columns = primary_key
             .iter()
-            .map(|column| format!("rows.{}", column))
+            .map(|column| format!("rows.\"{}\"", column))
             .collect::<Vec<String>>()
             .join(", ");
 
@@ -113,24 +115,24 @@ pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow:
         };
 
         let query = format!(
-            "
-                WITH rows AS (
-                    SELECT {primary_key_columns}
-                    FROM public.{table}
-                    {cursor_where}
-                    ORDER BY {primary_key_columns}
-                    LIMIT {batch_size}
-                ), update AS (
-                    UPDATE public.{table}
-                    SET {column} = {column}
-                    FROM rows
-                    WHERE {primary_key_where}
-                    RETURNING {returning_columns}
-                )
-                SELECT LAST_VALUE(({primary_key_columns})) OVER () AS last_value
-                FROM update
-                LIMIT 1
-			    ",
+            r#"
+            WITH rows AS (
+                SELECT {primary_key_columns}
+                FROM public."{table}"
+                {cursor_where}
+                ORDER BY {primary_key_columns}
+                LIMIT {batch_size}
+            ), update AS (
+                UPDATE public."{table}"
+                SET "{column}" = "{column}"
+                FROM rows
+                WHERE {primary_key_where}
+                RETURNING {returning_columns}
+            )
+            SELECT LAST_VALUE(({primary_key_columns})) OVER () AS last_value
+            FROM update
+            LIMIT 1
+            "#,
             table = table,
             primary_key_columns = primary_key_columns,
             cursor_where = cursor_where,
