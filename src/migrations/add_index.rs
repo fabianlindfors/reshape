@@ -59,10 +59,9 @@ impl Action for AddIndex {
     fn abort(&self, _ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         db.run(&format!(
             "
-			DROP INDEX {name} ON {table}
+			DROP INDEX CONCURRENTLY IF EXISTS {name}
 			",
             name = self.name,
-            table = self.table,
         ))
         .context("failed to drop index")?;
         Ok(())
