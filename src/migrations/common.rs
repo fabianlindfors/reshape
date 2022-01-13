@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use derive_builder::Builder;
 use postgres::types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
@@ -179,4 +180,80 @@ fn get_primary_key_columns_for_table(
         .collect();
 
     Ok(primary_key_columns)
+}
+
+pub fn get_indices_for_column(
+    db: &mut dyn Conn,
+    table: &str,
+    column: &str,
+) -> anyhow::Result<Vec<(String, u32)>> {
+    let indices = db
+        .query(&format!(
+            "
+            SELECT i.relname AS index_name, i.oid AS index_oid
+            FROM pg_index ix
+            JOIN pg_class t ON t.oid = ix.indrelid
+            JOIN pg_class i ON i.oid = ix.indexrelid
+            JOIN pg_attribute a ON
+                a.attrelid = t.oid AND
+                a.attnum = ANY(ix.indkey)
+            WHERE
+                t.relname = '{table}' AND
+                a.attname = '{column}'
+            ",
+            table = table,
+            column = column,
+        ))?
+        .iter()
+        .map(|row| (row.get("index_name"), row.get("index_oid")))
+        .collect();
+
+    Ok(indices)
+}
+
+pub fn get_index_columns(db: &mut dyn Conn, index_name: &str) -> anyhow::Result<Vec<String>> {
+    // Get all columns which are part of the index in order
+    let (table_oid, column_nums) = db
+        .query(&format!(
+            "
+            SELECT t.oid AS table_oid, ix.indkey::INTEGER[] AS columns
+            FROM pg_index ix
+            JOIN pg_class t ON t.oid = ix.indrelid
+            JOIN pg_class i ON i.oid = ix.indexrelid
+            WHERE
+	            i.relname = '{index_name}'
+            ",
+            index_name = index_name,
+        ))?
+        .first()
+        .map(|row| {
+            (
+                row.get::<'_, _, u32>("table_oid"),
+                row.get::<'_, _, Vec<i32>>("columns"),
+            )
+        })
+        .ok_or_else(|| anyhow!("failed to get columns for index"))?;
+
+    // Get the name of each of the columns, still in order
+    column_nums
+        .iter()
+        .map(|column_num| -> anyhow::Result<String> {
+            let name: String = db
+                .query(&format!(
+                    "
+                    SELECT attname AS name
+                    FROM pg_attribute
+                    WHERE attrelid = {table_oid}
+                        AND attnum = {column_num};
+                    ",
+                    table_oid = table_oid,
+                    column_num = column_num,
+                ))?
+                .first()
+                .map(|row| row.get("name"))
+                .ok_or_else(|| anyhow!("expected to find column"))?;
+
+            Ok(name)
+        })
+        .collect::<anyhow::Result<Vec<String>>>()
 }

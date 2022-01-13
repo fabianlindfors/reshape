@@ -150,6 +150,33 @@ impl Action for AlterColumn {
         common::batch_touch_rows(db, &table.real_name, &column.real_name)
             .context("failed to batch update existing rows")?;
 
+        // Duplicate any indices to the temporary column
+        let indices = common::get_indices_for_column(db, &table.real_name, &column.real_name)?;
+        for (index_name, index_oid) in indices {
+            let index_columns: Vec<String> = common::get_index_columns(db, &index_name)?
+                .into_iter()
+                .map(|idx_column| {
+                    // Replace column with temporary column for new index
+                    if idx_column == column.real_name {
+                        temporary_column_name.to_string()
+                    } else {
+                        idx_column
+                    }
+                })
+                .collect();
+            let temp_index_name = self.temp_index_name(ctx, index_oid);
+
+            db.query(&format!(
+                r#"
+                CREATE INDEX CONCURRENTLY IF NOT EXISTS "{new_index_name}" ON "{table}" ({columns})
+                "#,
+                new_index_name = temp_index_name,
+                table = table.real_name,
+                columns = index_columns.join(", "),
+            ))
+            .context("failed to create temporary index")?;
+        }
+
         // Add a temporary NOT NULL constraint if the column shouldn't be nullable.
         // This constraint is set as NOT VALID so it doesn't apply to existing rows and
         // the existing rows don't need to be scanned under an exclusive lock.
@@ -246,10 +273,52 @@ impl Action for AlterColumn {
                 .context("failed to drop NOT NULL constraint")?;
         }
 
+        // Replace old indices with the new temporary ones created for the temporary column
+        let indices = common::get_indices_for_column(db, &self.table, &self.column)?;
+        for (current_index_name, index_oid) in indices {
+            // To keep the index handling idempotent, we need to do the following:
+            // 1. Add a prefix to the existing index
+            // 2. Rename temporary index to its final name
+            // 3. Drop existing index concurrently
+
+            // Add prefix (if not already added) to existing index
+            let prefix = "__reshape_old";
+            let target_index_name = current_index_name.trim_start_matches(prefix);
+            let old_index_name = format!("{}_{}", prefix, target_index_name);
+            db.query(&format!(
+                r#"
+                ALTER INDEX IF EXISTS "{current_name}" RENAME TO "{new_name}"
+                "#,
+                current_name = target_index_name,
+                new_name = old_index_name,
+            ))
+            .context("failed to rename old index")?;
+
+            // Rename temporary index to real name
+            let temp_index_name = self.temp_index_name(ctx, index_oid);
+            db.query(&format!(
+                r#"
+                ALTER INDEX IF EXISTS "{temp_index_name}" RENAME TO "{target_index_name}"
+                "#,
+                temp_index_name = temp_index_name,
+                target_index_name = target_index_name,
+            ))
+            .context("failed to rename temporary index")?;
+
+            // Drop old index concurrently
+            db.query(&format!(
+                r#"
+                DROP INDEX CONCURRENTLY IF EXISTS "{old_index_name}"
+                "#,
+                old_index_name = old_index_name,
+            ))
+            .context("failed to drop old index")?;
+        }
+
         // Remove old column
         let query = format!(
             r#"
-            ALTER TABLE "{table}" DROP COLUMN "{column}" CASCADE
+            ALTER TABLE "{table}" DROP COLUMN IF EXISTS "{column}" CASCADE
 			"#,
             table = self.table,
             column = self.column,
@@ -311,6 +380,19 @@ impl Action for AlterColumn {
     }
 
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
+        // Safely remove any indices created for the temporary column
+        let temp_column_name = self.temporary_column_name(ctx);
+        let indices = common::get_indices_for_column(db, &self.table, &temp_column_name)?;
+        for (_, index_oid) in indices {
+            let temp_index_name = self.temp_index_name(ctx, index_oid);
+            db.query(&format!(
+                r#"
+                DROP INDEX CONCURRENTLY IF EXISTS "{index_name}"
+                "#,
+                index_name = temp_index_name,
+            ))?;
+        }
+
         // Drop temporary column
         let query = format!(
             r#"
@@ -357,6 +439,10 @@ impl AlterColumn {
 
     fn not_null_constraint_name(&self, ctx: &MigrationContext) -> String {
         format!("{}_alter_column_temporary", ctx.prefix())
+    }
+
+    fn temp_index_name(&self, ctx: &MigrationContext, index_oid: u32) -> String {
+        format!("{}_alter_column_temp_index_{}", ctx.prefix(), index_oid)
     }
 
     fn can_short_circuit(&self) -> bool {

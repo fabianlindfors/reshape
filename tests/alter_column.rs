@@ -1,5 +1,5 @@
 use reshape::migrations::{
-    AlterColumn, ColumnBuilder, ColumnChanges, CreateTableBuilder, Migration,
+    AddIndex, AlterColumn, ColumnBuilder, ColumnChanges, CreateTableBuilder, Migration,
 };
 use reshape::Status;
 
@@ -530,4 +530,93 @@ fn alter_column_default() {
 
     reshape.complete_migration().unwrap();
     common::assert_cleaned_up(&mut new_db);
+}
+
+#[test]
+fn alter_column_with_index() {
+    let (mut reshape, mut db, _) = common::setup();
+
+    let create_users_table = Migration::new("create_user_table", None)
+        .with_action(
+            CreateTableBuilder::default()
+                .name("users")
+                .primary_key(vec!["id".to_string()])
+                .columns(vec![
+                    ColumnBuilder::default()
+                        .name("id")
+                        .data_type("INTEGER")
+                        .build()
+                        .unwrap(),
+                    ColumnBuilder::default()
+                        .name("first_name")
+                        .data_type("TEXT")
+                        .build()
+                        .unwrap(),
+                    ColumnBuilder::default()
+                        .name("last_name")
+                        .data_type("TEXT")
+                        .build()
+                        .unwrap(),
+                ])
+                .build()
+                .unwrap(),
+        )
+        .with_action(AddIndex {
+            table: "users".to_string(),
+            name: "users_name_idx".to_string(),
+            columns: vec!["first_name".to_string(), "last_name".to_string()],
+        });
+    let uppercase_name = Migration::new("uppercase_name", None).with_action(AlterColumn {
+        table: "users".to_string(),
+        column: "last_name".to_string(),
+        up: Some("UPPER(last_name)".to_string()),
+        down: Some("LOWER(last_name)".to_string()),
+        changes: ColumnChanges {
+            data_type: None,
+            nullable: None,
+            name: None,
+            default: None,
+        },
+    });
+
+    let first_migrations = vec![create_users_table.clone()];
+    let second_migrations = vec![create_users_table.clone(), uppercase_name.clone()];
+
+    // Run first migration, should automatically finish
+    reshape.migrate(first_migrations.clone()).unwrap();
+    assert!(matches!(reshape.state.status, Status::Idle));
+    assert_eq!(
+        Some(&create_users_table.name),
+        reshape.state.current_migration.as_ref()
+    );
+
+    // Run second migration
+    reshape.migrate(second_migrations.clone()).unwrap();
+    db.simple_query(&reshape::schema_query_for_migration(
+        &second_migrations.last().unwrap().name,
+    ))
+    .unwrap();
+
+    // Complete the second migration which should replace the existing column
+    // with the temporary one
+    reshape.complete_migration().unwrap();
+
+    // Make sure index still exists
+    let result: i64 = db
+        .query(
+            "
+			SELECT COUNT(*)
+			FROM pg_catalog.pg_index
+			JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
+			WHERE pg_class.relname = 'users_name_idx'
+			",
+            &[],
+        )
+        .unwrap()
+        .first()
+        .map(|row| row.get(0))
+        .unwrap();
+    assert_eq!(1, result, "expected index to still exist");
+
+    common::assert_cleaned_up(&mut db);
 }
