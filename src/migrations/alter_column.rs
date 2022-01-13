@@ -57,10 +57,14 @@ impl Action for AlterColumn {
 
         // Add temporary, nullable column
         let mut temp_column_definition_parts: Vec<&str> =
-            vec![&temporary_column_name, &temporary_column_type];
+            vec![&temporary_column_name, temporary_column_type];
 
         // Use either new default value or existing one if one exists
-        let default_value = self.changes.default.as_ref().or(column.default.as_ref());
+        let default_value = self
+            .changes
+            .default
+            .as_ref()
+            .or_else(|| column.default.as_ref());
         if let Some(default) = default_value {
             temp_column_definition_parts.push("DEFAULT");
             temp_column_definition_parts.push(default);
