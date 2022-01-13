@@ -8,6 +8,7 @@ Reshape is designed for Postgres 12 and later.
 
 *Note: Reshape is **experimental** and should not be used in production. It can (and probably will) destroy your data and break your application.*
 
+- [How it works](#how-it-works)
 - [Getting started](#getting-started)
 	- [Installation](#installation)
 	- [Creating your first migration](#creating-your-first-migration)
@@ -33,8 +34,18 @@ Reshape is designed for Postgres 12 and later.
 	- [`reshape abort`](#reshape-abort)
 	- [`reshape generate-schema-query`](#reshape-generate-schema-query)
 	- [Connection options](#connection-options)
-- [How it works](#how-it-works)
 - [License](#license)
+
+
+## How it works
+
+Reshape works by creating views that encapsulate the underlying tables, which your application will interact with. During a migration, Reshape will automatically create a new set of views and set up triggers to translate inserts and updates between the old and new schema. This means that every deployment is a three-phase process:
+
+1. **Start migration** (`reshape migrate`): Sets up views and triggers to ensure both the new and old schema are usable at the same time.
+2. **Roll out application**: Your application can be gradually rolled out without downtime. The existing deployment will continue using the old schema whilst the new deployment uses the new schema.
+3. **Complete migration** (`reshape complete`): Removes the old schema and any intermediate data and triggers. 
+
+If the application deployment fails, you should run `reshape abort` which will roll back any changes made by `reshape migrate` without losing data.
 
 ## Getting started
 
@@ -459,16 +470,6 @@ The options below can be used with all commands that communicate with Postgres. 
 | `--database` | `postgres` | Database name |
 | `--username` | `postgres` | Postgres username |
 | `--password` | `postgres` | Postgres password |
-
-## How it works
-
-Reshape works by creating views that encapsulate the underlying tables, which your application will interact with. During a migration, Reshape will automatically create a new set of views and set up triggers to translate inserts and updates between the old and new schema. This means that every deployment is a three-phase process:
-
-1. **Start migration** (`reshape migrate`): Sets up views and triggers to ensure both the new and old schema are usable at the same time.
-2. **Roll out application**: Your application can be gradually rolled out without downtime. The existing deployment will continue using the old schema whilst the new deployment uses the new schema.
-3. **Complete migration** (`reshape complete`): Removes the old schema and any intermediate data and triggers. 
-
-If the application deployment fails, you should run `reshape abort` which will roll back any changes made by `reshape migrate` without losing data.
 
 ## License
 
