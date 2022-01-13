@@ -6,7 +6,6 @@ use version::version;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct State {
-    pub version: String,
     pub status: Status,
 }
 
@@ -139,9 +138,12 @@ impl State {
     fn ensure_schema_and_table(db: &mut impl Conn) {
         db.run("CREATE SCHEMA IF NOT EXISTS reshape").unwrap();
 
+        // Create data table which will be a key-value table containing
+        // the version and current state.
         db.run("CREATE TABLE IF NOT EXISTS reshape.data (key TEXT PRIMARY KEY, value JSONB)")
             .unwrap();
 
+        // Create migrations table which will store all completed migrations
         db.run(
             "
             CREATE TABLE IF NOT EXISTS reshape.migrations (
@@ -154,13 +156,24 @@ impl State {
             ",
         )
         .unwrap();
+
+        // Update the current version
+        let encoded_version = serde_json::to_value(version!().to_string()).unwrap();
+        db.query_with_params(
+            "
+            INSERT INTO reshape.data (key, value)
+            VALUES ('version', $1)
+            ON CONFLICT (key) DO UPDATE SET value = $1
+            ",
+            &[&encoded_version],
+        )
+        .unwrap();
     }
 }
 
 impl Default for State {
     fn default() -> Self {
         State {
-            version: version!().to_string(),
             status: Status::Idle,
         }
     }
