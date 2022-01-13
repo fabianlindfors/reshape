@@ -57,6 +57,11 @@ impl Transaction<'_> {
         self.transaction.commit()?;
         Ok(())
     }
+
+    pub fn rollback(self) -> anyhow::Result<()> {
+        self.transaction.rollback()?;
+        Ok(())
+    }
 }
 
 impl Conn for Transaction<'_> {

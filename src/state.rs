@@ -8,8 +8,6 @@ use version::version;
 pub struct State {
     pub version: String,
     pub status: Status,
-    pub current_migration: Option<String>,
-    pub migrations: Vec<Migration>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -72,25 +70,25 @@ impl State {
 
         let default = Self::default();
         self.status = default.status;
-        self.current_migration = default.current_migration;
-        self.migrations = default.migrations;
 
         Ok(())
     }
 
     // Complete will change the status from Completing to Idle
-    pub fn complete(&mut self) -> anyhow::Result<()> {
+    pub fn complete(&mut self, db: &mut impl Conn) -> anyhow::Result<()> {
         let current_status = std::mem::replace(&mut self.status, Status::Idle);
-
         match current_status {
-            Status::Completing { mut migrations, .. } => {
-                let target_migration = migrations.last().unwrap().name.to_string();
-                self.migrations.append(&mut migrations);
-                self.current_migration = Some(target_migration);
+            Status::Completing { migrations, .. } => {
+                // Add migrations and update state in a transaction to ensure atomicity
+                let mut transaction = db.transaction()?;
+                save_migrations(&mut transaction, &migrations)?;
+                self.save(&mut transaction)?;
+                transaction.commit()?;
             }
             _ => {
                 // Move old status back
                 self.status = current_status;
+
                 return Err(anyhow!(
                     "couldn't update state to be completed, not in Completing state"
                 ));
@@ -138,35 +136,24 @@ impl State {
         }
     }
 
-    pub fn get_remaining_migrations(
-        &self,
-        new_migrations: impl IntoIterator<Item = Migration>,
-    ) -> anyhow::Result<Vec<Migration>> {
-        let mut new_iter = new_migrations.into_iter();
-
-        // Ensure the new migration match up with the existing ones
-        for pair in self.migrations.iter().zip(new_iter.by_ref()) {
-            let (existing, ref new) = pair;
-            if existing != new {
-                return Err(anyhow!(
-                    "existing migration {} does not match new migration {}",
-                    existing.name,
-                    new.name
-                ));
-            }
-        }
-
-        let items: Vec<Migration> = new_iter.collect();
-
-        // Return the remaining migrations
-        Ok(items)
-    }
-
     fn ensure_schema_and_table(db: &mut impl Conn) {
         db.run("CREATE SCHEMA IF NOT EXISTS reshape").unwrap();
 
         db.run("CREATE TABLE IF NOT EXISTS reshape.data (key TEXT PRIMARY KEY, value JSONB)")
             .unwrap();
+
+        db.run(
+            "
+            CREATE TABLE IF NOT EXISTS reshape.migrations (
+                index INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                actions JSONB NOT NULL,
+                completed_at TIMESTAMP DEFAULT NOW()
+            )
+            ",
+        )
+        .unwrap();
     }
 }
 
@@ -175,8 +162,107 @@ impl Default for State {
         State {
             version: version!().to_string(),
             status: Status::Idle,
-            current_migration: None,
-            migrations: vec![],
         }
     }
+}
+
+pub fn current_migration(db: &mut dyn Conn) -> anyhow::Result<Option<String>> {
+    let name: Option<String> = db
+        .query(
+            "
+            SELECT name
+            FROM reshape.migrations
+            ORDER BY index DESC
+            LIMIT 1
+            ",
+        )?
+        .first()
+        .map(|row| row.get("name"));
+    Ok(name)
+}
+
+pub fn remaining_migrations(
+    db: &mut impl Conn,
+    new_migrations: impl IntoIterator<Item = Migration>,
+) -> anyhow::Result<Vec<Migration>> {
+    let mut new_iter = new_migrations.into_iter();
+
+    // Ensure the new migrations match up with the existing ones
+    let mut highest_index: Option<i32> = None;
+    loop {
+        let migrations = get_migrations(db, highest_index)?;
+        if migrations.is_empty() {
+            break;
+        }
+
+        for (index, existing) in migrations {
+            highest_index = Some(index);
+
+            let new = match new_iter.next() {
+                Some(migration) => migration,
+                None => {
+                    return Err(anyhow!(
+                        "existing migration {} doesn't exist in local migrations",
+                        existing
+                    ))
+                }
+            };
+
+            if existing != new.name {
+                return Err(anyhow!(
+                    "existing migration {} does not match new migration {}",
+                    existing,
+                    new.name
+                ));
+            }
+        }
+    }
+
+    // Return the remaining migrations
+    let items: Vec<Migration> = new_iter.collect();
+    Ok(items)
+}
+
+fn get_migrations(
+    db: &mut impl Conn,
+    index_larger_than: Option<i32>,
+) -> anyhow::Result<Vec<(i32, String)>> {
+    let rows = if let Some(index_larger_than) = index_larger_than {
+        db.query_with_params(
+            "
+            SELECT index, name
+            FROM reshape.migrations
+            WHERE index > $1
+            ORDER BY index ASC
+            LIMIT 100
+            ",
+            &[&index_larger_than],
+        )?
+    } else {
+        db.query(
+            "
+            SELECT index, name
+            FROM reshape.migrations
+            LIMIT 100
+            ",
+        )?
+    };
+
+    let migrations = rows
+        .iter()
+        .map(|row| (row.get("index"), row.get("name")))
+        .collect();
+    Ok(migrations)
+}
+
+fn save_migrations(db: &mut impl Conn, migrations: &[Migration]) -> anyhow::Result<()> {
+    for migration in migrations {
+        let encoded_actions = serde_json::to_value(&migration.actions)?;
+        db.query_with_params(
+            "INSERT INTO reshape.migrations(name, description, actions) VALUES ($1, $2, $3)",
+            &[&migration.name, &migration.description, &encoded_actions],
+        )?;
+    }
+
+    Ok(())
 }

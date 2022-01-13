@@ -60,10 +60,6 @@ fn add_column() {
     // Run first migration, should automatically finish
     reshape.migrate(first_migrations.clone()).unwrap();
     assert!(matches!(reshape.state.status, Status::Idle));
-    assert_eq!(
-        Some(&create_users_table.name),
-        reshape.state.current_migration.as_ref()
-    );
 
     // Update search paths
     old_db
@@ -156,10 +152,6 @@ fn add_column_nullable() {
     // Run first migration, should automatically finish
     reshape.migrate(first_migrations.clone()).unwrap();
     assert!(matches!(reshape.state.status, Status::Idle));
-    assert_eq!(
-        Some(&create_users_table.name),
-        reshape.state.current_migration.as_ref()
-    );
 
     // Update search paths
     old_db
@@ -255,10 +247,6 @@ fn add_column_with_default() {
     // Run first migration, should automatically finish
     reshape.migrate(first_migrations.clone()).unwrap();
     assert!(matches!(reshape.state.status, Status::Idle));
-    assert_eq!(
-        Some(&create_users_table.name),
-        reshape.state.current_migration.as_ref()
-    );
 
     // Update search paths
     old_db

@@ -47,10 +47,6 @@ fn alter_column_data() {
     // Run first migration, should automatically finish
     reshape.migrate(first_migrations.clone()).unwrap();
     assert!(matches!(reshape.state.status, Status::Idle));
-    assert_eq!(
-        Some(&create_users_table.name),
-        reshape.state.current_migration.as_ref()
-    );
 
     // Update search paths
     old_db
@@ -151,10 +147,6 @@ fn alter_column_set_not_null() {
     // Run first migration, should automatically finish
     reshape.migrate(first_migrations.clone()).unwrap();
     assert!(matches!(reshape.state.status, Status::Idle));
-    assert_eq!(
-        Some(&create_users_table.name),
-        reshape.state.current_migration.as_ref()
-    );
 
     // Update search paths
     old_db
@@ -256,10 +248,6 @@ fn alter_column_rename() {
     // Run first migration, should automatically finish
     reshape.migrate(first_migrations.clone()).unwrap();
     assert!(matches!(reshape.state.status, Status::Idle));
-    assert_eq!(
-        Some(&create_users_table.name),
-        reshape.state.current_migration.as_ref()
-    );
 
     // Update search paths
     old_db
@@ -356,10 +344,6 @@ fn alter_column_multiple() {
     // Run first migration, should automatically finish
     reshape.migrate(first_migrations.clone()).unwrap();
     assert!(matches!(reshape.state.status, Status::Idle));
-    assert_eq!(
-        Some(&create_users_table.name),
-        reshape.state.current_migration.as_ref()
-    );
 
     // Update search paths
     old_db
@@ -472,10 +456,6 @@ fn alter_column_default() {
     // Run first migration, should automatically finish
     reshape.migrate(first_migrations.clone()).unwrap();
     assert!(matches!(reshape.state.status, Status::Idle));
-    assert_eq!(
-        Some(&create_users_table.name),
-        reshape.state.current_migration.as_ref()
-    );
 
     // Update search paths
     old_db
@@ -585,10 +565,6 @@ fn alter_column_with_index() {
     // Run first migration, should automatically finish
     reshape.migrate(first_migrations.clone()).unwrap();
     assert!(matches!(reshape.state.status, Status::Idle));
-    assert_eq!(
-        Some(&create_users_table.name),
-        reshape.state.current_migration.as_ref()
-    );
 
     // Run second migration
     reshape.migrate(second_migrations.clone()).unwrap();

@@ -74,8 +74,8 @@ impl Reshape {
         // with the already applied ones stored in the state. This will throw an error if the
         // two sets of migrations don't agree, for example if a new migration has been added
         // in between two existing ones.
-        let current_migration = &self.state.current_migration.clone();
-        let remaining_migrations = self.state.get_remaining_migrations(migrations)?;
+        let current_migration = state::current_migration(&mut self.db)?;
+        let remaining_migrations = state::remaining_migrations(&mut self.db, migrations)?;
         if remaining_migrations.is_empty() {
             println!("No migrations left to apply");
             return Ok(());
@@ -103,7 +103,7 @@ impl Reshape {
 
         println!("Applying {} migrations\n", remaining_migrations.len());
 
-        helpers::set_up_helpers(&mut self.db, current_migration)
+        helpers::set_up_helpers(&mut self.db, &current_migration)
             .context("failed to set up helpers")?;
 
         let mut new_schema = Schema::new();
@@ -225,7 +225,7 @@ impl Reshape {
         };
 
         // Remove previous migration's schema
-        if let Some(current_migration) = &self.state.current_migration {
+        if let Some(current_migration) = &state::current_migration(&mut self.db)? {
             self.db
                 .run(&format!(
                     "DROP SCHEMA IF EXISTS {} CASCADE",
@@ -322,11 +322,8 @@ impl Reshape {
         helpers::tear_down_helpers(&mut self.db).context("failed to tear down helpers")?;
 
         self.state
-            .complete()
+            .complete(&mut self.db)
             .context("failed to update state as completed")?;
-        self.state
-            .save(&mut self.db)
-            .context("failed to save state after setting as completed")?;
 
         Ok(())
     }
@@ -392,7 +389,7 @@ impl Reshape {
 
     pub fn remove(&mut self) -> anyhow::Result<()> {
         // Remove migration schemas and views
-        if let Some(current_migration) = &self.state.current_migration {
+        if let Some(current_migration) = &state::current_migration(&mut self.db)? {
             self.db.run(&format!(
                 "DROP SCHEMA IF EXISTS {} CASCADE",
                 schema_name_for_migration(current_migration)

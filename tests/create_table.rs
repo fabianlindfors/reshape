@@ -41,10 +41,6 @@ fn create_table() {
         .migrate(vec![create_table_migration.clone()])
         .unwrap();
     assert!(matches!(reshape.state.status, Status::Idle));
-    assert_eq!(
-        Some(&create_table_migration.name),
-        reshape.state.current_migration.as_ref()
-    );
 
     // Ensure table was created
     let result = db
