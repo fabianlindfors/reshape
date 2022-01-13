@@ -1,5 +1,4 @@
 use reshape::migrations::{AddColumn, Column, CreateTable, Migration};
-use reshape::Status;
 
 mod common;
 
@@ -45,7 +44,6 @@ fn invalid_migration() {
 
     // Run first migration, should automatically finish
     reshape.migrate(first_migrations.clone()).unwrap();
-    assert!(matches!(reshape.state.status, Status::Idle));
 
     // Update search paths
     old_db

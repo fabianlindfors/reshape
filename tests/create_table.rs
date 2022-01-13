@@ -1,7 +1,4 @@
-use reshape::{
-    migrations::{ColumnBuilder, CreateTableBuilder, ForeignKey, Migration},
-    Status,
-};
+use reshape::migrations::{ColumnBuilder, CreateTableBuilder, ForeignKey, Migration};
 
 mod common;
 
@@ -40,7 +37,6 @@ fn create_table() {
     reshape
         .migrate(vec![create_table_migration.clone()])
         .unwrap();
-    assert!(matches!(reshape.state.status, Status::Idle));
 
     // Ensure table was created
     let result = db

@@ -4,14 +4,9 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use version::version;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct State {
-    pub status: Status,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "status")]
-pub enum Status {
+#[serde(tag = "state")]
+pub enum State {
     #[serde(rename = "idle")]
     Idle,
 
@@ -37,24 +32,23 @@ pub enum Status {
 }
 
 impl State {
-    pub fn load(db: &mut impl Conn) -> State {
-        Self::ensure_schema_and_table(db);
+    pub fn load(db: &mut impl Conn) -> anyhow::Result<State> {
+        Self::ensure_schema_and_table(db)?;
 
-        let results = db
-            .query("SELECT value FROM reshape.data WHERE key = 'state'")
-            .unwrap();
+        let results = db.query("SELECT value FROM reshape.data WHERE key = 'state'")?;
 
-        match results.first() {
+        let state = match results.first() {
             Some(row) => {
                 let json: serde_json::Value = row.get(0);
-                serde_json::from_value(json).unwrap()
+                serde_json::from_value(json)?
             }
             None => Default::default(),
-        }
+        };
+        Ok(state)
     }
 
     pub fn save(&self, db: &mut impl Conn) -> anyhow::Result<()> {
-        Self::ensure_schema_and_table(db);
+        Self::ensure_schema_and_table(db)?;
 
         let json = serde_json::to_value(self)?;
         db.query_with_params(
@@ -67,17 +61,17 @@ impl State {
     pub fn clear(&mut self, db: &mut impl Conn) -> anyhow::Result<()> {
         db.run("DROP SCHEMA reshape CASCADE")?;
 
-        let default = Self::default();
-        self.status = default.status;
+        *self = Self::default();
 
         Ok(())
     }
 
-    // Complete will change the status from Completing to Idle
+    // Complete will change the state from Completing to Idle
     pub fn complete(&mut self, db: &mut impl Conn) -> anyhow::Result<()> {
-        let current_status = std::mem::replace(&mut self.status, Status::Idle);
-        match current_status {
-            Status::Completing { migrations, .. } => {
+        let current_state = std::mem::replace(self, Self::Idle);
+
+        match current_state {
+            Self::Completing { migrations, .. } => {
                 // Add migrations and update state in a transaction to ensure atomicity
                 let mut transaction = db.transaction()?;
                 save_migrations(&mut transaction, &migrations)?;
@@ -85,8 +79,8 @@ impl State {
                 transaction.commit()?;
             }
             _ => {
-                // Move old status back
-                self.status = current_status;
+                // Move old state back
+                *self = current_state;
 
                 return Err(anyhow!(
                     "couldn't update state to be completed, not in Completing state"
@@ -98,13 +92,13 @@ impl State {
     }
 
     pub fn applying(&mut self, new_migrations: Vec<Migration>) {
-        self.status = Status::Applying {
+        *self = Self::Applying {
             migrations: new_migrations,
         };
     }
 
     pub fn in_progress(&mut self, new_migrations: Vec<Migration>) {
-        self.status = Status::InProgress {
+        *self = Self::InProgress {
             migrations: new_migrations,
         };
     }
@@ -115,7 +109,7 @@ impl State {
         current_migration_index: usize,
         current_action_index: usize,
     ) {
-        self.status = Status::Completing {
+        *self = Self::Completing {
             migrations,
             current_migration_index,
             current_action_index,
@@ -128,20 +122,19 @@ impl State {
         last_migration_index: usize,
         last_action_index: usize,
     ) {
-        self.status = Status::Aborting {
+        *self = Self::Aborting {
             migrations,
             last_migration_index,
             last_action_index,
         }
     }
 
-    fn ensure_schema_and_table(db: &mut impl Conn) {
-        db.run("CREATE SCHEMA IF NOT EXISTS reshape").unwrap();
+    fn ensure_schema_and_table(db: &mut impl Conn) -> anyhow::Result<()> {
+        db.run("CREATE SCHEMA IF NOT EXISTS reshape")?;
 
         // Create data table which will be a key-value table containing
         // the version and current state.
-        db.run("CREATE TABLE IF NOT EXISTS reshape.data (key TEXT PRIMARY KEY, value JSONB)")
-            .unwrap();
+        db.run("CREATE TABLE IF NOT EXISTS reshape.data (key TEXT PRIMARY KEY, value JSONB)")?;
 
         // Create migrations table which will store all completed migrations
         db.run(
@@ -154,11 +147,10 @@ impl State {
                 completed_at TIMESTAMP DEFAULT NOW()
             )
             ",
-        )
-        .unwrap();
+        )?;
 
         // Update the current version
-        let encoded_version = serde_json::to_value(version!().to_string()).unwrap();
+        let encoded_version = serde_json::to_value(version!().to_string())?;
         db.query_with_params(
             "
             INSERT INTO reshape.data (key, value)
@@ -166,16 +158,15 @@ impl State {
             ON CONFLICT (key) DO UPDATE SET value = $1
             ",
             &[&encoded_version],
-        )
-        .unwrap();
+        )?;
+
+        Ok(())
     }
 }
 
 impl Default for State {
     fn default() -> Self {
-        State {
-            status: Status::Idle,
-        }
+        Self::Idle
     }
 }
 

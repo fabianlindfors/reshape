@@ -1,5 +1,4 @@
 use reshape::migrations::{AddColumn, Column, ColumnBuilder, CreateTableBuilder, Migration};
-use reshape::Status;
 
 mod common;
 
@@ -59,7 +58,6 @@ fn add_column() {
 
     // Run first migration, should automatically finish
     reshape.migrate(first_migrations.clone()).unwrap();
-    assert!(matches!(reshape.state.status, Status::Idle));
 
     // Update search paths
     old_db
@@ -151,7 +149,6 @@ fn add_column_nullable() {
 
     // Run first migration, should automatically finish
     reshape.migrate(first_migrations.clone()).unwrap();
-    assert!(matches!(reshape.state.status, Status::Idle));
 
     // Update search paths
     old_db
@@ -246,7 +243,6 @@ fn add_column_with_default() {
 
     // Run first migration, should automatically finish
     reshape.migrate(first_migrations.clone()).unwrap();
-    assert!(matches!(reshape.state.status, Status::Idle));
 
     // Update search paths
     old_db

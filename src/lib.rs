@@ -15,7 +15,7 @@ pub mod migrations;
 mod schema;
 mod state;
 
-pub use crate::state::{State, Status};
+pub use crate::state::State;
 
 pub struct Reshape {
     pub state: State,
@@ -46,7 +46,7 @@ impl Reshape {
 
     fn new_with_config(config: &Config) -> anyhow::Result<Reshape> {
         let mut db = DbConn::connect(config)?;
-        let state = State::load(&mut db);
+        let state = State::load(&mut db)?;
 
         Ok(Reshape { db, state })
     }
@@ -55,15 +55,15 @@ impl Reshape {
     where
         T: IntoIterator<Item = Migration>,
     {
-        self.state = State::load(&mut self.db);
+        self.state = State::load(&mut self.db)?;
 
         // Make sure no migration is in progress
-        if let state::Status::InProgress { .. } = &self.state.status {
+        if let State::InProgress { .. } = &self.state {
             println!("Migration already in progress, please complete using 'reshape complete'");
             return Ok(());
         }
 
-        if let state::Status::Completing { .. } = &self.state.status {
+        if let State::Completing { .. } = &self.state {
             println!(
                 "Migration already in progress and has started completion, please finish using 'reshape complete'"
             );
@@ -83,9 +83,9 @@ impl Reshape {
 
         // If we have already started applying some migrations we need to ensure that
         // they are the same ones we want to apply now
-        if let state::Status::Applying {
+        if let State::Applying {
             migrations: existing_migrations,
-        } = &self.state.status
+        } = &self.state
         {
             if existing_migrations != &remaining_migrations {
                 return Err(anyhow!(
@@ -198,8 +198,8 @@ impl Reshape {
 
     pub fn complete_migration(&mut self) -> anyhow::Result<()> {
         // Make sure a migration is in progress
-        let (remaining_migrations, starting_migration_index, starting_action_index) = match self.state.status.clone() {
-            state::Status::InProgress { migrations } => {
+        let (remaining_migrations, starting_migration_index, starting_action_index) = match self.state.clone() {
+            State::InProgress { migrations } => {
                 // Move into the Completing state. Once in this state,
                 // the migration can't be aborted and must be completed.
                 self.state.completing(migrations.clone(), 0, 0);
@@ -207,18 +207,18 @@ impl Reshape {
 
                 (migrations, 0, 0)
             },
-            state::Status::Completing {
+            State::Completing {
                 migrations,
                 current_migration_index,
                 current_action_index
             } => (migrations, current_migration_index, current_action_index),
-            state::Status::Aborting { .. } => {
+            State::Aborting { .. } => {
                 return Err(anyhow!("migration been aborted and can't be completed. Please finish using `reshape abort`."))
             }
-            state::Status::Applying { .. } => {
+            State::Applying { .. } => {
                 return Err(anyhow!("a previous migration unexpectedly failed. Please run `reshape migrate` to try applying the migration again."))
             }
-            state::Status::Idle => {
+            State::Idle => {
                 println!("No migration in progress");
                 return Ok(());
             }
@@ -396,7 +396,7 @@ impl Reshape {
             ))?;
         }
 
-        if let Status::InProgress { migrations } = &self.state.status {
+        if let State::InProgress { migrations } = &self.state {
             let target_migration = migrations.last().unwrap().name.to_string();
             self.db.run(&format!(
                 "DROP SCHEMA IF EXISTS {} CASCADE",
@@ -426,10 +426,9 @@ impl Reshape {
     pub fn abort(&mut self) -> anyhow::Result<()> {
         let (remaining_migrations, last_migration_index, last_action_index) = match self
             .state
-            .status
             .clone()
         {
-            Status::InProgress { migrations } | Status::Applying { migrations } => {
+            State::InProgress { migrations } | State::Applying { migrations } => {
                 // Set to the Aborting state. Once this is done, the migration has to
                 // be fully aborted and can't be completed.
                 self.state.aborting(migrations.clone(), 0, 0);
@@ -437,15 +436,15 @@ impl Reshape {
 
                 (migrations, usize::MAX, usize::MAX)
             }
-            Status::Aborting {
+            State::Aborting {
                 migrations,
                 last_migration_index,
                 last_action_index,
             } => (migrations, last_migration_index, last_action_index),
-            Status::Completing { .. } => {
+            State::Completing { .. } => {
                 return Err(anyhow!("Migration completion has already been started. Please run `reshape complete` again to finish it."));
             }
-            Status::Idle => {
+            State::Idle => {
                 println!("No migration is in progress");
                 return Ok(());
             }
@@ -467,7 +466,7 @@ impl Reshape {
 
         helpers::tear_down_helpers(&mut self.db).context("failed to tear down helpers")?;
 
-        self.state.status = state::Status::Idle;
+        self.state = State::Idle;
         self.state
             .save(&mut self.db)
             .context("failed to save state")?;
