@@ -1,4 +1,6 @@
-use reshape::migrations::{AddIndex, ColumnBuilder, CreateTableBuilder, Migration, RemoveIndex};
+use reshape::migrations::{
+    AddIndex, ColumnBuilder, CreateTableBuilder, Index, Migration, RemoveIndex,
+};
 
 mod common;
 
@@ -28,9 +30,11 @@ fn remove_index() {
         )
         .with_action(AddIndex {
             table: "users".to_string(),
-            name: "name_idx".to_string(),
-            columns: vec!["name".to_string()],
-            unique: false,
+            index: Index {
+                name: "name_idx".to_string(),
+                columns: vec!["name".to_string()],
+                unique: false,
+            },
         });
 
     let remove_index_migration =

@@ -399,11 +399,13 @@ primary_key = "id"
 [[actions]]
 type = "add_index"
 table = "users"
-name = "name_idx"
-columns = ["name"]
 
-# Defaults to false
-unique = true
+	[actions.index]
+	name = "name_idx"
+	columns = ["name"]
+
+	# Defaults to false
+	unique = true
 ```
 
 #### Remove index

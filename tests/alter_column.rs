@@ -1,5 +1,5 @@
 use reshape::migrations::{
-    AddIndex, AlterColumn, ColumnBuilder, ColumnChanges, CreateTableBuilder, Migration,
+    AddIndex, AlterColumn, ColumnBuilder, ColumnChanges, CreateTableBuilder, Index, Migration,
 };
 
 mod common;
@@ -537,9 +537,11 @@ fn alter_column_with_index() {
         )
         .with_action(AddIndex {
             table: "users".to_string(),
-            name: "users_name_idx".to_string(),
-            columns: vec!["first_name".to_string(), "last_name".to_string()],
-            unique: false,
+            index: Index {
+                name: "users_name_idx".to_string(),
+                columns: vec!["first_name".to_string(), "last_name".to_string()],
+                unique: false,
+            },
         });
     let uppercase_name = Migration::new("uppercase_name", None).with_action(AlterColumn {
         table: "users".to_string(),

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 // Re-export migration types
 mod common;
-pub use common::{Column, ColumnBuilder};
+pub use common::{Column, ColumnBuilder, Index};
 
 mod create_table;
 pub use create_table::{CreateTable, CreateTableBuilder, ForeignKey};

@@ -1,4 +1,4 @@
-use reshape::migrations::{AddIndex, ColumnBuilder, CreateTableBuilder, Migration};
+use reshape::migrations::{AddIndex, ColumnBuilder, CreateTableBuilder, Index, Migration};
 
 mod common;
 
@@ -27,9 +27,11 @@ fn add_index() {
     );
     let add_index_migration = Migration::new("add_name_index", None).with_action(AddIndex {
         table: "users".to_string(),
-        name: "name_idx".to_string(),
-        columns: vec!["name".to_string()],
-        unique: false,
+        index: Index {
+            name: "name_idx".to_string(),
+            columns: vec!["name".to_string()],
+            unique: true,
+        },
     });
 
     let first_migrations = vec![create_table_migration.clone()];
@@ -95,9 +97,11 @@ fn add_index_unique() {
     );
     let add_index_migration = Migration::new("add_name_index", None).with_action(AddIndex {
         table: "users".to_string(),
-        name: "name_idx".to_string(),
-        columns: vec!["name".to_string()],
-        unique: true,
+        index: Index {
+            name: "name_idx".to_string(),
+            columns: vec!["name".to_string()],
+            unique: true,
+        },
     });
 
     let first_migrations = vec![create_table_migration.clone()];

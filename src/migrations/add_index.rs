@@ -1,4 +1,4 @@
-use super::{Action, MigrationContext};
+use super::{common::Index, Action, MigrationContext};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -9,16 +9,16 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AddIndex {
     pub table: String,
-    pub name: String,
-    pub columns: Vec<String>,
-    #[serde(default)]
-    pub unique: bool,
+    pub index: Index,
 }
 
 #[typetag::serde(name = "add_index")]
 impl Action for AddIndex {
     fn describe(&self) -> String {
-        format!("Adding index \"{}\" to table \"{}\"", self.name, self.table)
+        format!(
+            "Adding index \"{}\" to table \"{}\"",
+            self.index.name, self.table
+        )
     }
 
     fn run(
@@ -32,17 +32,17 @@ impl Action for AddIndex {
         let column_real_names: Vec<String> = table
             .columns
             .iter()
-            .filter(|column| self.columns.contains(&column.name))
+            .filter(|column| self.index.columns.contains(&column.name))
             .map(|column| format!("\"{}\"", column.real_name))
             .collect();
 
-        let unique = if self.unique { "UNIQUE" } else { "" };
+        let unique = if self.index.unique { "UNIQUE" } else { "" };
 
         db.run(&format!(
             r#"
 			CREATE {unique} INDEX CONCURRENTLY "{name}" ON "{table}" ({columns})
 			"#,
-            name = self.name,
+            name = self.index.name,
             table = self.table,
             columns = column_real_names.join(", "),
         ))
@@ -65,7 +65,7 @@ impl Action for AddIndex {
             r#"
 			DROP INDEX CONCURRENTLY IF EXISTS "{name}"
 			"#,
-            name = self.name,
+            name = self.index.name,
         ))
         .context("failed to drop index")?;
         Ok(())

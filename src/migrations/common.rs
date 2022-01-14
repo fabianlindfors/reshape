@@ -28,6 +28,14 @@ fn nullable_default() -> bool {
     true
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Index {
+    pub name: String,
+    pub columns: Vec<String>,
+    #[serde(default)]
+    pub unique: bool,
+}
+
 #[derive(Debug)]
 struct PostgresRawValue {
     bytes: Vec<u8>,
