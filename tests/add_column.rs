@@ -4,76 +4,59 @@ mod common;
 
 #[test]
 fn add_column() {
-    let (mut reshape, mut old_db, mut new_db) = common::setup();
+    let mut test = common::Test::new("Add column");
 
-    let create_users_table = Migration::new("create_user_table", None).with_action(
-        CreateTableBuilder::default()
-            .name("users")
-            .primary_key(vec!["id".to_string()])
-            .columns(vec![
-                ColumnBuilder::default()
-                    .name("id")
-                    .data_type("INTEGER")
-                    .build()
-                    .unwrap(),
-                ColumnBuilder::default()
-                    .name("name")
-                    .data_type("TEXT")
-                    .build()
-                    .unwrap(),
-            ])
-            .build()
-            .unwrap(),
+    test.first_migration(
+        Migration::new("create_user_table", None).with_action(
+            CreateTableBuilder::default()
+                .name("users")
+                .primary_key(vec!["id".to_string()])
+                .columns(vec![
+                    ColumnBuilder::default()
+                        .name("id")
+                        .data_type("INTEGER")
+                        .build()
+                        .unwrap(),
+                    ColumnBuilder::default()
+                        .name("name")
+                        .data_type("TEXT")
+                        .build()
+                        .unwrap(),
+                ])
+                .build()
+                .unwrap(),
+        ),
     );
 
-    let add_first_last_name_columns = Migration::new("add_first_and_last_name_columns", None)
-        .with_action(AddColumn {
-            table: "users".to_string(),
-            column: Column {
-                name: "first".to_string(),
-                data_type: "TEXT".to_string(),
-                nullable: false,
-                default: None,
-                generated: None,
-            },
-            up: Some("(STRING_TO_ARRAY(name, ' '))[1]".to_string()),
-        })
-        .with_action(AddColumn {
-            table: "users".to_string(),
-            column: Column {
-                name: "last".to_string(),
-                data_type: "TEXT".to_string(),
-                nullable: false,
-                default: None,
-                generated: None,
-            },
-            up: Some("(STRING_TO_ARRAY(name, ' '))[2]".to_string()),
-        });
+    test.second_migration(
+        Migration::new("add_first_and_last_name_columns", None)
+            .with_action(AddColumn {
+                table: "users".to_string(),
+                column: Column {
+                    name: "first".to_string(),
+                    data_type: "TEXT".to_string(),
+                    nullable: false,
+                    default: None,
+                    generated: None,
+                },
+                up: Some("(STRING_TO_ARRAY(name, ' '))[1]".to_string()),
+            })
+            .with_action(AddColumn {
+                table: "users".to_string(),
+                column: Column {
+                    name: "last".to_string(),
+                    data_type: "TEXT".to_string(),
+                    nullable: false,
+                    default: None,
+                    generated: None,
+                },
+                up: Some("(STRING_TO_ARRAY(name, ' '))[2]".to_string()),
+            }),
+    );
 
-    let first_migrations = vec![create_users_table.clone()];
-    let second_migrations = vec![
-        create_users_table.clone(),
-        add_first_last_name_columns.clone(),
-    ];
-
-    // Run first migration, should automatically finish
-    reshape.migrate(first_migrations.clone()).unwrap();
-
-    // Update search paths
-    old_db
-        .simple_query(&reshape::schema_query_for_migration(
-            &first_migrations.last().unwrap().name,
-        ))
-        .unwrap();
-    new_db
-        .simple_query(&reshape::schema_query_for_migration(
-            &first_migrations.last().unwrap().name,
-        ))
-        .unwrap();
-
-    // Insert some test users
-    new_db
-        .simple_query(
+    test.after_first(|db| {
+        // Insert some test users
+        db.simple_query(
             "
             INSERT INTO users (id, name) VALUES
                 (1, 'John Doe'),
@@ -81,39 +64,53 @@ fn add_column() {
             ",
         )
         .unwrap();
+    });
 
-    // Run second migration
-    reshape.migrate(second_migrations.clone()).unwrap();
-    new_db
-        .simple_query(&reshape::schema_query_for_migration(
-            &second_migrations.last().unwrap().name,
-        ))
-        .unwrap();
+    test.intermediate(|old_db, new_db| {
+        // Check that the existing users have the new columns populated
+        let expected = vec![("John", "Doe"), ("Jane", "Doe")];
+        assert!(new_db
+            .query("SELECT first, last FROM users ORDER BY id", &[],)
+            .unwrap()
+            .iter()
+            .map(|row| (row.get("first"), row.get("last")))
+            .eq(expected));
 
-    // Check that the existing users have the new columns populated
-    let expected = vec![("John", "Doe"), ("Jane", "Doe")];
-    assert!(new_db
-        .query("SELECT first, last FROM users ORDER BY id", &[],)
-        .unwrap()
-        .iter()
-        .map(|row| (row.get("first"), row.get("last")))
-        .eq(expected));
+        // Insert data using old schema and make sure the new columns are populated
+        old_db
+            .simple_query("INSERT INTO users (id, name) VALUES (3, 'Test Testsson')")
+            .unwrap();
+        let (first_name, last_name): (String, String) = new_db
+            .query_one("SELECT first, last from users WHERE id = 3", &[])
+            .map(|row| (row.get("first"), row.get("last")))
+            .unwrap();
+        assert_eq!(
+            ("Test", "Testsson"),
+            (first_name.as_ref(), last_name.as_ref())
+        );
+    });
 
-    // Insert data using old schema and make sure the new columns are populated
-    old_db
-        .simple_query("INSERT INTO users (id, name) VALUES (3, 'Test Testsson')")
-        .unwrap();
-    let (first_name, last_name): (String, String) = new_db
-        .query_one("SELECT first, last from users WHERE id = 3", &[])
-        .map(|row| (row.get("first"), row.get("last")))
-        .unwrap();
-    assert_eq!(
-        ("Test", "Testsson"),
-        (first_name.as_ref(), last_name.as_ref())
-    );
+    test.after_completion(|db| {
+        let expected = vec![("John", "Doe"), ("Jane", "Doe"), ("Test", "Testsson")];
+        assert!(db
+            .query("SELECT first, last FROM users ORDER BY id", &[],)
+            .unwrap()
+            .iter()
+            .map(|row| (row.get("first"), row.get("last")))
+            .eq(expected));
+    });
 
-    reshape.complete().unwrap();
-    common::assert_cleaned_up(&mut new_db);
+    test.after_abort(|db| {
+        let expected = vec![("John Doe"), ("Jane Doe"), ("Test Testsson")];
+        assert!(db
+            .query("SELECT name FROM users ORDER BY id", &[],)
+            .unwrap()
+            .iter()
+            .map(|row| row.get::<'_, _, String>("name"))
+            .eq(expected));
+    });
+
+    test.run()
 }
 
 #[test]
