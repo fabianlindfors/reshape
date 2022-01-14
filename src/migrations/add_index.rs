@@ -1,4 +1,4 @@
-use super::{common::Index, Action, MigrationContext};
+use super::{Action, MigrationContext};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -10,6 +10,16 @@ use serde::{Deserialize, Serialize};
 pub struct AddIndex {
     pub table: String,
     pub index: Index,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Index {
+    pub name: String,
+    pub columns: Vec<String>,
+    #[serde(default)]
+    pub unique: bool,
+    #[serde(rename = "type")]
+    pub index_type: Option<String>,
 }
 
 #[typetag::serde(name = "add_index")]
@@ -37,10 +47,15 @@ impl Action for AddIndex {
             .collect();
 
         let unique = if self.index.unique { "UNIQUE" } else { "" };
+        let index_type_def = if let Some(index_type) = &self.index.index_type {
+            format!("USING {index_type}")
+        } else {
+            "".to_string()
+        };
 
         db.run(&format!(
             r#"
-			CREATE {unique} INDEX CONCURRENTLY "{name}" ON "{table}" ({columns})
+			CREATE {unique} INDEX CONCURRENTLY "{name}" ON "{table}" {index_type_def} ({columns}) 
 			"#,
             name = self.index.name,
             table = self.table,

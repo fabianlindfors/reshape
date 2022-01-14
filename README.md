@@ -408,6 +408,21 @@ table = "users"
 	unique = true
 ```
 
+*Example: add GIN index to `data` column on `products` table*
+
+```toml
+[[actions]]
+type = "add_index"
+table = "products"
+
+	[actions.index]
+	name = "data_idx"
+	columns = ["data"]
+
+	# One of: btree (default), hash, gist, spgist, gin, brin
+	type = "gin"
+```
+
 #### Remove index
 
 The `remove_index` action will remove an existing index. The index won't actually be removed until the migration is completed.

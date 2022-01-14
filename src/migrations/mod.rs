@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 // Re-export migration types
 mod common;
-pub use common::{Column, ColumnBuilder, Index};
+pub use common::{Column, ColumnBuilder};
 
 mod create_table;
 pub use create_table::{CreateTable, CreateTableBuilder, ForeignKey};
@@ -22,7 +22,7 @@ mod remove_column;
 pub use remove_column::RemoveColumn;
 
 mod add_index;
-pub use add_index::AddIndex;
+pub use add_index::{AddIndex, Index};
 
 mod remove_index;
 pub use remove_index::RemoveIndex;

@@ -541,6 +541,7 @@ fn alter_column_with_index() {
                 name: "users_name_idx".to_string(),
                 columns: vec!["first_name".to_string(), "last_name".to_string()],
                 unique: false,
+                index_type: None,
             },
         });
     let uppercase_name = Migration::new("uppercase_name", None).with_action(AlterColumn {

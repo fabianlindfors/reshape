@@ -34,6 +34,7 @@ fn remove_index() {
                 name: "name_idx".to_string(),
                 columns: vec!["name".to_string()],
                 unique: false,
+                index_type: None,
             },
         });
 
