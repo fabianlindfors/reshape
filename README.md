@@ -379,7 +379,7 @@ down = "'N/A'"
 
 The `add_index` action will add a new index to an existing table.
 
-*Example: create a `users` table with an index on the `name` column*
+*Example: create a `users` table with a unique index on the `name` column*
 
 ```toml
 [[actions]]
@@ -401,6 +401,9 @@ type = "add_index"
 table = "users"
 name = "name_idx"
 columns = ["name"]
+
+# Defaults to false
+unique = true
 ```
 
 #### Remove index

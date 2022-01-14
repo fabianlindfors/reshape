@@ -11,6 +11,8 @@ pub struct AddIndex {
     pub table: String,
     pub name: String,
     pub columns: Vec<String>,
+    #[serde(default)]
+    pub unique: bool,
 }
 
 #[typetag::serde(name = "add_index")]
@@ -34,9 +36,11 @@ impl Action for AddIndex {
             .map(|column| format!("\"{}\"", column.real_name))
             .collect();
 
+        let unique = if self.unique { "UNIQUE" } else { "" };
+
         db.run(&format!(
             r#"
-			CREATE INDEX CONCURRENTLY "{name}" ON "{table}" ({columns})
+			CREATE {unique} INDEX CONCURRENTLY "{name}" ON "{table}" ({columns})
 			"#,
             name = self.name,
             table = self.table,

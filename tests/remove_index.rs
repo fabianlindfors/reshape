@@ -30,6 +30,7 @@ fn remove_index() {
             table: "users".to_string(),
             name: "name_idx".to_string(),
             columns: vec!["name".to_string()],
+            unique: false,
         });
 
     let remove_index_migration =
