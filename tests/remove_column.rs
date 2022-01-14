@@ -76,6 +76,6 @@ fn remove_column() {
         result.as_ref().map(|row| row.get("name"))
     );
 
-    reshape.complete_migration().unwrap();
+    reshape.complete().unwrap();
     common::assert_cleaned_up(&mut new_db);
 }

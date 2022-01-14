@@ -85,7 +85,7 @@ fn remove_index() {
 
     assert_eq!(vec![(true, true)], result);
 
-    reshape.complete_migration().unwrap();
+    reshape.complete().unwrap();
 
     // Ensure index has been removed after the migration is complete
     let count: i64 = db

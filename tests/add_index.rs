@@ -64,6 +64,6 @@ fn add_index() {
 
     assert_eq!(vec![(true, true)], result);
 
-    reshape.complete_migration().unwrap();
+    reshape.complete().unwrap();
     common::assert_cleaned_up(&mut new_db);
 }

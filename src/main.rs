@@ -72,14 +72,14 @@ fn run(opts: Opts) -> anyhow::Result<()> {
 
             // Automatically complete migration if --complete flag is set
             if opts.complete {
-                reshape.complete_migration()?;
+                reshape.complete()?;
             }
 
             Ok(())
         }
         Command::Complete(opts) => {
             let mut reshape = reshape_from_connection_options(&opts)?;
-            reshape.complete_migration()
+            reshape.complete()
         }
         Command::Remove(opts) => {
             let mut reshape = reshape_from_connection_options(&opts)?;

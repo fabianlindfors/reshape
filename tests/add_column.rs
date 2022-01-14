@@ -112,7 +112,7 @@ fn add_column() {
         (first_name.as_ref(), last_name.as_ref())
     );
 
-    reshape.complete_migration().unwrap();
+    reshape.complete().unwrap();
     common::assert_cleaned_up(&mut new_db);
 }
 
@@ -205,7 +205,7 @@ fn add_column_nullable() {
         .simple_query("INSERT INTO users (id, name) VALUES (4, 'Test Testsson'), (5, NULL)")
         .unwrap();
 
-    reshape.complete_migration().unwrap();
+    reshape.complete().unwrap();
     common::assert_cleaned_up(&mut new_db);
 }
 
@@ -288,6 +288,6 @@ fn add_column_with_default() {
         .unwrap();
     assert_eq!("DEFAULT", name);
 
-    reshape.complete_migration().unwrap();
+    reshape.complete().unwrap();
     common::assert_cleaned_up(&mut new_db);
 }

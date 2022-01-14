@@ -49,6 +49,6 @@ fn remove_table() {
     // Ensure the table is not accessible through the new schema
     assert!(new_db.query("SELECT id FROM users", &[]).is_err());
 
-    reshape.complete_migration().unwrap();
+    reshape.complete().unwrap();
     common::assert_cleaned_up(&mut new_db);
 }

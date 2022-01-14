@@ -99,7 +99,7 @@ fn alter_column_data() {
         .unwrap();
     assert_eq!("test testsson", result.get::<_, &str>("name"));
 
-    reshape.complete_migration().unwrap();
+    reshape.complete().unwrap();
     common::assert_cleaned_up(&mut new_db);
 }
 
@@ -198,7 +198,7 @@ fn alter_column_set_not_null() {
         .unwrap();
     assert_eq!("Jane Doe", result.get::<_, &str>("name"));
 
-    reshape.complete_migration().unwrap();
+    reshape.complete().unwrap();
     common::assert_cleaned_up(&mut new_db);
 }
 
@@ -280,7 +280,7 @@ fn alter_column_rename() {
         .map(|row| row.get::<_, String>("full_name"))
         .eq(expected));
 
-    reshape.complete_migration().unwrap();
+    reshape.complete().unwrap();
     common::assert_cleaned_up(&mut new_db);
 }
 
@@ -402,7 +402,7 @@ fn alter_column_multiple() {
         .unwrap();
     assert_eq!(48, result);
 
-    reshape.complete_migration().unwrap();
+    reshape.complete().unwrap();
     common::assert_cleaned_up(&mut new_db);
 }
 
@@ -502,7 +502,7 @@ fn alter_column_default() {
         .unwrap();
     assert_eq!("NEW DEFAULT", result.get::<_, &str>("name"));
 
-    reshape.complete_migration().unwrap();
+    reshape.complete().unwrap();
     common::assert_cleaned_up(&mut new_db);
 }
 
@@ -568,7 +568,7 @@ fn alter_column_with_index() {
 
     // Complete the second migration which should replace the existing column
     // with the temporary one
-    reshape.complete_migration().unwrap();
+    reshape.complete().unwrap();
 
     // Make sure index still exists
     let result: i64 = db
