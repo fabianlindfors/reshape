@@ -1,231 +1,223 @@
-use reshape::migrations::{AddIndex, ColumnBuilder, CreateTableBuilder, Index, Migration};
-
 mod common;
+use common::Test;
 
 #[test]
 fn add_index() {
-    let (mut reshape, mut old_db, mut new_db) = common::setup();
+    let mut test = Test::new("Add index");
 
-    let create_table_migration = Migration::new("create_user_table", None).with_action(
-        CreateTableBuilder::default()
-            .name("users")
-            .primary_key(vec!["id".to_string()])
-            .columns(vec![
-                ColumnBuilder::default()
-                    .name("id")
-                    .data_type("INTEGER")
-                    .build()
-                    .unwrap(),
-                ColumnBuilder::default()
-                    .name("name")
-                    .data_type("TEXT")
-                    .build()
-                    .unwrap(),
-            ])
-            .build()
-            .unwrap(),
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+        "#,
     );
-    let add_index_migration = Migration::new("add_name_index", None).with_action(AddIndex {
-        table: "users".to_string(),
-        index: Index {
-            name: "name_idx".to_string(),
-            columns: vec!["name".to_string()],
-            unique: true,
-            index_type: None,
-        },
+
+    test.second_migration(
+        r#"
+        name = "add_users_name_index"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "name_idx"
+            columns = ["name"]        
+        "#,
+    );
+
+    test.intermediate(|db, _| {
+        // Ensure index is valid and ready
+        let (is_ready, is_valid): (bool, bool) = db
+            .query(
+                "
+                SELECT pg_index.indisready, pg_index.indisvalid
+                FROM pg_catalog.pg_index
+                JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
+                WHERE pg_class.relname = 'name_idx'
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| (row.get("indisready"), row.get("indisvalid")))
+            .unwrap();
+
+        assert!(is_ready, "expected index to be ready");
+        assert!(is_valid, "expected index to be valid");
     });
 
-    let first_migrations = vec![create_table_migration.clone()];
-    let second_migrations = vec![create_table_migration.clone(), add_index_migration.clone()];
+    test.after_completion(|db| {
+        // Ensure index is valid and ready
+        let (is_ready, is_valid): (bool, bool) = db
+            .query(
+                "
+                SELECT pg_index.indisready, pg_index.indisvalid
+                FROM pg_catalog.pg_index
+                JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
+                WHERE pg_class.relname = 'name_idx'
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| (row.get("indisready"), row.get("indisvalid")))
+            .unwrap();
 
-    // Run migrations
-    reshape.migrate(first_migrations.clone()).unwrap();
-    reshape.migrate(second_migrations.clone()).unwrap();
+        assert!(is_ready, "expected index to be ready");
+        assert!(is_valid, "expected index to be valid");
+    });
 
-    // Update schemas of Postgres connections
-    let old_schema_query =
-        reshape::schema_query_for_migration(&first_migrations.last().unwrap().name);
-    let new_schema_query =
-        reshape::schema_query_for_migration(&second_migrations.last().unwrap().name);
-    old_db.simple_query(&old_schema_query).unwrap();
-    new_db.simple_query(&new_schema_query).unwrap();
-
-    // Ensure index is valid and ready
-    let (is_ready, is_valid): (bool, bool) = new_db
-        .query(
-            "
-			SELECT pg_index.indisready, pg_index.indisvalid
-			FROM pg_catalog.pg_index
-			JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
-			WHERE pg_class.relname = 'name_idx'
-			",
-            &[],
-        )
-        .unwrap()
-        .first()
-        .map(|row| (row.get("indisready"), row.get("indisvalid")))
-        .unwrap();
-
-    assert!(is_ready, "expected index to be ready");
-    assert!(is_valid, "expected index to be valid");
-
-    reshape.complete().unwrap();
-    common::assert_cleaned_up(&mut new_db);
+    test.run();
 }
 
 #[test]
 fn add_index_unique() {
-    let (mut reshape, mut old_db, mut new_db) = common::setup();
+    let mut test = Test::new("Add unique index");
 
-    let create_table_migration = Migration::new("create_user_table", None).with_action(
-        CreateTableBuilder::default()
-            .name("users")
-            .primary_key(vec!["id".to_string()])
-            .columns(vec![
-                ColumnBuilder::default()
-                    .name("id")
-                    .data_type("INTEGER")
-                    .build()
-                    .unwrap(),
-                ColumnBuilder::default()
-                    .name("name")
-                    .data_type("TEXT")
-                    .build()
-                    .unwrap(),
-            ])
-            .build()
-            .unwrap(),
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+        "#,
     );
-    let add_index_migration = Migration::new("add_name_index", None).with_action(AddIndex {
-        table: "users".to_string(),
-        index: Index {
-            name: "name_idx".to_string(),
-            columns: vec!["name".to_string()],
-            unique: true,
-            index_type: None,
-        },
-    });
 
-    let first_migrations = vec![create_table_migration.clone()];
-    let second_migrations = vec![create_table_migration.clone(), add_index_migration.clone()];
+    test.second_migration(
+        r#"
+        name = "add_name_index"
 
-    // Run migrations
-    reshape.migrate(first_migrations.clone()).unwrap();
-    reshape.migrate(second_migrations.clone()).unwrap();
+        [[actions]]
+        type = "add_index"
+        table = "users"
 
-    // Update schemas of Postgres connections
-    let old_schema_query =
-        reshape::schema_query_for_migration(&first_migrations.last().unwrap().name);
-    let new_schema_query =
-        reshape::schema_query_for_migration(&second_migrations.last().unwrap().name);
-    old_db.simple_query(&old_schema_query).unwrap();
-    new_db.simple_query(&new_schema_query).unwrap();
+            [actions.index]
+            name = "name_idx"
+            columns = ["name"]        
+            unique = true
+        "#,
+    );
 
-    // Ensure index is valid, ready and unique
-    let (is_ready, is_valid, is_unique): (bool, bool, bool) = new_db
-        .query(
-            "
+    test.intermediate(|db, _| {
+        // Ensure index is valid, ready and unique
+        let (is_ready, is_valid, is_unique): (bool, bool, bool) = db
+            .query(
+                "
 			SELECT pg_index.indisready, pg_index.indisvalid, pg_index.indisunique
 			FROM pg_catalog.pg_index
 			JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
 			WHERE pg_class.relname = 'name_idx'
 			",
-            &[],
-        )
-        .unwrap()
-        .first()
-        .map(|row| {
-            (
-                row.get("indisready"),
-                row.get("indisvalid"),
-                row.get("indisunique"),
+                &[],
             )
-        })
-        .unwrap();
+            .unwrap()
+            .first()
+            .map(|row| {
+                (
+                    row.get("indisready"),
+                    row.get("indisvalid"),
+                    row.get("indisunique"),
+                )
+            })
+            .unwrap();
 
-    assert!(is_ready, "expected index to be ready");
-    assert!(is_valid, "expected index to be valid");
-    assert!(is_unique, "expected index to be unique");
+        assert!(is_ready, "expected index to be ready");
+        assert!(is_valid, "expected index to be valid");
+        assert!(is_unique, "expected index to be unique");
+    });
 
-    reshape.complete().unwrap();
-    common::assert_cleaned_up(&mut new_db);
+    test.run();
 }
 
 #[test]
 fn add_index_with_type() {
-    let (mut reshape, mut old_db, mut new_db) = common::setup();
+    let mut test = Test::new("Add GIN index");
 
-    let create_table_migration = Migration::new("create_user_table", None).with_action(
-        CreateTableBuilder::default()
-            .name("users")
-            .primary_key(vec!["id".to_string()])
-            .columns(vec![
-                ColumnBuilder::default()
-                    .name("id")
-                    .data_type("INTEGER")
-                    .build()
-                    .unwrap(),
-                ColumnBuilder::default()
-                    .name("data")
-                    .data_type("JSONB")
-                    .build()
-                    .unwrap(),
-            ])
-            .build()
-            .unwrap(),
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "data"
+            type = "JSONB"
+        "#,
     );
-    let add_index_migration = Migration::new("add_name_index", None).with_action(AddIndex {
-        table: "users".to_string(),
-        index: Index {
-            name: "name_idx".to_string(),
-            columns: vec!["data".to_string()],
-            unique: false,
-            index_type: Some("gin".to_string()),
-        },
+
+    test.second_migration(
+        r#"
+        name = "add_data_index"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "data_idx"
+            columns = ["data"]        
+            type = "gin"
+        "#,
+    );
+
+    test.intermediate(|db, _| {
+        // Ensure index is valid, ready and unique
+        let (is_ready, is_valid, index_type): (bool, bool, String) = db
+            .query(
+                "
+                SELECT pg_index.indisready, pg_index.indisvalid, pg_am.amname
+                FROM pg_catalog.pg_index
+                JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
+                JOIN pg_catalog.pg_am ON pg_class.relam = pg_am.oid
+                WHERE pg_class.relname = 'data_idx'
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| {
+                (
+                    row.get("indisready"),
+                    row.get("indisvalid"),
+                    row.get("amname"),
+                )
+            })
+            .unwrap();
+
+        assert!(is_ready, "expected index to be ready");
+        assert!(is_valid, "expected index to be valid");
+        assert_eq!("gin", index_type, "expected index type to be GIN");
     });
 
-    let first_migrations = vec![create_table_migration.clone()];
-    let second_migrations = vec![create_table_migration.clone(), add_index_migration.clone()];
-
-    // Run migrations
-    reshape.migrate(first_migrations.clone()).unwrap();
-    reshape.migrate(second_migrations.clone()).unwrap();
-
-    // Update schemas of Postgres connections
-    let old_schema_query =
-        reshape::schema_query_for_migration(&first_migrations.last().unwrap().name);
-    let new_schema_query =
-        reshape::schema_query_for_migration(&second_migrations.last().unwrap().name);
-    old_db.simple_query(&old_schema_query).unwrap();
-    new_db.simple_query(&new_schema_query).unwrap();
-
-    // Ensure index is valid, ready and unique
-    let (is_ready, is_valid, index_type): (bool, bool, String) = new_db
-        .query(
-            "
-			SELECT pg_index.indisready, pg_index.indisvalid, pg_am.amname
-			FROM pg_catalog.pg_index
-			JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
-            JOIN pg_catalog.pg_am ON pg_class.relam = pg_am.oid
-			WHERE pg_class.relname = 'name_idx'
-			",
-            &[],
-        )
-        .unwrap()
-        .first()
-        .map(|row| {
-            (
-                row.get("indisready"),
-                row.get("indisvalid"),
-                row.get("amname"),
-            )
-        })
-        .unwrap();
-
-    assert!(is_ready, "expected index to be ready");
-    assert!(is_valid, "expected index to be valid");
-    assert_eq!("gin", index_type, "expected index type to be GIN");
-
-    reshape.complete().unwrap();
-    common::assert_cleaned_up(&mut new_db);
+    test.run();
 }

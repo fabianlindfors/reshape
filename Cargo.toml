@@ -20,4 +20,3 @@ clap = { version = "3.0.0", features = ["derive"] }
 toml = "0.5"
 version = "3.0.0"
 colored = "2"
-"derive_builder" = "0.10.2"

@@ -4,18 +4,15 @@ use crate::{
     schema::Schema,
 };
 use anyhow::Context;
-use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Builder, Debug)]
-#[builder(setter(into))]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CreateTable {
     pub name: String,
     pub columns: Vec<Column>,
     pub primary_key: Vec<String>,
 
     #[serde(default)]
-    #[builder(default)]
     pub foreign_keys: Vec<ForeignKey>,
 }
 

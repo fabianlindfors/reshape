@@ -1,10 +1,9 @@
-use reshape::migrations::{ColumnBuilder, CreateTableBuilder, ForeignKey, Migration};
-
 mod common;
+use common::Test;
 
 #[test]
 fn create_table() {
-    let mut test = common::Test::new("Create table");
+    let mut test = Test::new("Create table");
 
     test.first_migration(
         r#"
@@ -113,59 +112,57 @@ fn create_table() {
 
 #[test]
 fn create_table_with_foreign_keys() {
-    let (mut reshape, mut db, _) = common::setup();
+    let mut test = Test::new("Create table");
 
-    let create_table_migration = Migration::new("create_users_table", None).with_action(
-        CreateTableBuilder::default()
-            .name("users")
-            .primary_key(vec!["id".to_string()])
-            .columns(vec![ColumnBuilder::default()
-                .name("id")
-                .data_type("INTEGER")
-                .generated("ALWAYS AS IDENTITY")
-                .build()
-                .unwrap()])
-            .build()
-            .unwrap(),
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+        
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+            generated = "ALWAYS AS IDENTITY"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+            [[actions.columns]]
+            name = "created_at"
+            type = "TIMESTAMP"
+            nullable = false
+            default = "NOW()"
+
+        [[actions]]
+        type = "create_table"
+        name = "items"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+            nullable = false
+
+            [[actions.foreign_keys]]
+            columns = ["user_id"]
+            referenced_table = "users"
+            referenced_columns = ["id"]
+        "#,
     );
 
-    let create_second_table_migration = Migration::new("create_items_table", None).with_action(
-        CreateTableBuilder::default()
-            .name("items")
-            .primary_key(vec!["id".to_string()])
-            .foreign_keys(vec![ForeignKey {
-                columns: vec!["user_id".to_string()],
-                referenced_table: "users".to_string(),
-                referenced_columns: vec!["id".to_string()],
-            }])
-            .columns(vec![
-                ColumnBuilder::default()
-                    .name("id")
-                    .data_type("INTEGER")
-                    .generated("ALWAYS AS IDENTITY")
-                    .build()
-                    .unwrap(),
-                ColumnBuilder::default()
-                    .name("user_id")
-                    .data_type("INTEGER")
-                    .nullable(false)
-                    .build()
-                    .unwrap(),
-            ])
-            .build()
-            .unwrap(),
-    );
-
-    reshape
-        .migrate(vec![
-            create_table_migration.clone(),
-            create_second_table_migration.clone(),
-        ])
-        .unwrap();
-
-    let foreign_key_columns: Vec<(String, String, String)> = db
-        .query(
-            "
+    test.after_first(|db| {
+        let foreign_key_columns: Vec<(String, String, String)> = db
+            .query(
+                "
             SELECT
                 kcu.column_name, 
                 ccu.table_name AS foreign_table_name,
@@ -180,23 +177,24 @@ fn create_table_with_foreign_keys() {
                 AND ccu.table_schema = tc.table_schema
             WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name='items';
             ",
-            &[],
-        )
-        .unwrap()
-        .iter()
-        .map(|row| {
-            (
-                row.get("column_name"),
-                row.get("foreign_table_name"),
-                row.get("foreign_column_name"),
+                &[],
             )
-        })
-        .collect();
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row.get("column_name"),
+                    row.get("foreign_table_name"),
+                    row.get("foreign_column_name"),
+                )
+            })
+            .collect();
 
-    assert_eq!(
-        vec![("user_id".to_string(), "users".to_string(), "id".to_string())],
-        foreign_key_columns
-    );
+        assert_eq!(
+            vec![("user_id".to_string(), "users".to_string(), "id".to_string())],
+            foreign_key_columns
+        );
+    });
 
-    common::assert_cleaned_up(&mut db);
+    test.run();
 }

@@ -10,6 +10,7 @@ pub struct Test<'a> {
 
     first_migration: Option<Migration>,
     second_migration: Option<Migration>,
+    expect_failure: bool,
 
     after_first_fn: Option<fn(&mut Client) -> ()>,
     intermediate_fn: Option<fn(&mut Client, &mut Client) -> ()>,
@@ -34,6 +35,7 @@ impl Test<'_> {
             new_db,
             first_migration: None,
             second_migration: None,
+            expect_failure: false,
             after_first_fn: None,
             intermediate_fn: None,
             after_completion_fn: None,
@@ -46,29 +48,39 @@ impl Test<'_> {
         self
     }
 
+    #[allow(dead_code)]
     pub fn second_migration(&mut self, migration: &str) -> &mut Self {
         self.second_migration = Some(Self::parse_migration(migration));
         self
     }
 
+    #[allow(dead_code)]
     pub fn after_first(&mut self, f: fn(&mut Client) -> ()) -> &mut Self {
         self.after_first_fn = Some(f);
         self
     }
 
+    #[allow(dead_code)]
     pub fn intermediate(&mut self, f: fn(&mut Client, &mut Client) -> ()) -> &mut Self {
         self.intermediate_fn = Some(f);
         self
     }
 
+    #[allow(dead_code)]
     pub fn after_completion(&mut self, f: fn(&mut Client) -> ()) -> &mut Self {
         self.after_completion_fn = Some(f);
         self
     }
 
+    #[allow(dead_code)]
     pub fn after_abort(&mut self, f: fn(&mut Client) -> ()) -> &mut Self {
         self.after_abort_fn = Some(f);
         self
+    }
+
+    #[allow(dead_code)]
+    pub fn expect_failure(&mut self) {
+        self.expect_failure = true;
     }
 
     fn parse_migration(encoded: &str) -> Migration {
@@ -83,6 +95,7 @@ enum RunType {
 }
 
 impl Test<'_> {
+    #[allow(dead_code)]
     pub fn run(&mut self) {
         if self.second_migration.is_some() {
             // Run to completion
@@ -124,10 +137,21 @@ impl Test<'_> {
 
         // Apply second migration
         if let Some(second_migration) = &self.second_migration {
-            print_subheading("Applying second migration");
-            self.reshape
-                .migrate(vec![first_migration.clone(), second_migration.clone()])
-                .unwrap();
+            if self.expect_failure {
+                print_subheading("Applying second migration (expecting failure)");
+                let result = self
+                    .reshape
+                    .migrate(vec![first_migration.clone(), second_migration.clone()]);
+
+                if result.is_ok() {
+                    panic!("expected second migration to fail");
+                }
+            } else {
+                print_subheading("Applying second migration");
+                self.reshape
+                    .migrate(vec![first_migration.clone(), second_migration.clone()])
+                    .unwrap();
+            }
 
             // Update search path
             self.new_db
@@ -191,7 +215,7 @@ fn print_success() {
 }
 
 fn add_spacer(text: &str, char: &str) -> String {
-    const TARGET_WIDTH: usize = 50;
+    const TARGET_WIDTH: usize = 80;
     let num_of_chars = (TARGET_WIDTH - text.len() - 2) / 2;
     let spacer = std::iter::repeat(char)
         .take(num_of_chars)
@@ -200,19 +224,6 @@ fn add_spacer(text: &str, char: &str) -> String {
     let extra = if text.len() % 2 == 0 { "" } else { char };
 
     format!("{spacer} {text} {spacer}{extra}", spacer = spacer)
-}
-
-pub fn setup() -> (Reshape, Client, Client) {
-    let connection_string = std::env::var("POSTGRES_CONNECTION_STRING")
-        .unwrap_or("postgres://postgres:postgres@localhost/reshape_test".to_string());
-
-    let old_db = Client::connect(&connection_string, NoTls).unwrap();
-    let new_db = Client::connect(&connection_string, NoTls).unwrap();
-
-    let mut reshape = Reshape::new(&connection_string).unwrap();
-    reshape.remove().unwrap();
-
-    (reshape, old_db, new_db)
 }
 
 pub fn assert_cleaned_up(db: &mut Client) {

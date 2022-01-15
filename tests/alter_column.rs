@@ -1,61 +1,45 @@
-use reshape::migrations::{
-    AddIndex, AlterColumn, ColumnBuilder, ColumnChanges, CreateTableBuilder, Index, Migration,
-};
-
 mod common;
+use common::Test;
 
 #[test]
 fn alter_column_data() {
-    let (mut reshape, mut old_db, mut new_db) = common::setup();
+    let mut test = Test::new("Alter column");
 
-    let create_users_table = Migration::new("create_user_table", None).with_action(
-        CreateTableBuilder::default()
-            .name("users")
-            .primary_key(vec!["id".to_string()])
-            .columns(vec![
-                ColumnBuilder::default()
-                    .name("id")
-                    .data_type("INTEGER")
-                    .build()
-                    .unwrap(),
-                ColumnBuilder::default()
-                    .name("name")
-                    .data_type("TEXT")
-                    .build()
-                    .unwrap(),
-            ])
-            .build()
-            .unwrap(),
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+        "#,
     );
-    let uppercase_name = Migration::new("uppercase_name", None).with_action(AlterColumn {
-        table: "users".to_string(),
-        column: "name".to_string(),
-        up: Some("UPPER(name)".to_string()),
-        down: Some("LOWER(name)".to_string()),
-        changes: ColumnChanges {
-            data_type: None,
-            nullable: None,
-            name: None,
-            default: None,
-        },
-    });
 
-    let first_migrations = vec![create_users_table.clone()];
-    let second_migrations = vec![create_users_table.clone(), uppercase_name.clone()];
+    test.second_migration(
+        r#"
+        name = "uppercase_name"
 
-    // Run first migration, should automatically finish
-    reshape.migrate(first_migrations.clone()).unwrap();
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        up = "UPPER(name)"
+        down = "LOWER(name)"
+        "#,
+    );
 
-    // Update search paths
-    old_db
-        .simple_query(&reshape::schema_query_for_migration(
-            &first_migrations.last().unwrap().name,
-        ))
-        .unwrap();
-
-    // Insert some test users
-    old_db
-        .simple_query(
+    test.after_first(|db| {
+        // Insert some test users
+        db.simple_query(
             "
             INSERT INTO users (id, name) VALUES
                 (1, 'john Doe'),
@@ -63,98 +47,82 @@ fn alter_column_data() {
             ",
         )
         .unwrap();
+    });
 
-    // Run second migration
-    reshape.migrate(second_migrations.clone()).unwrap();
-    new_db
-        .simple_query(&reshape::schema_query_for_migration(
-            &second_migrations.last().unwrap().name,
-        ))
-        .unwrap();
+    test.intermediate(|old_db, new_db| {
+        // Check that the existing users has the altered data
+        let expected = vec!["JOHN DOE", "JANE DOE"];
+        assert!(new_db
+            .query("SELECT name FROM users ORDER BY id", &[],)
+            .unwrap()
+            .iter()
+            .map(|row| row.get::<_, String>("name"))
+            .eq(expected));
 
-    // Check that the existing users has the altered data
-    let expected = vec!["JOHN DOE", "JANE DOE"];
-    assert!(new_db
-        .query("SELECT name FROM users ORDER BY id", &[],)
-        .unwrap()
-        .iter()
-        .map(|row| row.get::<_, String>("name"))
-        .eq(expected));
+        // Insert data using old schema and make sure the new schema gets correct values
+        old_db
+            .simple_query("INSERT INTO users (id, name) VALUES (3, 'test testsson')")
+            .unwrap();
+        let result = new_db
+            .query_one("SELECT name from users WHERE id = 3", &[])
+            .unwrap();
+        assert_eq!("TEST TESTSSON", result.get::<_, &str>("name"));
 
-    // Insert data using old schema and make sure the new schema gets correct values
-    old_db
-        .simple_query("INSERT INTO users (id, name) VALUES (3, 'test testsson')")
-        .unwrap();
-    let result = new_db
-        .query_one("SELECT name from users WHERE id = 3", &[])
-        .unwrap();
-    assert_eq!("TEST TESTSSON", result.get::<_, &str>("name"));
+        // Insert data using new schema and make sure the old schema gets correct values
+        new_db
+            .simple_query("INSERT INTO users (id, name) VALUES (4, 'TEST TESTSSON')")
+            .unwrap();
+        let result = old_db
+            .query_one("SELECT name from users WHERE id = 4", &[])
+            .unwrap();
+        assert_eq!("test testsson", result.get::<_, &str>("name"));
+    });
 
-    // Insert data using new schema and make sure the old schema gets correct values
-    new_db
-        .simple_query("INSERT INTO users (id, name) VALUES (4, 'TEST TESTSSON')")
-        .unwrap();
-    let result = old_db
-        .query_one("SELECT name from users WHERE id = 4", &[])
-        .unwrap();
-    assert_eq!("test testsson", result.get::<_, &str>("name"));
-
-    reshape.complete().unwrap();
-    common::assert_cleaned_up(&mut new_db);
+    test.run();
 }
 
 #[test]
 fn alter_column_set_not_null() {
-    let (mut reshape, mut old_db, mut new_db) = common::setup();
+    let mut test = Test::new("Set column not null");
 
-    let create_users_table = Migration::new("create_user_table", None).with_action(
-        CreateTableBuilder::default()
-            .name("users")
-            .primary_key(vec!["id".to_string()])
-            .columns(vec![
-                ColumnBuilder::default()
-                    .name("id")
-                    .data_type("INTEGER")
-                    .build()
-                    .unwrap(),
-                ColumnBuilder::default()
-                    .name("name")
-                    .data_type("TEXT")
-                    .build()
-                    .unwrap(),
-            ])
-            .build()
-            .unwrap(),
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+        "#,
     );
-    let set_name_not_null = Migration::new("set_name_not_null", None).with_action(AlterColumn {
-        table: "users".to_string(),
-        column: "name".to_string(),
-        up: Some("COALESCE(name, 'TEST_DEFAULT_VALUE')".to_string()),
-        down: Some("name".to_string()),
-        changes: ColumnChanges {
-            data_type: None,
-            nullable: Some(false),
-            name: None,
-            default: None,
-        },
-    });
 
-    let first_migrations = vec![create_users_table.clone()];
-    let second_migrations = vec![create_users_table.clone(), set_name_not_null.clone()];
+    test.second_migration(
+        r#"
+        name = "set_name_not_null"
 
-    // Run first migration, should automatically finish
-    reshape.migrate(first_migrations.clone()).unwrap();
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        up = "COALESCE(name, 'TEST_DEFAULT_VALUE')"
+        down = "name"
 
-    // Update search paths
-    old_db
-        .simple_query(&reshape::schema_query_for_migration(
-            &first_migrations.last().unwrap().name,
-        ))
-        .unwrap();
+            [actions.changes]
+            nullable = false
+        "#,
+    );
 
-    // Insert some test users
-    old_db
-        .simple_query(
+    test.after_first(|db| {
+        // Insert some test users
+        db.simple_query(
             "
             INSERT INTO users (id, name) VALUES
                 (1, 'John Doe'),
@@ -162,99 +130,80 @@ fn alter_column_set_not_null() {
             ",
         )
         .unwrap();
+    });
 
-    // Run second migration
-    reshape.migrate(second_migrations.clone()).unwrap();
-    new_db
-        .simple_query(&reshape::schema_query_for_migration(
-            &second_migrations.last().unwrap().name,
-        ))
-        .unwrap();
+    test.intermediate(|old_db, new_db| {
+        // Check that existing users got the correct values
+        let expected = vec!["John Doe", "TEST_DEFAULT_VALUE"];
+        assert!(new_db
+            .query("SELECT name FROM users ORDER BY id", &[],)
+            .unwrap()
+            .iter()
+            .map(|row| row.get::<_, String>("name"))
+            .eq(expected));
 
-    // Check that existing users got the correct values
-    let expected = vec!["John Doe", "TEST_DEFAULT_VALUE"];
-    assert!(new_db
-        .query("SELECT name FROM users ORDER BY id", &[],)
-        .unwrap()
-        .iter()
-        .map(|row| row.get::<_, String>("name"))
-        .eq(expected));
+        // Insert data using old schema and make sure the new schema gets correct values
+        old_db
+            .simple_query("INSERT INTO users (id, name) VALUES (3, NULL)")
+            .unwrap();
+        let result = new_db
+            .query_one("SELECT name from users WHERE id = 3", &[])
+            .unwrap();
+        assert_eq!("TEST_DEFAULT_VALUE", result.get::<_, &str>("name"));
 
-    // Insert data using old schema and make sure the new schema gets correct values
-    old_db
-        .simple_query("INSERT INTO users (id, name) VALUES (3, NULL)")
-        .unwrap();
-    let result = new_db
-        .query_one("SELECT name from users WHERE id = 3", &[])
-        .unwrap();
-    assert_eq!("TEST_DEFAULT_VALUE", result.get::<_, &str>("name"));
+        // Insert data using new schema and make sure the old schema gets correct values
+        new_db
+            .simple_query("INSERT INTO users (id, name) VALUES (4, 'Jane Doe')")
+            .unwrap();
+        let result = old_db
+            .query_one("SELECT name from users WHERE id = 4", &[])
+            .unwrap();
+        assert_eq!("Jane Doe", result.get::<_, &str>("name"));
+    });
 
-    // Insert data using new schema and make sure the old schema gets correct values
-    new_db
-        .simple_query("INSERT INTO users (id, name) VALUES (4, 'Jane Doe')")
-        .unwrap();
-    let result = old_db
-        .query_one("SELECT name from users WHERE id = 4", &[])
-        .unwrap();
-    assert_eq!("Jane Doe", result.get::<_, &str>("name"));
-
-    reshape.complete().unwrap();
-    common::assert_cleaned_up(&mut new_db);
+    test.run();
 }
 
 #[test]
 fn alter_column_rename() {
-    let (mut reshape, mut old_db, mut new_db) = common::setup();
+    let mut test = Test::new("Rename column");
 
-    let create_users_table = Migration::new("create_user_table", None).with_action(
-        CreateTableBuilder::default()
-            .name("users")
-            .primary_key(vec!["id".to_string()])
-            .columns(vec![
-                ColumnBuilder::default()
-                    .name("id")
-                    .data_type("INTEGER")
-                    .build()
-                    .unwrap(),
-                ColumnBuilder::default()
-                    .name("name")
-                    .data_type("TEXT")
-                    .build()
-                    .unwrap(),
-            ])
-            .build()
-            .unwrap(),
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+        "#,
     );
-    let rename_to_full_name =
-        Migration::new("rename_to_full_name", None).with_action(AlterColumn {
-            table: "users".to_string(),
-            column: "name".to_string(),
-            up: None, // up and down are not required when only renaming a column
-            down: None,
-            changes: ColumnChanges {
-                data_type: None,
-                nullable: None,
-                name: Some("full_name".to_string()),
-                default: None,
-            },
-        });
 
-    let first_migrations = vec![create_users_table.clone()];
-    let second_migrations = vec![create_users_table.clone(), rename_to_full_name.clone()];
+    test.second_migration(
+        r#"
+        name = "set_name_not_null"
 
-    // Run first migration, should automatically finish
-    reshape.migrate(first_migrations.clone()).unwrap();
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
 
-    // Update search paths
-    old_db
-        .simple_query(&reshape::schema_query_for_migration(
-            &first_migrations.last().unwrap().name,
-        ))
-        .unwrap();
+            [actions.changes]
+            name = "full_name"
+        "#,
+    );
 
-    // Insert some test data
-    old_db
-        .simple_query(
+    test.after_first(|db| {
+        // Insert some test data
+        db.simple_query(
             "
             INSERT INTO users (id, name) VALUES
                 (1, 'John Doe'),
@@ -262,94 +211,69 @@ fn alter_column_rename() {
             ",
         )
         .unwrap();
+    });
 
-    // Run second migration
-    reshape.migrate(second_migrations.clone()).unwrap();
-    new_db
-        .simple_query(&reshape::schema_query_for_migration(
-            &second_migrations.last().unwrap().name,
-        ))
-        .unwrap();
+    test.intermediate(|_, new_db| {
+        // Check that existing values can be queried using new column name
+        let expected = vec!["John Doe", "Jane Doe"];
+        assert!(new_db
+            .query("SELECT full_name FROM users ORDER BY id", &[],)
+            .unwrap()
+            .iter()
+            .map(|row| row.get::<_, String>("full_name"))
+            .eq(expected));
+    });
 
-    // Check that existing values can be queried using new column name
-    let expected = vec!["John Doe", "Jane Doe"];
-    assert!(new_db
-        .query("SELECT full_name FROM users ORDER BY id", &[],)
-        .unwrap()
-        .iter()
-        .map(|row| row.get::<_, String>("full_name"))
-        .eq(expected));
-
-    reshape.complete().unwrap();
-    common::assert_cleaned_up(&mut new_db);
+    test.run();
 }
 
 #[test]
 fn alter_column_multiple() {
-    let (mut reshape, mut old_db, mut new_db) = common::setup();
+    let mut test = Test::new("Alter column value multiple times");
 
-    let create_users_table = Migration::new("create_user_table", None).with_action(
-        CreateTableBuilder::default()
-            .name("users")
-            .primary_key(vec!["id".to_string()])
-            .columns(vec![
-                ColumnBuilder::default()
-                    .name("id")
-                    .data_type("INTEGER")
-                    .build()
-                    .unwrap(),
-                ColumnBuilder::default()
-                    .name("counter")
-                    .data_type("INTEGER")
-                    .nullable(false)
-                    .build()
-                    .unwrap(),
-            ])
-            .build()
-            .unwrap(),
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "counter"
+            type = "INTEGER"
+            nullable = false
+        "#,
     );
-    let increment_counter_twice = Migration::new("increment_counter_twice", None)
-        .with_action(AlterColumn {
-            table: "users".to_string(),
-            column: "counter".to_string(),
-            up: Some("counter + 1".to_string()),
-            down: Some("counter - 1".to_string()),
-            changes: ColumnChanges {
-                data_type: None,
-                nullable: None,
-                name: None,
-                default: None,
-            },
-        })
-        .with_action(AlterColumn {
-            table: "users".to_string(),
-            column: "counter".to_string(),
-            up: Some("counter + 1".to_string()),
-            down: Some("counter - 1".to_string()),
-            changes: ColumnChanges {
-                data_type: None,
-                nullable: None,
-                name: None,
-                default: None,
-            },
-        });
 
-    let first_migrations = vec![create_users_table.clone()];
-    let second_migrations = vec![create_users_table.clone(), increment_counter_twice.clone()];
+    test.second_migration(
+        r#"
+        name = "increment_counter_twice"
 
-    // Run first migration, should automatically finish
-    reshape.migrate(first_migrations.clone()).unwrap();
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "counter"
+        up = "counter + 1"
+        down = "counter - 1"
 
-    // Update search paths
-    old_db
-        .simple_query(&reshape::schema_query_for_migration(
-            &first_migrations.last().unwrap().name,
-        ))
-        .unwrap();
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "counter"
+        up = "counter + 1"
+        down = "counter - 1"
+        "#,
+    );
 
-    // Insert some test data
-    old_db
-        .simple_query(
+    test.after_first(|db| {
+        // Insert some test data
+        db.simple_query(
             "
             INSERT INTO users (id, counter) VALUES
                 (1, 0),
@@ -357,239 +281,196 @@ fn alter_column_multiple() {
             ",
         )
         .unwrap();
+    });
 
-    // Run second migration
-    reshape.migrate(second_migrations.clone()).unwrap();
-    new_db
-        .simple_query(&reshape::schema_query_for_migration(
-            &second_migrations.last().unwrap().name,
-        ))
-        .unwrap();
+    test.intermediate(|old_db, new_db| {
+        // Check that the existing data has been updated
+        let expected = vec![2, 102];
+        let results: Vec<i32> = new_db
+            .query("SELECT counter FROM users ORDER BY id", &[])
+            .unwrap()
+            .iter()
+            .map(|row| row.get::<_, i32>("counter"))
+            .collect();
+        assert_eq!(expected, results);
 
-    // Check that the existing data has been updated
-    let expected = vec![2, 102];
-    let results: Vec<i32> = new_db
-        .query("SELECT counter FROM users ORDER BY id", &[])
-        .unwrap()
-        .iter()
-        .map(|row| row.get::<_, i32>("counter"))
-        .collect();
-    assert_eq!(expected, results);
+        // Update data using old schema and make sure it was updated for the new schema
+        old_db
+            .query("UPDATE users SET counter = 50 WHERE id = 1", &[])
+            .unwrap();
+        let result: i32 = new_db
+            .query("SELECT counter FROM users WHERE id = 1", &[])
+            .unwrap()
+            .iter()
+            .map(|row| row.get("counter"))
+            .nth(0)
+            .unwrap();
+        assert_eq!(52, result);
 
-    // Update data using old schema and make sure it was updated for the new schema
-    old_db
-        .query("UPDATE users SET counter = 50 WHERE id = 1", &[])
-        .unwrap();
-    let result: i32 = new_db
-        .query("SELECT counter FROM users WHERE id = 1", &[])
-        .unwrap()
-        .iter()
-        .map(|row| row.get("counter"))
-        .nth(0)
-        .unwrap();
-    assert_eq!(52, result);
+        // Update data using new schema and make sure it was updated for the old schema
+        new_db
+            .query("UPDATE users SET counter = 50 WHERE id = 1", &[])
+            .unwrap();
+        let result: i32 = old_db
+            .query("SELECT counter FROM users WHERE id = 1", &[])
+            .unwrap()
+            .iter()
+            .map(|row| row.get("counter"))
+            .nth(0)
+            .unwrap();
+        assert_eq!(48, result);
+    });
 
-    // Update data using new schema and make sure it was updated for the old schema
-    new_db
-        .query("UPDATE users SET counter = 50 WHERE id = 1", &[])
-        .unwrap();
-    let result: i32 = old_db
-        .query("SELECT counter FROM users WHERE id = 1", &[])
-        .unwrap()
-        .iter()
-        .map(|row| row.get("counter"))
-        .nth(0)
-        .unwrap();
-    assert_eq!(48, result);
-
-    reshape.complete().unwrap();
-    common::assert_cleaned_up(&mut new_db);
+    test.run();
 }
 
 #[test]
 fn alter_column_default() {
-    let (mut reshape, mut old_db, mut new_db) = common::setup();
+    let mut test = Test::new("Change default value for column");
 
-    let create_users_table = Migration::new("create_user_table", None).with_action(
-        CreateTableBuilder::default()
-            .name("users")
-            .primary_key(vec!["id".to_string()])
-            .columns(vec![
-                ColumnBuilder::default()
-                    .name("id")
-                    .data_type("INTEGER")
-                    .build()
-                    .unwrap(),
-                ColumnBuilder::default()
-                    .name("name")
-                    .data_type("TEXT")
-                    .nullable(false)
-                    .default_value("'DEFAULT'")
-                    .build()
-                    .unwrap(),
-            ])
-            .build()
-            .unwrap(),
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+            nullable = false
+            default = "'DEFAULT'"
+        "#,
     );
-    let change_name_default =
-        Migration::new("change_name_default", None).with_action(AlterColumn {
-            table: "users".to_string(),
-            column: "name".to_string(),
-            up: None,
-            down: None,
-            changes: ColumnChanges {
-                data_type: None,
-                nullable: None,
-                name: None,
-                default: Some("'NEW DEFAULT'".to_string()),
-            },
-        });
 
-    let first_migrations = vec![create_users_table.clone()];
-    let second_migrations = vec![create_users_table.clone(), change_name_default.clone()];
+    test.second_migration(
+        r#"
+        name = "change_name_default"
 
-    // Run first migration, should automatically finish
-    reshape.migrate(first_migrations.clone()).unwrap();
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
 
-    // Update search paths
-    old_db
-        .simple_query(&reshape::schema_query_for_migration(
-            &first_migrations.last().unwrap().name,
-        ))
-        .unwrap();
+            [actions.changes]
+            default = "'NEW DEFAULT'"
+        "#,
+    );
 
-    // Insert a test user
-    old_db
-        .simple_query(
+    test.after_first(|db| {
+        // Insert a test user
+        db.simple_query(
             "
             INSERT INTO users (id) VALUES (1)
             ",
         )
         .unwrap();
+    });
 
-    // Run second migration
-    reshape.migrate(second_migrations.clone()).unwrap();
-    new_db
-        .simple_query(&reshape::schema_query_for_migration(
-            &second_migrations.last().unwrap().name,
-        ))
-        .unwrap();
+    test.intermediate(|old_db, new_db| {
+        // Check that the existing users has the old default value
+        let expected = vec!["DEFAULT"];
+        assert!(new_db
+            .query("SELECT name FROM users", &[],)
+            .unwrap()
+            .iter()
+            .map(|row| row.get::<_, String>("name"))
+            .eq(expected));
 
-    // Check that the existing users has the old default value
-    let expected = vec!["DEFAULT"];
-    assert!(new_db
-        .query("SELECT name FROM users", &[],)
-        .unwrap()
-        .iter()
-        .map(|row| row.get::<_, String>("name"))
-        .eq(expected));
+        // Insert data using old schema and make those get the old default value
+        old_db
+            .simple_query("INSERT INTO users (id) VALUES (2)")
+            .unwrap();
+        let result = new_db
+            .query_one("SELECT name from users WHERE id = 2", &[])
+            .unwrap();
+        assert_eq!("DEFAULT", result.get::<_, &str>("name"));
 
-    // Insert data using old schema and make those get the old default value
-    old_db
-        .simple_query("INSERT INTO users (id) VALUES (2)")
-        .unwrap();
-    let result = new_db
-        .query_one("SELECT name from users WHERE id = 2", &[])
-        .unwrap();
-    assert_eq!("DEFAULT", result.get::<_, &str>("name"));
+        // Insert data using new schema and make sure it gets the new default value
+        new_db
+            .simple_query("INSERT INTO users (id) VALUES (3)")
+            .unwrap();
+        let result = old_db
+            .query_one("SELECT name from users WHERE id = 3", &[])
+            .unwrap();
+        assert_eq!("NEW DEFAULT", result.get::<_, &str>("name"));
+    });
 
-    // Insert data using new schema and make sure it gets the new default value
-    new_db
-        .simple_query("INSERT INTO users (id) VALUES (3)")
-        .unwrap();
-    let result = old_db
-        .query_one("SELECT name from users WHERE id = 3", &[])
-        .unwrap();
-    assert_eq!("NEW DEFAULT", result.get::<_, &str>("name"));
-
-    reshape.complete().unwrap();
-    common::assert_cleaned_up(&mut new_db);
+    test.run();
 }
 
 #[test]
 fn alter_column_with_index() {
-    let (mut reshape, mut db, _) = common::setup();
+    let mut test = Test::new("Alter column with index");
 
-    let create_users_table = Migration::new("create_user_table", None)
-        .with_action(
-            CreateTableBuilder::default()
-                .name("users")
-                .primary_key(vec!["id".to_string()])
-                .columns(vec![
-                    ColumnBuilder::default()
-                        .name("id")
-                        .data_type("INTEGER")
-                        .build()
-                        .unwrap(),
-                    ColumnBuilder::default()
-                        .name("first_name")
-                        .data_type("TEXT")
-                        .build()
-                        .unwrap(),
-                    ColumnBuilder::default()
-                        .name("last_name")
-                        .data_type("TEXT")
-                        .build()
-                        .unwrap(),
-                ])
-                .build()
-                .unwrap(),
-        )
-        .with_action(AddIndex {
-            table: "users".to_string(),
-            index: Index {
-                name: "users_name_idx".to_string(),
-                columns: vec!["first_name".to_string(), "last_name".to_string()],
-                unique: false,
-                index_type: None,
-            },
-        });
-    let uppercase_name = Migration::new("uppercase_name", None).with_action(AlterColumn {
-        table: "users".to_string(),
-        column: "last_name".to_string(),
-        up: Some("UPPER(last_name)".to_string()),
-        down: Some("LOWER(last_name)".to_string()),
-        changes: ColumnChanges {
-            data_type: None,
-            nullable: None,
-            name: None,
-            default: None,
-        },
-    });
+    test.first_migration(
+        r#"
+        name = "create_user_table"
 
-    let first_migrations = vec![create_users_table.clone()];
-    let second_migrations = vec![create_users_table.clone(), uppercase_name.clone()];
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
 
-    // Run first migration, should automatically finish
-    reshape.migrate(first_migrations.clone()).unwrap();
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
 
-    // Run second migration
-    reshape.migrate(second_migrations.clone()).unwrap();
-    db.simple_query(&reshape::schema_query_for_migration(
-        &second_migrations.last().unwrap().name,
-    ))
-    .unwrap();
+            [[actions.columns]]
+            name = "first_name"
+            type = "TEXT"
 
-    // Complete the second migration which should replace the existing column
-    // with the temporary one
-    reshape.complete().unwrap();
+            [[actions.columns]]
+            name = "last_name"
+            type = "TEXT"
 
-    // Make sure index still exists
-    let result: i64 = db
-        .query(
-            "
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_name_idx"
+            columns = ["first_name", "last_name"]
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "uppercase_last_name"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "last_name"
+        up = "UPPER(last_name)"
+        down = "LOWER(last_name)"
+        "#,
+    );
+
+    test.after_completion(|db| {
+        // Make sure index still exists
+        let result: i64 = db
+            .query(
+                "
 			SELECT COUNT(*)
 			FROM pg_catalog.pg_index
 			JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
 			WHERE pg_class.relname = 'users_name_idx'
 			",
-            &[],
-        )
-        .unwrap()
-        .first()
-        .map(|row| row.get(0))
-        .unwrap();
-    assert_eq!(1, result, "expected index to still exist");
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| row.get(0))
+            .unwrap();
+        assert_eq!(1, result, "expected index to still exist");
+    });
 
-    common::assert_cleaned_up(&mut db);
+    test.run();
 }
