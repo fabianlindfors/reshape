@@ -13,10 +13,11 @@ pub struct AlterColumn {
     pub column: String,
     pub up: Option<String>,
     pub down: Option<String>,
+    #[serde(default)]
     pub changes: ColumnChanges,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct ColumnChanges {
     pub name: Option<String>,
     #[serde(rename = "type")]
