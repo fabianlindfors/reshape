@@ -173,18 +173,30 @@ fn get_primary_key_columns_for_table(
     Ok(primary_key_columns)
 }
 
+pub struct Index {
+    pub name: String,
+    pub oid: u32,
+    pub unique: bool,
+    pub index_type: String,
+}
+
 pub fn get_indices_for_column(
     db: &mut dyn Conn,
     table: &str,
     column: &str,
-) -> anyhow::Result<Vec<(String, u32)>> {
+) -> anyhow::Result<Vec<Index>> {
     let indices = db
         .query(&format!(
             "
-            SELECT i.relname AS index_name, i.oid AS index_oid
+            SELECT
+                i.relname AS name,
+                i.oid AS oid,
+                ix.indisunique AS unique,
+                am.amname AS type
             FROM pg_index ix
             JOIN pg_class t ON t.oid = ix.indrelid
             JOIN pg_class i ON i.oid = ix.indexrelid
+            JOIN pg_am am ON i.relam = am.oid
             JOIN pg_attribute a ON
                 a.attrelid = t.oid AND
                 a.attnum = ANY(ix.indkey)
@@ -196,7 +208,12 @@ pub fn get_indices_for_column(
             column = column,
         ))?
         .iter()
-        .map(|row| (row.get("index_name"), row.get("index_oid")))
+        .map(|row| Index {
+            name: row.get("name"),
+            oid: row.get("oid"),
+            unique: row.get("unique"),
+            index_type: row.get("type"),
+        })
         .collect();
 
     Ok(indices)

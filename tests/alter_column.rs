@@ -474,3 +474,162 @@ fn alter_column_with_index() {
 
     test.run();
 }
+
+#[test]
+fn alter_column_with_unique_index() {
+    let mut test = Test::new("Alter column with unique index");
+
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "name_idx"
+            columns = ["name"]
+            unique = true
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "uppercase_name"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        up = "UPPER(name)"
+        down = "LOWER(name)"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id, name) VALUES (1, 'Test')")
+            .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        // Try inserting a value which duplicates the uppercase value of an existing row
+        let result = new_db.simple_query("INSERT INTO users (id, name) VALUES (2, 'TEST')");
+        assert!(
+            result.is_err(),
+            "expected duplicate insert to new schema to fail"
+        );
+
+        // Try inserting a value which duplicates the lowercase value of an existing row
+        new_db
+            .simple_query("INSERT INTO users (id, name) VALUES (2, 'JOHN')")
+            .unwrap();
+        let result = old_db.simple_query("INSERT INTO users (id, name) VALUES (3, 'john')");
+        assert!(
+            result.is_err(),
+            "expected duplicate insert to old schema to fail"
+        );
+    });
+
+    test.after_completion(|db| {
+        // Make sure index still exists
+        let is_unique: bool = db
+            .query(
+                "
+                SELECT pg_index.indisunique
+                FROM pg_catalog.pg_index
+                JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
+                WHERE pg_class.relname = 'name_idx'
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| row.get("indisunique"))
+            .unwrap();
+        assert!(is_unique, "expected index to still be unique");
+    });
+
+    test.run();
+}
+
+#[test]
+fn alter_column_with_hash_index() {
+    let mut test = Test::new("Alter column with custom index type");
+
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "name_idx"
+            columns = ["name"]
+            type = "hash"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "uppercase_name"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        up = "UPPER(name)"
+        down = "LOWER(name)"
+        "#,
+    );
+
+    test.after_completion(|db| {
+        // Make sure index still has type GIN
+        let index_type: String = db
+            .query(
+                "
+                SELECT pg_am.amname
+                FROM pg_catalog.pg_index
+                JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
+                JOIN pg_catalog.pg_am ON pg_class.relam = pg_am.oid
+                WHERE pg_class.relname = 'name_idx'
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| row.get("amname"))
+            .unwrap();
+        assert_eq!("hash", index_type);
+    });
+
+    test.run();
+}

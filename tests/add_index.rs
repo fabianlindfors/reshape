@@ -126,11 +126,11 @@ fn add_index_unique() {
         let (is_ready, is_valid, is_unique): (bool, bool, bool) = db
             .query(
                 "
-			SELECT pg_index.indisready, pg_index.indisvalid, pg_index.indisunique
-			FROM pg_catalog.pg_index
-			JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
-			WHERE pg_class.relname = 'name_idx'
-			",
+                SELECT pg_index.indisready, pg_index.indisvalid, pg_index.indisunique
+                FROM pg_catalog.pg_index
+                JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
+                WHERE pg_class.relname = 'name_idx'
+                ",
                 &[],
             )
             .unwrap()
@@ -191,7 +191,7 @@ fn add_index_with_type() {
     );
 
     test.intermediate(|db, _| {
-        // Ensure index is valid, ready and unique
+        // Ensure index is valid, ready and has the right type
         let (is_ready, is_valid, index_type): (bool, bool, String) = db
             .query(
                 "

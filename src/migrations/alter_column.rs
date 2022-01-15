@@ -157,8 +157,8 @@ impl Action for AlterColumn {
 
         // Duplicate any indices to the temporary column
         let indices = common::get_indices_for_column(db, &table.real_name, &column.real_name)?;
-        for (index_name, index_oid) in indices {
-            let index_columns: Vec<String> = common::get_index_columns(db, &index_name)?
+        for index in indices {
+            let index_columns: Vec<String> = common::get_index_columns(db, &index.name)?
                 .into_iter()
                 .map(|idx_column| {
                     // Replace column with temporary column for new index
@@ -169,15 +169,18 @@ impl Action for AlterColumn {
                     }
                 })
                 .collect();
-            let temp_index_name = self.temp_index_name(ctx, index_oid);
+            let temp_index_name = self.temp_index_name(ctx, index.oid);
+
+            let unique_def = if index.unique { "UNIQUE" } else { "" };
 
             db.query(&format!(
                 r#"
-                CREATE INDEX CONCURRENTLY IF NOT EXISTS "{new_index_name}" ON "{table}" ({columns})
+                CREATE {unique_def} INDEX CONCURRENTLY IF NOT EXISTS "{new_index_name}" ON "{table}" USING {index_type} ({columns})
                 "#,
                 new_index_name = temp_index_name,
                 table = table.real_name,
                 columns = index_columns.join(", "),
+                index_type = index.index_type,
             ))
             .context("failed to create temporary index")?;
         }
@@ -280,7 +283,7 @@ impl Action for AlterColumn {
 
         // Replace old indices with the new temporary ones created for the temporary column
         let indices = common::get_indices_for_column(db, &self.table, &self.column)?;
-        for (current_index_name, index_oid) in indices {
+        for current_index in indices {
             // To keep the index handling idempotent, we need to do the following:
             // 1. Add a prefix to the existing index
             // 2. Rename temporary index to its final name
@@ -288,7 +291,7 @@ impl Action for AlterColumn {
 
             // Add prefix (if not already added) to existing index
             let prefix = "__reshape_old";
-            let target_index_name = current_index_name.trim_start_matches(prefix);
+            let target_index_name = current_index.name.trim_start_matches(prefix);
             let old_index_name = format!("{}_{}", prefix, target_index_name);
             db.query(&format!(
                 r#"
@@ -300,7 +303,7 @@ impl Action for AlterColumn {
             .context("failed to rename old index")?;
 
             // Rename temporary index to real name
-            let temp_index_name = self.temp_index_name(ctx, index_oid);
+            let temp_index_name = self.temp_index_name(ctx, current_index.oid);
             db.query(&format!(
                 r#"
                 ALTER INDEX IF EXISTS "{temp_index_name}" RENAME TO "{target_index_name}"
@@ -388,8 +391,8 @@ impl Action for AlterColumn {
         // Safely remove any indices created for the temporary column
         let temp_column_name = self.temporary_column_name(ctx);
         let indices = common::get_indices_for_column(db, &self.table, &temp_column_name)?;
-        for (_, index_oid) in indices {
-            let temp_index_name = self.temp_index_name(ctx, index_oid);
+        for index in indices {
+            let temp_index_name = self.temp_index_name(ctx, index.oid);
             db.query(&format!(
                 r#"
                 DROP INDEX CONCURRENTLY IF EXISTS "{index_name}"
