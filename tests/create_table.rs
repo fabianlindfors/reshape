@@ -7,33 +7,29 @@ fn create_table() {
     let mut test = common::Test::new("Create table");
 
     test.first_migration(
-        Migration::new("create_users_table", None).with_action(
-            CreateTableBuilder::default()
-                .name("users")
-                .primary_key(vec!["id".to_string()])
-                .columns(vec![
-                    ColumnBuilder::default()
-                        .name("id")
-                        .data_type("INTEGER")
-                        .generated("ALWAYS AS IDENTITY")
-                        .build()
-                        .unwrap(),
-                    ColumnBuilder::default()
-                        .name("name")
-                        .data_type("TEXT")
-                        .build()
-                        .unwrap(),
-                    ColumnBuilder::default()
-                        .name("created_at")
-                        .data_type("TIMESTAMP")
-                        .nullable(false)
-                        .default_value("NOW()")
-                        .build()
-                        .unwrap(),
-                ])
-                .build()
-                .unwrap(),
-        ),
+        r#"
+        name = "create_users_table"
+        
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+            generated = "ALWAYS AS IDENTITY"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+            [[actions.columns]]
+            name = "created_at"
+            type = "TIMESTAMP"
+            nullable = false
+            default = "NOW()"
+        "#,
     );
 
     test.after_first(|db| {

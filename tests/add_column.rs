@@ -7,51 +7,50 @@ fn add_column() {
     let mut test = common::Test::new("Add column");
 
     test.first_migration(
-        Migration::new("create_user_table", None).with_action(
-            CreateTableBuilder::default()
-                .name("users")
-                .primary_key(vec!["id".to_string()])
-                .columns(vec![
-                    ColumnBuilder::default()
-                        .name("id")
-                        .data_type("INTEGER")
-                        .build()
-                        .unwrap(),
-                    ColumnBuilder::default()
-                        .name("name")
-                        .data_type("TEXT")
-                        .build()
-                        .unwrap(),
-                ])
-                .build()
-                .unwrap(),
-        ),
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+        "#,
     );
 
     test.second_migration(
-        Migration::new("add_first_and_last_name_columns", None)
-            .with_action(AddColumn {
-                table: "users".to_string(),
-                column: Column {
-                    name: "first".to_string(),
-                    data_type: "TEXT".to_string(),
-                    nullable: false,
-                    default: None,
-                    generated: None,
-                },
-                up: Some("(STRING_TO_ARRAY(name, ' '))[1]".to_string()),
-            })
-            .with_action(AddColumn {
-                table: "users".to_string(),
-                column: Column {
-                    name: "last".to_string(),
-                    data_type: "TEXT".to_string(),
-                    nullable: false,
-                    default: None,
-                    generated: None,
-                },
-                up: Some("(STRING_TO_ARRAY(name, ' '))[2]".to_string()),
-            }),
+        r#"
+        name = "add_first_and_last_name_columns"
+
+        [[actions]]
+        type = "add_column"
+        table = "users"
+
+        up = "(STRING_TO_ARRAY(name, ' '))[1]"
+
+            [actions.column]
+            name = "first"
+            type = "TEXT"
+            nullable = false
+
+        [[actions]]
+        type = "add_column"
+        table = "users"
+
+        up = "(STRING_TO_ARRAY(name, ' '))[2]"
+
+            [actions.column]
+            name = "last"
+            type = "TEXT"
+            nullable = false
+        "#,
     );
 
     test.after_first(|db| {

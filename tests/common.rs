@@ -41,13 +41,13 @@ impl Test<'_> {
         }
     }
 
-    pub fn first_migration(&mut self, migration: Migration) -> &mut Self {
-        self.first_migration = Some(migration);
+    pub fn first_migration(&mut self, migration: &str) -> &mut Self {
+        self.first_migration = Some(Self::parse_migration(migration));
         self
     }
 
-    pub fn second_migration(&mut self, migration: Migration) -> &mut Self {
-        self.second_migration = Some(migration);
+    pub fn second_migration(&mut self, migration: &str) -> &mut Self {
+        self.second_migration = Some(Self::parse_migration(migration));
         self
     }
 
@@ -69,6 +69,10 @@ impl Test<'_> {
     pub fn after_abort(&mut self, f: fn(&mut Client) -> ()) -> &mut Self {
         self.after_abort_fn = Some(f);
         self
+    }
+
+    fn parse_migration(encoded: &str) -> Migration {
+        toml::from_str(encoded).unwrap()
     }
 }
 
