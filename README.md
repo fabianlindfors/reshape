@@ -2,9 +2,9 @@
 
 [![Test status badge](https://github.com/fabianlindfors/Reshape/actions/workflows/test.yaml/badge.svg)](https://github.com/fabianlindfors/reshape/actions/workflows/test.yaml) [![Latest release](https://shields.io/github/v/release/fabianlindfors/reshape?display_name=tag&sort=semver&color=blue)](https://github.com/fabianlindfors/reshape/releases)
 
-Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It automatically handles complex migrations that would normally require downtime or manual multi-step changes. During a migration, Reshape ensures both the old and new schema are available at the same time, allowing you to gradually roll out your application. It will also perform all changes without excessive locking, avoiding downtime caused by blocking other queries.
+Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It automatically handles complex migrations that would normally require downtime or manual multi-step changes. During a migration, Reshape ensures both the old and new schema are available at the same time, allowing you to gradually roll out your application. It will also perform all changes without excessive locking, avoiding downtime caused by blocking other queries. For a more thorough introduction to Reshape, check out the [introductory blog post](https://fabianlindfors.se/blog/schema-migrations-in-postgres-using-reshape/).
 
-Reshape is designed for Postgres 12 and later.
+Designed for Postgres 12 and later.
 
 *Note: Reshape is **experimental** and should not be used in production. It can (and probably will) break your application.*
 
