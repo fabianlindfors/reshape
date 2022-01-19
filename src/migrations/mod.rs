@@ -33,6 +33,9 @@ pub use remove_table::RemoveTable;
 mod rename_table;
 pub use rename_table::RenameTable;
 
+mod create_enum;
+pub use create_enum::CreateEnum;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Migration {
     pub name: String,

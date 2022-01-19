@@ -28,6 +28,8 @@ Designed for Postgres 12 and later.
 	- [Indices](#indices)
 		- [Add index](#add-index)
 		- [Remove index](#remove-index)
+	- [Enums](#enums)
+		- [Create enum](#create-enum)
 - [Commands and options](#commands-and-options)
 	- [`reshape migrate`](#reshape-migrate)
 	- [`reshape complete`](#reshape-complete)
@@ -433,6 +435,19 @@ The `remove_index` action will remove an existing index. The index won't actuall
 [[actions]]
 type = "remove_index"
 index = "name_idx"
+```
+
+### Enums
+
+#### Create enum
+
+The `create_enum` action will create a new [enum type](https://www.postgresql.org/docs/current/datatype-enum.html) with the specified values.
+
+```toml
+[[actions]]
+type = "create_enum"
+name = "mood"
+values = ["happy", "ok", "sad"]
 ```
 
 ## Commands and options

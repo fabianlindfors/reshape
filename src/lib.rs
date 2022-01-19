@@ -103,6 +103,16 @@ impl Reshape {
                 ))?;
             }
 
+            // Remove all enums
+            let enums: Vec<String> = db
+                .query("SELECT typname FROM pg_type WHERE typcategory = 'E'")?
+                .iter()
+                .map(|row| row.get("typname"))
+                .collect();
+            for enum_type in enums {
+                db.run(&format!("DROP TYPE {}", enum_type))?;
+            }
+
             // Reset state
             state.clear(db)?;
 
