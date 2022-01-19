@@ -30,6 +30,7 @@ Designed for Postgres 12 and later.
 		- [Remove index](#remove-index)
 	- [Enums](#enums)
 		- [Create enum](#create-enum)
+		- [Remove enum](#remove-enum)
 - [Commands and options](#commands-and-options)
 	- [`reshape migrate`](#reshape-migrate)
 	- [`reshape complete`](#reshape-complete)
@@ -443,11 +444,25 @@ index = "name_idx"
 
 The `create_enum` action will create a new [enum type](https://www.postgresql.org/docs/current/datatype-enum.html) with the specified values.
 
+*Example: add a new `mood` enum type with three possible values*
+
 ```toml
 [[actions]]
 type = "create_enum"
 name = "mood"
 values = ["happy", "ok", "sad"]
+```
+
+#### Remove enum
+
+The `remove_enum` action will remove an existing [enum type](https://www.postgresql.org/docs/current/datatype-enum.html). Make sure all usages of the enum has been removed before running the migration. The enum will only be removed once the migration is completed.
+
+*Example: remove the `mood` enum type*
+
+```toml
+[[actions]]
+type = "remove_enum"
+enum = "mood"
 ```
 
 ## Commands and options
