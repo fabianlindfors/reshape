@@ -65,3 +65,67 @@ fn remove_column() {
 
     test.run();
 }
+
+#[test]
+fn remove_column_with_index() {
+    let mut test = Test::new("Remove column");
+
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+        
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "name_idx"
+            columns = ["name"]
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "remove_name_column"
+
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "name"
+        down = "'TEST_DOWN_VALUE'"
+        "#,
+    );
+
+    test.after_completion(|db| {
+        // Ensure index has been removed after the migration is complete
+        let count: i64 = db
+            .query(
+                "
+                SELECT COUNT(*)
+                FROM pg_catalog.pg_index
+                JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
+                WHERE pg_class.relname = 'name_idx'
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| row.get(0))
+            .unwrap();
+
+        assert_eq!(0, count, "expected index to not exist");
+    });
+}

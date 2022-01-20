@@ -364,6 +364,8 @@ column = "created_at"
 
 The `remove_column` action will remove an existing column from a table. You can optionally provide a `down` setting. This should be an SQL expression which will be used to determine values for the old schema when inserting or updating rows using the new schema. The `down` setting must be provided when the removed column is `NOT NULL` or doesn't have a default value.
 
+Any indices that cover the column will be removed.
+
 *Example: remove column `name` from table `users`*
 
 ```toml

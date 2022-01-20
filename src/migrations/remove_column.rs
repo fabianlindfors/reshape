@@ -1,4 +1,4 @@
-use super::{Action, MigrationContext};
+use super::{common, Action, MigrationContext};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -92,6 +92,19 @@ impl Action for RemoveColumn {
         ctx: &MigrationContext,
         db: &'a mut dyn Conn,
     ) -> anyhow::Result<Option<Transaction<'a>>> {
+        let indices = common::get_indices_for_column(db, &self.table, &self.column)
+            .context("failed getting column indices")?;
+
+        for index in indices {
+            db.run(&format!(
+                "
+                DROP INDEX CONCURRENTLY IF EXISTS {name}
+                ",
+                name = index.name,
+            ))
+            .context("failed to drop index")?;
+        }
+
         // Remove column, function and trigger
         let query = format!(
             r#"
