@@ -21,6 +21,7 @@ Designed for Postgres 12 and later.
 		- [Create table](#create-table)
 		- [Rename table](#rename-table)
 		- [Remove table](#remove-table)
+		- [Add foreign key](#add-foreign-key)
 	- [Columns](#columns)
 		- [Add column](#add-column)
 		- [Alter column](#alter-column)
@@ -241,6 +242,23 @@ The `remove_table` action will remove an existing table.
 [[actions]]
 type = "remove_table"
 table = "users"
+```
+
+#### Add foreign key
+
+The `add_foreign_key` action will add a foreign key between two existing tables. The migration will fail if the existing column values aren't valid references.
+
+*Example: create foreign key from `items` to `users` table*
+
+```toml
+[[actions]]
+type = "add_foreign_key"
+table = "items"
+
+	[actions.foreign_key]
+	columns = ["user_id"]
+	referenced_table = "users"
+	referenced_columns = ["id"]
 ```
 
 ### Columns

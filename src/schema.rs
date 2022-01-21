@@ -1,8 +1,5 @@
 use crate::db::Conn;
-use std::{
-    collections::{HashMap, HashSet},
-    path::Iter,
-};
+use std::collections::{HashMap, HashSet};
 
 // Schema tracks changes made to tables and columns during a migration.
 // These changes are not applied until the migration is completed but

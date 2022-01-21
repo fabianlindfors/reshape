@@ -19,6 +19,13 @@ fn nullable_default() -> bool {
     true
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ForeignKey {
+    pub columns: Vec<String>,
+    pub referenced_table: String,
+    pub referenced_columns: Vec<String>,
+}
+
 #[derive(Debug)]
 struct PostgresRawValue {
     bytes: Vec<u8>,

@@ -10,7 +10,7 @@ mod common;
 pub use common::Column;
 
 mod create_table;
-pub use create_table::{CreateTable, ForeignKey};
+pub use create_table::CreateTable;
 
 mod alter_column;
 pub use alter_column::{AlterColumn, ColumnChanges};
@@ -38,6 +38,9 @@ pub use create_enum::CreateEnum;
 
 mod remove_enum;
 pub use remove_enum::RemoveEnum;
+
+mod add_foreign_key;
+pub use add_foreign_key::AddForeignKey;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Migration {
