@@ -1,5 +1,8 @@
 use crate::db::Conn;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Iter,
+};
 
 // Schema tracks changes made to tables and columns during a migration.
 // These changes are not applied until the migration is completed but
@@ -284,5 +287,22 @@ impl Schema {
         };
 
         Ok(table)
+    }
+}
+
+impl Table {
+    pub fn real_column_names<'a>(
+        &'a self,
+        columns: &'a [String],
+    ) -> impl Iterator<Item = &'a String> {
+        columns.iter().map(|name| {
+            self.get_column(name)
+                .map(|col| &col.real_name)
+                .unwrap_or(name)
+        })
+    }
+
+    fn get_column(&self, name: &str) -> Option<&Column> {
+        self.columns.iter().find(|column| column.name == name)
     }
 }

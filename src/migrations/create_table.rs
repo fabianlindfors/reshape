@@ -1,4 +1,4 @@
-use super::{Action, Column, MigrationContext};
+use super::{common::ForeignKey, Action, Column, MigrationContext};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -16,13 +16,6 @@ pub struct CreateTable {
     pub foreign_keys: Vec<ForeignKey>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ForeignKey {
-    pub columns: Vec<String>,
-    pub referenced_table: String,
-    pub referenced_columns: Vec<String>,
-}
-
 #[typetag::serde(name = "create_table")]
 impl Action for CreateTable {
     fn describe(&self) -> String {
@@ -33,7 +26,7 @@ impl Action for CreateTable {
         &self,
         _ctx: &MigrationContext,
         db: &mut dyn Conn,
-        _schema: &Schema,
+        schema: &Schema,
     ) -> anyhow::Result<()> {
         let mut definition_rows: Vec<String> = self
             .columns
@@ -75,9 +68,10 @@ impl Action for CreateTable {
                 .iter()
                 .map(|col| format!("\"{}\"", col))
                 .collect();
-            let referenced_columns: Vec<String> = foreign_key
-                .referenced_columns
-                .iter()
+
+            let referenced_table = schema.get_table(db, &foreign_key.referenced_table)?;
+            let referenced_columns: Vec<String> = referenced_table
+                .real_column_names(&foreign_key.referenced_columns)
                 .map(|col| format!("\"{}\"", col))
                 .collect();
 
@@ -86,7 +80,7 @@ impl Action for CreateTable {
                 FOREIGN KEY ({columns}) REFERENCES "{table}" ({referenced_columns})
                 "#,
                 columns = columns.join(", "),
-                table = foreign_key.referenced_table,
+                table = referenced_table.real_name,
                 referenced_columns = referenced_columns.join(", "),
             ));
         }
