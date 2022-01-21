@@ -48,9 +48,7 @@ impl Action for AlterColumn {
         let table = schema.get_table(db, &self.table)?;
 
         let column = table
-            .columns
-            .iter()
-            .find(|column| column.name == self.column)
+            .get_column(&self.column)
             .ok_or_else(|| anyhow!("no such column {} exists", self.column))?;
 
         let temporary_column_name = self.temporary_column_name(ctx);

@@ -87,8 +87,6 @@ impl Action for AddColumn {
         db.run(&query).context("failed to add column")?;
 
         if let Some(up) = &self.up {
-            let table = schema.get_table(db, &self.table)?;
-
             let declarations: Vec<String> = table
                 .columns
                 .iter()

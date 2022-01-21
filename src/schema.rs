@@ -302,7 +302,7 @@ impl Table {
         })
     }
 
-    fn get_column(&self, name: &str) -> Option<&Column> {
+    pub fn get_column(&self, name: &str) -> Option<&Column> {
         self.columns.iter().find(|column| column.name == name)
     }
 }
