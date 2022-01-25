@@ -20,3 +20,4 @@ clap = { version = "3.0.0", features = ["derive"] }
 toml = "0.5"
 version = "3.0.0"
 colored = "2"
+rand = "0.8"
