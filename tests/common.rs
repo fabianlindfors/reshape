@@ -196,7 +196,7 @@ impl Test<'_> {
 }
 
 fn print_heading(text: &str) {
-    let delimiter = std::iter::repeat("=").take(50).collect::<String>();
+    let delimiter = std::iter::repeat("=").take(80).collect::<String>();
 
     println!();
     println!();
