@@ -317,6 +317,21 @@ column = "name"
 down = "first_name || ' ' || last_name"
 ```
 
+*Example: extract nested value from unstructed JSON `data` column to new `name` column*
+
+```toml
+[[actions]]
+type = "add_column"
+table = "users"
+
+# #>> '{}' converts the JSON string value to TEXT
+up = "data['path']['to']['value'] #>> '{}'"
+
+	[actions.column]
+	name = "name"
+	type = "TEXT"
+```
+
 
 #### Alter column
 
