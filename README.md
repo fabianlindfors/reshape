@@ -317,7 +317,7 @@ column = "name"
 down = "first_name || ' ' || last_name"
 ```
 
-*Example: extract nested value from unstructed JSON `data` column to new `name` column*
+*Example: extract nested value from unstructured JSON `data` column to new `name` column*
 
 ```toml
 [[actions]]
