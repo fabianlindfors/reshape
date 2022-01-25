@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use postgres::{types::ToSql, NoTls, Row};
 
 // DbLocker wraps a regular DbConn, only allowing access using the
@@ -22,7 +22,24 @@ impl DbLocker {
     const LOCK_KEY: i64 = 4036779288569897133;
 
     pub fn connect(config: &postgres::Config) -> anyhow::Result<Self> {
-        let pg = config.connect(NoTls)?;
+        let mut pg = config.connect(NoTls)?;
+
+        // When running DDL queries that acquire locks, we risk causing a "lock queue".
+        // When attempting to acquire a lock, Postgres will wait for any long running queries to complete.
+        // At the same time, it will block other queries until the lock has been acquired and released.
+        // This has the bad effect of the long-running query blocking other queries because of us, forming
+        // a queue of other queries until we release our lock.
+        //
+        // We set the lock_timeout setting to avoid this. This puts an upper bound for how long Postgres will
+        // wait to acquire locks and also the maximum amount of time a long-running query can block other queries.
+        // We should also add automatic retries to handle these timeouts gracefully.
+        //
+        // Reference: https://medium.com/paypal-tech/postgresql-at-scale-database-schema-changes-without-downtime-20d3749ed680
+        //
+        // TODO: Make lock_timeout configurable
+        pg.simple_query("SET lock_timeout = '1s'")
+            .context("failed to set lock_timeout")?;
+
         Ok(Self {
             client: DbConn::new(pg),
         })
