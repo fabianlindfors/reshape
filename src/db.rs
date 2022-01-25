@@ -219,9 +219,6 @@ fn retry_automatically<T>(
 
 // Check if a database error can be retried
 fn error_retryable(error: &postgres::error::DbError) -> bool {
-    match error.code() {
-        // Caused by lock_timeout being exceeded
-        &postgres::error::SqlState::LOCK_NOT_AVAILABLE => true,
-        _ => false,
-    }
+    // LOCK_NOT_AVAILABLE is caused by lock_timeout being exceeded
+    matches!(error.code(), &postgres::error::SqlState::LOCK_NOT_AVAILABLE)
 }
