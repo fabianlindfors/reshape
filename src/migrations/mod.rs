@@ -42,6 +42,9 @@ pub use remove_enum::RemoveEnum;
 mod add_foreign_key;
 pub use add_foreign_key::AddForeignKey;
 
+mod remove_foreign_key;
+pub use remove_foreign_key::RemoveForeignKey;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Migration {
     pub name: String,

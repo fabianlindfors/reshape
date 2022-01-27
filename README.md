@@ -22,6 +22,7 @@ Designed for Postgres 12 and later.
 		- [Rename table](#rename-table)
 		- [Remove table](#remove-table)
 		- [Add foreign key](#add-foreign-key)
+		- [Remove foreign key](#remove-foreign-key)
 	- [Columns](#columns)
 		- [Add column](#add-column)
 		- [Alter column](#alter-column)
@@ -259,6 +260,19 @@ table = "items"
 	columns = ["user_id"]
 	referenced_table = "users"
 	referenced_columns = ["id"]
+```
+
+#### Remove foreign key
+
+The `remove_foreign_key` action will remove an existing foreign key. The foreign key will only be removed once the migration is completed, which means that your new application must continue to adhere to the foreign key constraint.
+
+*Example: remove foreign key `items_user_id_fkey` from `users` table*
+
+```toml
+[[actions]]
+type = "remove_foreign_key"
+table = "items"
+foreign_key = "items_user_id_fkey"
 ```
 
 ### Columns
