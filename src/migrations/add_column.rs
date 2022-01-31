@@ -106,7 +106,7 @@ impl Action for AddColumn {
                 CREATE OR REPLACE FUNCTION {trigger_name}()
                 RETURNS TRIGGER AS $$
                 BEGIN
-                    IF reshape.is_old_schema() THEN
+                    IF NOT reshape.is_new_schema() THEN
                         DECLARE
                             {declarations}
                         BEGIN

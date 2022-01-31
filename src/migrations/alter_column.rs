@@ -103,7 +103,7 @@ impl Action for AlterColumn {
                 CREATE OR REPLACE FUNCTION {up_trigger}()
                 RETURNS TRIGGER AS $$
                 BEGIN
-                    IF reshape.is_old_schema() THEN
+                    IF NOT reshape.is_new_schema() THEN
                         DECLARE
                             {declarations}
                             {existing_column} public.{table}.{existing_column_real}%TYPE := NEW.{existing_column_real};
@@ -121,7 +121,7 @@ impl Action for AlterColumn {
                 CREATE OR REPLACE FUNCTION {down_trigger}()
                 RETURNS TRIGGER AS $$
                 BEGIN
-                    IF NOT reshape.is_old_schema() THEN
+                    IF reshape.is_new_schema() THEN
                         DECLARE
                             {declarations}
                             {existing_column} public.{table}.{temp_column}%TYPE := NEW.{temp_column};

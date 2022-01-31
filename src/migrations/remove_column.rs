@@ -61,7 +61,7 @@ impl Action for RemoveColumn {
                 CREATE OR REPLACE FUNCTION {trigger_name}()
                 RETURNS TRIGGER AS $$
                 BEGIN
-                    IF NOT reshape.is_old_schema() IS NULL THEN
+                    IF reshape.is_new_schema() THEN
                         DECLARE
                             {declarations}
                         BEGIN

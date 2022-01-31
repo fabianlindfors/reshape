@@ -189,7 +189,8 @@ fn migrate(
 
     println!("Applying {} migrations\n", remaining_migrations.len());
 
-    helpers::set_up_helpers(db, &current_migration).context("failed to set up helpers")?;
+    let target_migration = remaining_migrations.last().unwrap().name.to_string();
+    helpers::set_up_helpers(db, &target_migration).context("failed to set up helpers")?;
 
     let mut new_schema = Schema::new();
     let mut last_migration_index = usize::MAX;
@@ -244,7 +245,6 @@ fn migrate(
     }
 
     // Create schema and views for migration
-    let target_migration = remaining_migrations.last().unwrap().name.to_string();
     create_schema_for_migration(db, &target_migration, &new_schema)
         .with_context(|| format!("failed to create schema for migration {}", target_migration))?;
 

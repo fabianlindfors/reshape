@@ -72,8 +72,6 @@ impl ToSql for PostgresRawValue {
 pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow::Result<()> {
     const BATCH_SIZE: u16 = 1000;
 
-    db.query("SET reshape.is_old_schema = 'YES'")?;
-
     let mut cursor: Option<PostgresRawValue> = None;
 
     loop {
@@ -151,8 +149,6 @@ pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow:
 
         cursor = last_value
     }
-
-    db.query("SET reshape.is_old_schema = ''")?;
 
     Ok(())
 }
