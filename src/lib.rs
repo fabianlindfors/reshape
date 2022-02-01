@@ -160,7 +160,6 @@ fn migrate(
     // with the already applied ones stored in the state. This will throw an error if the
     // two sets of migrations don't agree, for example if a new migration has been added
     // in between two existing ones.
-    let current_migration = state::current_migration(db)?;
     let remaining_migrations = state::remaining_migrations(db, migrations)?;
     if remaining_migrations.is_empty() {
         println!("No migrations left to apply");
@@ -252,27 +251,14 @@ fn migrate(
     state.in_progress(remaining_migrations);
     state.save(db).context("failed to save in-progress state")?;
 
-    // If we started from a blank slate, we can finish the migration immediately
-    if current_migration.is_none() {
-        println!("Automatically completing migrations\n");
-        complete(db, state).context("failed to automatically complete migrations")?;
-
-        println!("Migrations complete:");
-        println!(
-            "  - Run '{}' from your application to use the latest schema",
-            schema_query_for_migration(&target_migration)
-        );
-    } else {
-        println!("Migrations have been applied and the new schema is ready for use:");
-        println!(
-            "  - Run '{}' from your application to use the latest schema",
-            schema_query_for_migration(&target_migration)
-        );
-        println!(
-                    "  - Run 'reshape complete' once your application has been updated and the previous schema is no longer in use"
-                );
-    }
-
+    println!("Migrations have been applied and the new schema is ready for use:");
+    println!(
+        "  - Run '{}' from your application to use the latest schema",
+        schema_query_for_migration(&target_migration)
+    );
+    println!(
+        "  - Run 'reshape complete' once your application has been updated and the previous schema is no longer in use"
+    );
     Ok(())
 }
 

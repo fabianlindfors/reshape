@@ -128,6 +128,9 @@ impl Test<'_> {
             .simple_query(&reshape::schema_query_for_migration(&first_migration.name))
             .unwrap();
 
+        // Automatically complete first migration
+        self.reshape.complete().unwrap();
+
         // Run setup function
         if let Some(after_first_fn) = self.after_first_fn {
             print_subheading("Running setup and first checks");
