@@ -105,7 +105,7 @@ fn run(opts: Opts) -> anyhow::Result<()> {
 }
 
 fn reshape_from_connection_options(opts: &ConnectionOptions) -> anyhow::Result<Reshape> {
-    let env_url = std::env::var("POSTGRES_URL").ok();
+    let env_url = std::env::var("DB_URL").ok();
     let url = env_url.as_ref().or_else(|| opts.url.as_ref());
 
     match url {

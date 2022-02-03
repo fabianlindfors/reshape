@@ -563,7 +563,7 @@ The options below can be used with all commands that communicate with Postgres. 
 
 | Option | Default | Description |
 | ------ | ------- | ----------- |
-| `--url`  | | URI to connect to your Postgres database.<br>Can also be provided with the environment variable `DATABASE_URL`. |
+| `--url`  | | URI to connect to your Postgres database.<br>Can also be provided with the environment variable `DB_URL`. |
 | `--host` | `localhost` | Hostname to use when connecting to Postgres |
 | `--port` | `5432` | Port which Postgres is listening on |
 | `--database` | `postgres` | Database name |
