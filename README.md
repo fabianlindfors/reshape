@@ -62,7 +62,7 @@ Binaries are available for macOS and Linux under [Releases](https://github.com/f
 
 #### Cargo
 
-Reshape can be installed using [Cargo](https://doc.rust-lang.org/cargo/):
+Reshape can be installed using [Cargo](https://doc.rust-lang.org/cargo/) (requires Rust 1.57 or later):
 
 ```shell
 cargo install reshape
