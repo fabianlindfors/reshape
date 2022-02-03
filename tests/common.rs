@@ -224,9 +224,12 @@ fn add_spacer(text: &str, char: &str) -> String {
         .take(num_of_chars)
         .collect::<String>();
 
-    let extra = if text.len() % 2 == 0 { "" } else { char };
-
-    format!("{spacer} {text} {spacer}{extra}", spacer = spacer)
+    format!(
+        "{spacer} {text} {spacer}{extra}",
+        spacer = spacer,
+        extra = if text.len() % 2 == 0 { "" } else { char },
+        text = text,
+    )
 }
 
 pub fn assert_cleaned_up(db: &mut Client) {

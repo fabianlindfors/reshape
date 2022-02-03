@@ -169,8 +169,6 @@ impl Action for AlterColumn {
                 .collect();
             let temp_index_name = self.temp_index_name(ctx, index.oid);
 
-            let unique_def = if index.unique { "UNIQUE" } else { "" };
-
             db.query(&format!(
                 r#"
                 CREATE {unique_def} INDEX CONCURRENTLY IF NOT EXISTS "{new_index_name}" ON "{table}" USING {index_type} ({columns})
@@ -179,6 +177,7 @@ impl Action for AlterColumn {
                 table = table.real_name,
                 columns = index_columns.join(", "),
                 index_type = index.index_type,
+                unique_def = if index.unique { "UNIQUE" } else { "" },
             ))
             .context("failed to create temporary index")?;
         }

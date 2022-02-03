@@ -46,9 +46,11 @@ impl Action for AddIndex {
             .map(|column| format!("\"{}\"", column.real_name))
             .collect();
 
-        let unique = if self.index.unique { "UNIQUE" } else { "" };
         let index_type_def = if let Some(index_type) = &self.index.index_type {
-            format!("USING {index_type}")
+            format!(
+                "USING {index_type}",
+                index_type = index_type,
+            )
         } else {
             "".to_string()
         };
@@ -60,6 +62,8 @@ impl Action for AddIndex {
             name = self.index.name,
             table = self.table,
             columns = column_real_names.join(", "),
+            unique = if self.index.unique { "UNIQUE" } else { "" },
+            index_type_def = index_type_def,
         ))
         .context("failed to create index")?;
         Ok(())
