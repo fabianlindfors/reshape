@@ -174,8 +174,8 @@ fn migrate(
     {
         if existing_migrations != &remaining_migrations {
             return Err(anyhow!(
-                        "a previous migration seems to have failed without cleaning up. Please run `reshape abort` and then run migrate again."
-                    ));
+                "a previous migration seems to have failed without cleaning up. Please run `reshape abort` and then run migrate again."
+            ));
         }
     }
 

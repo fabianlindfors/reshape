@@ -12,12 +12,14 @@ use reshape::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
+#[clap(name = "Reshape", version, about)]
 struct Opts {
     #[clap(subcommand)]
     cmd: Command,
 }
 
 #[derive(Parser)]
+#[clap(about)]
 enum Command {
     Migrate(MigrateOptions),
     Complete(ConnectionOptions),
@@ -28,6 +30,7 @@ enum Command {
 
 #[derive(Args)]
 struct MigrateOptions {
+    // Some comment
     #[clap(long, short)]
     complete: bool,
     #[clap(flatten)]
