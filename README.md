@@ -559,16 +559,16 @@ The query should look something like `SET search_path TO migration_1_initial_mig
 
 ### Connection options
 
-The options below can be used with all commands that communicate with Postgres. Use either a connection URL or specify each connection option individually.
+The options below can be used with all commands that communicate with Postgres. Use either a [connection URL](https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING) or specify each connection option individually. All options can also be set using environment variables instead of flags.
 
-| Option | Default | Description |
-| ------ | ------- | ----------- |
-| `--url`  | | URI to connect to your Postgres database.<br>Can also be provided with the environment variable `DB_URL`. |
-| `--host` | `localhost` | Hostname to use when connecting to Postgres |
-| `--port` | `5432` | Port which Postgres is listening on |
-| `--database` | `postgres` | Database name |
-| `--username` | `postgres` | Postgres username |
-| `--password` | `postgres` | Postgres password |
+| Option | Default | Environment variable | Description |
+| ------ | ------- | -------------------- | ----------- |
+| `--url`  | | `DB_URL` | URL to your Postgres database |
+| `--host` | `localhost` | `DB_HOST` | Hostname to use when connecting to Postgres |
+| `--port` | `5432` | `DB_PORT` | Port which Postgres is listening on |
+| `--database` | `postgres` | `DB_NAME` | Database name |
+| `--username` | `postgres` | `DB_USERNAME` | Postgres username |
+| `--password` | `postgres` | `DB_PASSWORD` | Postgres password |
 
 ## License
 

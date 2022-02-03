@@ -105,13 +105,32 @@ fn run(opts: Opts) -> anyhow::Result<()> {
 }
 
 fn reshape_from_connection_options(opts: &ConnectionOptions) -> anyhow::Result<Reshape> {
-    let env_url = std::env::var("DB_URL").ok();
-    let url = env_url.as_ref().or_else(|| opts.url.as_ref());
+    let url_env = std::env::var("DB_URL").ok();
+    let url = url_env.as_ref().or_else(|| opts.url.as_ref());
 
-    match url {
-        Some(url) => Reshape::new(url),
-        None => Reshape::new_with_options(&opts.host, opts.port, &opts.username, &opts.password),
+    // Use the connection URL if it has been set
+    if let Some(url) = url {
+        return Reshape::new(url);
     }
+
+    let host_env = std::env::var("DB_HOST").ok();
+    let host = host_env.as_ref().unwrap_or_else(|| &opts.host);
+
+    let port = std::env::var("DB_PORT")
+        .ok()
+        .and_then(|port| port.parse::<u16>().ok())
+        .unwrap_or(opts.port);
+
+    let username_env = std::env::var("DB_USERNAME").ok();
+    let username = username_env.as_ref().unwrap_or_else(|| &opts.username);
+
+    let password_env = std::env::var("DB_PASSWORD").ok();
+    let password = password_env.as_ref().unwrap_or_else(|| &opts.password);
+
+    let database_env = std::env::var("DB_NAME").ok();
+    let database = database_env.as_ref().unwrap_or_else(|| &opts.database);
+
+    Reshape::new_with_options(host, port, database, username, password)
 }
 
 fn find_migrations(opts: &FindMigrationsOptions) -> anyhow::Result<Vec<Migration>> {
