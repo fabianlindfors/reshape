@@ -559,7 +559,9 @@ The query should look something like `SET search_path TO migration_1_initial_mig
 
 ### Connection options
 
-The options below can be used with all commands that communicate with Postgres. Use either a [connection URL](https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING) or specify each connection option individually. All options can also be set using environment variables instead of flags.
+The options below can be used with all commands that communicate with Postgres. Use either a [connection URL](https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING) or specify each connection option individually.
+
+All options can also be set using environment variables instead of flags. If a `.env` file exists, then variables will be automatically loaded from there.
 
 | Option | Default | Environment variable | Description |
 | ------ | ------- | -------------------- | ----------- |

@@ -105,6 +105,9 @@ fn run(opts: Opts) -> anyhow::Result<()> {
 }
 
 fn reshape_from_connection_options(opts: &ConnectionOptions) -> anyhow::Result<Reshape> {
+    // Load environment variables from .env file if it exists
+    dotenv::dotenv().ok();
+
     let url_env = std::env::var("DB_URL").ok();
     let url = url_env.as_ref().or_else(|| opts.url.as_ref());
 
