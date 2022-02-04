@@ -187,7 +187,7 @@ impl Action for AlterColumn {
         // This constraint is set as NOT VALID so it doesn't apply to existing rows and
         // the existing rows don't need to be scanned under an exclusive lock.
         // Thanks to this, we can set the full column as NOT NULL later with minimal locking.
-        if !column.nullable {
+        if !self.changes.nullable.unwrap_or(column.nullable) {
             let query = format!(
                 r#"
                 ALTER TABLE "{table}"

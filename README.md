@@ -351,7 +351,7 @@ up = "data['path']['to']['value'] #>> '{}'"
 
 The `alter_column` action enables many different changes to an existing column, for example renaming, changing type and changing existing values.
 
-When performing more complex changes than a rename, `up` and `down` must be provided. These should be SQL expressions which determine how to transform between the new and old version of the column. Inside those expressions, you can reference the current column value by the column name.
+When performing more complex changes than a rename, `up` and `down` should be provided. These should be SQL expressions which determine how to transform between the new and old version of the column. Inside those expressions, you can reference the current column value by the column name.
 
 *Example: rename `last_name` column on `users` table to `family_name`*
 
@@ -393,6 +393,21 @@ down = "index - 1" # Decrement to revert for old schema
 
 	[actions.changes]
 	name = "index"
+```
+
+*Example: make `name` column not nullable`*
+
+```toml
+[[actions]]
+type = "alter_column"
+table = "users"
+column = "name"
+
+# Use "N/A" for any rows that currently have a NULL name
+up = "COALESCE(name, 'N/A')"
+
+	[actions.changes]
+	nullable = false
 ```
 
 *Example: change default value of `created_at` column to current time*

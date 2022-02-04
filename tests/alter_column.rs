@@ -113,7 +113,6 @@ fn alter_column_set_not_null() {
         table = "users"
         column = "name"
         up = "COALESCE(name, 'TEST_DEFAULT_VALUE')"
-        down = "name"
 
             [actions.changes]
             nullable = false
@@ -159,6 +158,106 @@ fn alter_column_set_not_null() {
             .query_one("SELECT name from users WHERE id = 4", &[])
             .unwrap();
         assert_eq!("Jane Doe", result.get::<_, &str>("name"));
+
+        // Ensure NULL can't be inserted using the new schema
+        let result = new_db.simple_query("INSERT INTO users (id, name) VALUES (5, NULL)");
+        assert!(result.is_err(), "expected insert to fail");
+    });
+
+    test.after_completion(|db| {
+        // Ensure NULL can't be inserted
+        let result = db.simple_query("INSERT INTO users (id, name) VALUES (5, NULL)");
+        assert!(result.is_err(), "expected insert to fail");
+    });
+
+    test.after_abort(|db| {
+        // Ensure NULL can be inserted
+        let result = db.simple_query("INSERT INTO users (id, name) VALUES (5, NULL)");
+        assert!(result.is_ok(), "expected insert to succeed");
+    });
+
+    test.run();
+}
+
+#[test]
+fn alter_column_set_nullable() {
+    let mut test = Test::new("Set column nullable");
+
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+            nullable = false
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "set_name_nullable"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        down = "COALESCE(name, 'TEST_DEFAULT_VALUE')"
+
+            [actions.changes]
+            nullable = true
+        "#,
+    );
+
+    test.after_first(|db| {
+        // Insert a test user
+        db.simple_query(
+            "
+            INSERT INTO users (id, name) VALUES
+                (1, 'John Doe')
+            ",
+        )
+        .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        // Insert data using new schema and make sure the old schema gets correct values
+        new_db
+            .simple_query("INSERT INTO users (id, name) VALUES (2, NULL)")
+            .unwrap();
+        let result = old_db
+            .query_one("SELECT name from users WHERE id = 2", &[])
+            .unwrap();
+        assert_eq!("TEST_DEFAULT_VALUE", result.get::<_, &str>("name"));
+
+        // Ensure NULL can't be inserted using the old schema
+        let result = old_db.simple_query("INSERT INTO users (id, name) VALUES (3, NULL)");
+        assert!(result.is_err(), "expected insert to fail");
+
+        // Ensure NULL can be inserted using the new schema
+        let result = new_db.simple_query("INSERT INTO users (id, name) VALUES (4, NULL)");
+        assert!(result.is_ok(), "expected insert to succeed");
+    });
+
+    test.after_completion(|db| {
+        // Ensure NULL can be inserted
+        let result = db.simple_query("INSERT INTO users (id, name) VALUES (5, NULL)");
+        assert!(result.is_ok(), "expected insert to succeed");
+    });
+
+    test.after_abort(|db| {
+        // Ensure NULL can't be inserted
+        let result = db.simple_query("INSERT INTO users (id, name) VALUES (5, NULL)");
+        assert!(result.is_err(), "expected insert to fail");
     });
 
     test.run();
