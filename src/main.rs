@@ -23,7 +23,6 @@ struct Opts {
 enum Command {
     Migrate(MigrateOptions),
     Complete(ConnectionOptions),
-    Remove(ConnectionOptions),
     Abort(ConnectionOptions),
     GenerateSchemaQuery(FindMigrationsOptions),
 }
@@ -83,10 +82,6 @@ fn run(opts: Opts) -> anyhow::Result<()> {
         Command::Complete(opts) => {
             let mut reshape = reshape_from_connection_options(&opts)?;
             reshape.complete()
-        }
-        Command::Remove(opts) => {
-            let mut reshape = reshape_from_connection_options(&opts)?;
-            reshape.remove()
         }
         Command::Abort(opts) => {
             let mut reshape = reshape_from_connection_options(&opts)?;
