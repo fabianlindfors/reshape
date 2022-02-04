@@ -395,7 +395,7 @@ down = "index - 1" # Decrement to revert for old schema
 	name = "index"
 ```
 
-*Example: make `name` column not nullable`*
+*Example: make `name` column not nullable*
 
 ```toml
 [[actions]]
