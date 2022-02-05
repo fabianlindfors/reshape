@@ -120,7 +120,7 @@ To create your new `users` table, run:
 reshape migrate --complete
 ```
 
-We use the `--complete` flag to automatically complete the migration. During a production deployment, you should first first run `reshape migrate` followed by `reshape complete` once your application has been fully rolled out.
+We use the `--complete` flag to automatically complete the migration. During a production deployment, you should first run `reshape migrate` followed by `reshape complete` once your application has been fully rolled out.
 
 If nothing else is specified, Reshape will try to connect to a Postgres database running on `localhost` using `postgres` as both username and password. See [Connection options](#connection-options) for details on how to change the connection settings.
 
