@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 pub struct CreateTable {
     pub name: String,
     pub columns: Vec<Column>,
-    pub primary_key: Vec<String>,
+    pub primary_key: Option<Vec<String>>,
 
     #[serde(default)]
     pub foreign_keys: Vec<ForeignKey>,
@@ -52,14 +52,16 @@ impl Action for CreateTable {
             })
             .collect();
 
-        let primary_key_columns = self
-            .primary_key
-            .iter()
-            // Add quotes around all column names
-            .map(|col| format!("\"{}\"", col))
-            .collect::<Vec<String>>()
-            .join(", ");
-        definition_rows.push(format!("PRIMARY KEY ({})", primary_key_columns));
+        if let Some(primary_key) = &self.primary_key {
+            let primary_key_columns =
+                primary_key
+                    .iter()
+                    // Add quotes around all column names
+                    .map(|col| format!("\"{}\"", col))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+            definition_rows.push(format!("PRIMARY KEY ({})", primary_key_columns));
+        }
 
         for foreign_key in &self.foreign_keys {
             // Add quotes around all column names

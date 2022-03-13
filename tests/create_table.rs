@@ -198,3 +198,58 @@ fn create_table_with_foreign_keys() {
 
     test.run();
 }
+
+#[test]
+fn create_table_without_primary_keys() {
+    let mut test = Test::new("Create table without primary keys");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+            generated = "ALWAYS AS IDENTITY"
+        "#,
+    );
+
+    test.after_first(|db| {
+        // Ensure table was created
+        let result = db
+            .query_opt(
+                "
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_name = 'users' AND table_schema = 'public'",
+                &[],
+            )
+            .unwrap();
+        assert!(result.is_some());
+
+        // Ensure there is no primary key
+        let primary_key_columns: Vec<String> = db
+            .query(
+                "
+                SELECT a.attname AS column
+                FROM pg_index i
+                JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                JOIN pg_class t ON t.oid = i.indrelid
+                WHERE t.relname = 'users' AND i.indisprimary
+                ",
+                &[],
+            )
+            .unwrap()
+            .iter()
+            .map(|row| row.get("column"))
+            .collect();
+
+        assert_eq!(0, primary_key_columns.len());
+    });
+
+    test.run();
+}
