@@ -112,6 +112,8 @@ reshape_schema_query = os.getenv("RESHAPE_SCHEMA_QUERY")
 db.execute(reshape_schema_query)
 ```
 
+If your application is written in Rust, you might prefer the [Rust helper library](https://github.com/fabianlindfors/reshape-helper) which embeds the query directly in your application with a macro.
+
 ### Running your migration
 
 To create your new `users` table, run:
