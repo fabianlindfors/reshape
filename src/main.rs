@@ -21,10 +21,55 @@ struct Opts {
 #[derive(Parser)]
 #[clap(about)]
 enum Command {
-    Migrate(MigrateOptions),
-    Complete(ConnectionOptions),
-    Abort(ConnectionOptions),
+    #[clap(subcommand)]
+    Migration(MigrationCommand),
+
+    #[clap(
+        about = "Output the query your application should use to select the right schema",
+        display_order = 2
+    )]
+    SchemaQuery(FindMigrationsOptions),
+
+    #[clap(
+        about = "Deprecated. Use `reshape schema-query` instead",
+        display_order = 3
+    )]
     GenerateSchemaQuery(FindMigrationsOptions),
+
+    #[clap(
+        about = "Deprecated. Use `reshape migration start` instead",
+        display_order = 4
+    )]
+    Migrate(MigrateOptions),
+    #[clap(
+        about = "Deprecated. Use `reshape migration complete` instead",
+        display_order = 5
+    )]
+    Complete(ConnectionOptions),
+    #[clap(
+        about = "Deprecated. Use `reshape migration abort` instead",
+        display_order = 6
+    )]
+    Abort(ConnectionOptions),
+}
+
+#[derive(Parser)]
+#[clap(about = "Commands for managing migrations", display_order = 1)]
+enum MigrationCommand {
+    #[clap(
+        about = "Starts a new migration, applying any migrations which haven't yet been applied",
+        display_order = 1
+    )]
+    Start(MigrateOptions),
+
+    #[clap(about = "Completes an in-progress migration", display_order = 2)]
+    Complete(ConnectionOptions),
+
+    #[clap(
+        about = "Aborts an in-progress migration without losing any data",
+        display_order = 3
+    )]
+    Abort(ConnectionOptions),
 }
 
 #[derive(Args)]
@@ -67,7 +112,7 @@ fn main() -> anyhow::Result<()> {
 
 fn run(opts: Opts) -> anyhow::Result<()> {
     match opts.cmd {
-        Command::Migrate(opts) => {
+        Command::Migration(MigrationCommand::Start(opts)) | Command::Migrate(opts) => {
             let mut reshape = reshape_from_connection_options(&opts.connection_options)?;
             let migrations = find_migrations(&opts.find_migrations_options)?;
             reshape.migrate(migrations)?;
@@ -79,16 +124,16 @@ fn run(opts: Opts) -> anyhow::Result<()> {
 
             Ok(())
         }
-        Command::Complete(opts) => {
+        Command::Migration(MigrationCommand::Complete(opts)) | Command::Complete(opts) => {
             let mut reshape = reshape_from_connection_options(&opts)?;
             reshape.complete()
         }
-        Command::Abort(opts) => {
+        Command::Migration(MigrationCommand::Abort(opts)) | Command::Abort(opts) => {
             let mut reshape = reshape_from_connection_options(&opts)?;
             reshape.abort()
         }
-        Command::GenerateSchemaQuery(find_migrations_options) => {
-            let migrations = find_migrations(&find_migrations_options)?;
+        Command::SchemaQuery(opts) | Command::GenerateSchemaQuery(opts) => {
+            let migrations = find_migrations(&opts)?;
             let query = migrations
                 .last()
                 .map(|migration| reshape::schema_query_for_migration(&migration.name));
