@@ -33,6 +33,7 @@ Designed for Postgres 12 and later.
 	- [Enums](#enums)
 		- [Create enum](#create-enum)
 		- [Remove enum](#remove-enum)
+	- [Custom](#custom)
 - [Commands and options](#commands-and-options)
 	- [`reshape migrate`](#reshape-migrate)
 	- [`reshape complete`](#reshape-complete)
@@ -529,6 +530,33 @@ The `remove_enum` action will remove an existing [enum type](https://www.postgre
 [[actions]]
 type = "remove_enum"
 enum = "mood"
+```
+
+### Custom
+
+The `custom` action lets you create a migration which runs custom SQL. It should be used with great care as it provides no guarantees of zero-downtime and will simply run whatever SQL is provided. Use other actions whenever possible as they are explicitly designed for zero downtime.
+
+There are three optional settings available which all accept SQL queries. All queries need to be idempotent, for example by using `IF NOT EXISTS` wherever available.
+
+- `start`: run when a migration is started using `reshape migrate`
+- `complete`: run when a migration is completed using `reshape complete`
+- `abort`: run when a migration is aborted using `reshape abort`
+
+*Example: enable PostGIS and pg_stat_statements extensions*
+
+```toml
+[[actions]]
+type = "custom"
+
+start = """
+	CREATE EXTENSION IF NOT EXISTS postgis;
+	CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+"""
+
+abort = """
+	DROP EXTENSION IF NOT EXISTS postgis;
+	DROP EXTENSION IF NOT EXISTS pg_stat_statements;
+"""
 ```
 
 ## Commands and options

@@ -39,6 +39,9 @@ pub use create_enum::CreateEnum;
 mod remove_enum;
 pub use remove_enum::RemoveEnum;
 
+mod custom;
+pub use custom::Custom;
+
 mod add_foreign_key;
 pub use add_foreign_key::AddForeignKey;
 

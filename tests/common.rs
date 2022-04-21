@@ -12,6 +12,7 @@ pub struct Test<'a> {
     second_migration: Option<Migration>,
     expect_failure: bool,
 
+    clear_fn: Option<fn(&mut Client) -> ()>,
     after_first_fn: Option<fn(&mut Client) -> ()>,
     intermediate_fn: Option<fn(&mut Client, &mut Client) -> ()>,
     after_completion_fn: Option<fn(&mut Client) -> ()>,
@@ -36,6 +37,7 @@ impl Test<'_> {
             first_migration: None,
             second_migration: None,
             expect_failure: false,
+            clear_fn: None,
             after_first_fn: None,
             intermediate_fn: None,
             after_completion_fn: None,
@@ -51,6 +53,12 @@ impl Test<'_> {
     #[allow(dead_code)]
     pub fn second_migration(&mut self, migration: &str) -> &mut Self {
         self.second_migration = Some(Self::parse_migration(migration));
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn clear(&mut self, f: fn(&mut Client) -> ()) -> &mut Self {
+        self.clear_fn = Some(f);
         self
     }
 
@@ -114,6 +122,10 @@ impl Test<'_> {
     fn run_internal(&mut self, run_type: RunType) {
         print_subheading("Clearing database");
         self.reshape.remove().unwrap();
+
+        if let Some(clear_fn) = self.clear_fn {
+            clear_fn(&mut self.old_db);
+        }
 
         // Apply first migration, will automatically complete
         print_subheading("Applying first migration");
