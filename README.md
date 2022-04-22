@@ -35,10 +35,10 @@ Designed for Postgres 12 and later.
 		- [Remove enum](#remove-enum)
 	- [Custom](#custom)
 - [Commands and options](#commands-and-options)
-	- [`reshape migrate`](#reshape-migrate)
-	- [`reshape complete`](#reshape-complete)
-	- [`reshape abort`](#reshape-abort)
-	- [`reshape generate-schema-query`](#reshape-generate-schema-query)
+	- [`reshape migration start`](#reshape-migration-start)
+	- [`reshape migration complete`](#reshape-migration-complete)
+	- [`reshape migration abort`](#reshape-migration-abort)
+	- [`reshape schema-query`](#reshape-schema-query)
 	- [Connection options](#connection-options)
 - [License](#license)
 
@@ -47,11 +47,11 @@ Designed for Postgres 12 and later.
 
 Reshape works by creating views that encapsulate the underlying tables, which your application will interact with. During a migration, Reshape will automatically create a new set of views and set up triggers to translate inserts and updates between the old and new schema. This means that every deployment is a three-phase process:
 
-1. **Start migration** (`reshape migrate`): Sets up views and triggers to ensure both the new and old schema are usable at the same time.
+1. **Start migration** (`reshape migration start`): Sets up views and triggers to ensure both the new and old schema are usable at the same time.
 2. **Roll out application**: Your application can be gradually rolled out without downtime. The existing deployment will continue using the old schema whilst the new deployment uses the new schema.
-3. **Complete migration** (`reshape complete`): Removes the old schema and any intermediate data and triggers. 
+3. **Complete migration** (`reshape migration complete`): Removes the old schema and any intermediate data and triggers. 
 
-If the application deployment fails, you should run `reshape abort` which will roll back any changes made by `reshape migrate` without losing data.
+If the application deployment fails, you should run `reshape migration abort` which will roll back any changes made by `reshape migration start` without losing data.
 
 ## Getting started
 
@@ -74,7 +74,7 @@ cargo install reshape
 Reshape is available as a Docker image on [Docker Hub](https://hub.docker.com/repository/docker/fabianlindfors/reshape). 
 
 ```shell
-docker run -v $(pwd):/usr/share/app fabianlindfors/reshape reshape migrate
+docker run -v $(pwd):/usr/share/app fabianlindfors/reshape reshape migration start
 ```
 
 ### Creating your first migration
@@ -103,9 +103,9 @@ This is the equivalent of running `CREATE TABLE users (id INTEGER GENERATED ALWA
 
 ### Preparing your application
 
-Reshape relies on your application using a specific schema. When establishing the connection to Postgres in your application, you need to run a query to select the most recent schema. This query can be generated using: `reshape generate-schema-query`.
+Reshape relies on your application using a specific schema. When establishing the connection to Postgres in your application, you need to run a query to select the most recent schema. This query can be generated using: `reshape schema-query`.
 
-To pass it along to your application, you can for example use an environment variable in your run script: `RESHAPE_SCHEMA_QUERY=$(reshape generate-schema-query)`. Then in your application:
+To pass it along to your application, you can for example use an environment variable in your run script: `RESHAPE_SCHEMA_QUERY=$(reshape schema-query)`. Then in your application:
 
 ```python
 # Example for Python
@@ -120,16 +120,16 @@ If your application is written in Rust, you might prefer the [Rust helper librar
 To create your new `users` table, run:
 
 ```bash
-reshape migrate --complete
+reshape migration start --complete
 ```
 
-We use the `--complete` flag to automatically complete the migration. During a production deployment, you should first run `reshape migrate` followed by `reshape complete` once your application has been fully rolled out.
+We use the `--complete` flag to automatically complete the migration. During a production deployment, you should first run `reshape migration start` followed by `reshape migration complete` once your application has been fully rolled out.
 
 If nothing else is specified, Reshape will try to connect to a Postgres database running on `localhost` using `postgres` as both username and password. See [Connection options](#connection-options) for details on how to change the connection settings.
 
 ### Using during development
 
-When adding new migrations during development, we recommend running `reshape migrate` but skipping `reshape complete`. This way, the new migrations can be iterated on by updating the migration file and running `reshape abort` followed by `reshape migrate`.
+When adding new migrations during development, we recommend running `reshape migration start` but skipping `reshape migration complete`. This way, the new migrations can be iterated on by updating the migration file and running `reshape migration abort` followed by `reshape migration start`.
 
 ## Writing migrations
 
@@ -538,9 +538,9 @@ The `custom` action lets you create a migration which runs custom SQL. It should
 
 There are three optional settings available which all accept SQL queries. All queries need to be idempotent, for example by using `IF NOT EXISTS` wherever available.
 
-- `start`: run when a migration is started using `reshape migrate`
-- `complete`: run when a migration is completed using `reshape complete`
-- `abort`: run when a migration is aborted using `reshape abort`
+- `start`: run when a migration is started using `reshape migration start`
+- `complete`: run when a migration is completed using `reshape migration complete`
+- `abort`: run when a migration is aborted using `reshape migration abort`
 
 *Example: enable PostGIS and pg_stat_statements extensions*
 
@@ -561,9 +561,9 @@ abort = """
 
 ## Commands and options
 
-### `reshape migrate`
+### `reshape migration start`
 
-Starts a new migration, applying all migrations under `migrations/` that haven't yet been applied. After the command has completed, both the old and new schema will be usable at the same time. When you have rolled out the new version of your application which uses the new schema, you should run `reshape complete`.
+Starts a new migration, applying all migrations under `migrations/` that haven't yet been applied. After the command has completed, both the old and new schema will be usable at the same time. When you have rolled out the new version of your application which uses the new schema, you should run `reshape migration complete`.
 
 #### Options
 
@@ -574,15 +574,15 @@ Starts a new migration, applying all migrations under `migrations/` that haven't
 | `--complete`, `-c` | `false` | Automatically complete migration after applying it. |
 | `--dirs` | `migrations/` | Directories to search for migration files. Multiple directories can be specified using `--dirs dir1 dir2 dir3`. |
 
-### `reshape complete`
+### `reshape migration complete`
 
-Completes migrations previously started with `reshape complete`. 
+Completes migrations previously started with `reshape migration complete`. 
 
 #### Options
 
 See [Connection options](#connection-options)
 
-### `reshape abort`
+### `reshape migration abort`
 
 Aborts any migrations which haven't yet been completed. 
 
@@ -590,9 +590,11 @@ Aborts any migrations which haven't yet been completed.
 
 See [Connection options](#connection-options)
 
-### `reshape generate-schema-query`
+### `reshape schema-query`
 
 Generates the SQL query you need to run in your application before using the database. This command does not require a database connection. Instead it will generate the query based on the latest migration in the `migrations/` directory (or the directories specified by `--dirs`).
+
+If your application is written in Rust, we recommend using the [Rust helper library](https://github.com/fabianlindfors/reshape-helper/) instead.
 
 The query should look something like `SET search_path TO migration_1_initial_migration`.
 

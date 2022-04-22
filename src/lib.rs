@@ -147,13 +147,15 @@ fn migrate(
 ) -> anyhow::Result<()> {
     // Make sure no migration is in progress
     if let State::InProgress { .. } = &state {
-        println!("Migration already in progress, please complete using 'reshape complete'");
+        println!(
+            "Migration already in progress, please complete using 'reshape migration complete'"
+        );
         return Ok(());
     }
 
     if let State::Completing { .. } = &state {
         println!(
-                    "Migration already in progress and has started completion, please finish using 'reshape complete'"
+                    "Migration already in progress and has started completion, please finish using 'reshape migration complete'"
                 );
         return Ok(());
     }
@@ -176,7 +178,7 @@ fn migrate(
     {
         if existing_migrations != &remaining_migrations {
             return Err(anyhow!(
-                "a previous migration seems to have failed without cleaning up. Please run `reshape abort` and then run migrate again."
+                "a previous migration seems to have failed without cleaning up. Please run `reshape migration abort` and then run migrate again."
             ));
         }
     }
@@ -232,7 +234,7 @@ fn migrate(
         // Set to the Aborting state. This is to ensure that the failed
         // migration is fully aborted and nothing is left dangling.
         // If the abort is interrupted for any reason, the user can try again
-        // by running `reshape abort`.
+        // by running `reshape migration abort`.
         state.aborting(
             remaining_migrations.clone(),
             last_migration_index + 1,
@@ -259,7 +261,7 @@ fn migrate(
         schema_query_for_migration(&target_migration)
     );
     println!(
-        "  - Run 'reshape complete' once your application has been updated and the previous schema is no longer in use"
+        "  - Run 'reshape migration complete' once your application has been updated and the previous schema is no longer in use"
     );
     Ok(())
 }
@@ -281,7 +283,7 @@ fn complete(db: &mut DbConn, state: &mut State) -> anyhow::Result<()> {
                     current_action_index
                 } => (migrations, current_migration_index, current_action_index),
                 State::Aborting { .. } => {
-                    return Err(anyhow!("migration been aborted and can't be completed. Please finish using `reshape abort`."))
+                    return Err(anyhow!("migration been aborted and can't be completed. Please finish using `reshape migration abort`."))
                 }
                 State::Applying { .. } => {
                     return Err(anyhow!("a previous migration unexpectedly failed. Please run `reshape migrate` to try applying the migration again."))
@@ -409,7 +411,7 @@ fn abort(db: &mut DbConn, state: &mut State) -> anyhow::Result<()> {
             last_action_index,
         } => (migrations, last_migration_index, last_action_index),
         State::Completing { .. } => {
-            return Err(anyhow!("Migration completion has already been started. Please run `reshape complete` again to finish it."));
+            return Err(anyhow!("migration completion has already been started. Please run `reshape migration complete` again to finish it."));
         }
         State::Idle => {
             println!("No migration is in progress");
