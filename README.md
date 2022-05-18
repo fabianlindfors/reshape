@@ -103,17 +103,18 @@ This is the equivalent of running `CREATE TABLE users (id INTEGER GENERATED ALWA
 
 ### Preparing your application
 
-Reshape relies on your application using a specific schema. When establishing the connection to Postgres in your application, you need to run a query to select the most recent schema. This query can be generated using: `reshape schema-query`.
+Reshape relies on your application using a specific schema. When establishing the connection to Postgres in your application, you need to run a query to select the most recent schema. The simplest way to do this is to use one of the helper libraries:
 
-To pass it along to your application, you can for example use an environment variable in your run script: `RESHAPE_SCHEMA_QUERY=$(reshape schema-query)`. Then in your application:
+- [Rust](https://github.com/fabianlindfors/reshape-helper)
+- [Ruby (and Rails)](https://github.com/fabianlindfors/reshape-ruby)
+
+If your application is not using one of the languages with an available helper library, you can instead generate the query with the command: `reshape schema-query`. To pass it along to your application, you can for example use an environment variable in your run script: `RESHAPE_SCHEMA_QUERY=$(reshape schema-query)`. Then in your application:
 
 ```python
 # Example for Python
 reshape_schema_query = os.getenv("RESHAPE_SCHEMA_QUERY")
 db.execute(reshape_schema_query)
 ```
-
-If your application is written in Rust, you might prefer the [Rust helper library](https://github.com/fabianlindfors/reshape-helper) which embeds the query directly in your application with a macro.
 
 ### Running your migration
 
