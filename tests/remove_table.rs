@@ -39,4 +39,6 @@ fn remove_table() {
         // Ensure the table is not accessible through the new schema
         assert!(new_db.query("SELECT id FROM users", &[]).is_err());
     });
+
+    test.run();
 }
