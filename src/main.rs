@@ -4,6 +4,7 @@ use std::{
     path::Path,
 };
 
+use anyhow::{Context};
 use clap::{Args, Parser};
 use reshape::{
     migrations::{Action, Migration},
@@ -211,7 +212,8 @@ fn find_migrations(opts: &FindMigrationsOptions) -> anyhow::Result<Vec<Migration
         .map(|result| {
             result.and_then(|(path, data)| {
                 let extension = path.extension().and_then(|ext| ext.to_str()).unwrap();
-                let file_migration = decode_migration_file(&data, extension)?;
+                let file_migration = decode_migration_file(&data, extension)
+                    .with_context(|| format!("failed to parse migration file {}", path.display()))?;
 
                 let file_name = path.file_stem().and_then(|name| name.to_str()).unwrap();
                 Ok(Migration {
