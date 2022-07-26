@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use anyhow::{Context};
+use anyhow::Context;
 use clap::{Args, Parser};
 use reshape::{
     migrations::{Action, Migration},
@@ -196,7 +196,13 @@ fn find_migrations(opts: &FindMigrationsOptions) -> anyhow::Result<Vec<Migration
     }
 
     // Sort all files by their file names (without extension)
-    file_paths.sort_unstable_by_key(|path| path.as_path().file_stem().unwrap().to_os_string());
+    // The files are sorted naturally, e.g. "1_test_migration" < "10_test_migration"
+    file_paths.sort_unstable_by(|path1, path2| {
+        let file1 = path1.as_path().file_stem().unwrap().to_str().unwrap();
+        let file2 = path2.as_path().file_stem().unwrap().to_str().unwrap();
+
+        lexical_sort::natural_cmp(file1, file2)
+    });
 
     file_paths
         .iter()
@@ -212,8 +218,10 @@ fn find_migrations(opts: &FindMigrationsOptions) -> anyhow::Result<Vec<Migration
         .map(|result| {
             result.and_then(|(path, data)| {
                 let extension = path.extension().and_then(|ext| ext.to_str()).unwrap();
-                let file_migration = decode_migration_file(&data, extension)
-                    .with_context(|| format!("failed to parse migration file {}", path.display()))?;
+                let file_migration =
+                    decode_migration_file(&data, extension).with_context(|| {
+                        format!("failed to parse migration file {}", path.display())
+                    })?;
 
                 let file_name = path.file_stem().and_then(|name| name.to_str()).unwrap();
                 Ok(Migration {
