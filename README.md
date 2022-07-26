@@ -455,7 +455,7 @@ The `add_index` action will add a new index to an existing table.
 ```toml
 [[actions]]
 type = "create_table"
-table = "users"
+name = "users"
 primary_key = "id"
 
 	[[actions.columns]]
