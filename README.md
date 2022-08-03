@@ -107,6 +107,7 @@ Reshape relies on your application using a specific schema. When establishing th
 
 - [Rust](https://github.com/fabianlindfors/reshape-helper)
 - [Ruby (and Rails)](https://github.com/fabianlindfors/reshape-ruby)
+- [Python (and Django)](https://github.com/fabianlindfors/reshape-python)
 
 If your application is not using one of the languages with an available helper library, you can instead generate the query with the command: `reshape schema-query`. To pass it along to your application, you can for example use an environment variable in your run script: `RESHAPE_SCHEMA_QUERY=$(reshape schema-query)`. Then in your application:
 
