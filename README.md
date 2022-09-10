@@ -556,8 +556,8 @@ start = """
 """
 
 abort = """
-	DROP EXTENSION IF NOT EXISTS postgis;
-	DROP EXTENSION IF NOT EXISTS pg_stat_statements;
+	DROP EXTENSION IF EXISTS postgis;
+	DROP EXTENSION IF EXISTS pg_stat_statements;
 """
 ```
 
