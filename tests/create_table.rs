@@ -198,3 +198,105 @@ fn create_table_with_foreign_keys() {
 
     test.run();
 }
+
+#[test]
+fn create_table_with_partition_by_hash() {
+    let mut test = Test::new("Create table with partition by hash");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [actions.partition_by]
+            hash = ["id"]
+        "#,
+    );
+
+    test.after_first(|db| {
+        let result = db
+            .query(
+                "
+                SELECT pa.partstrat, a.attname
+                FROM (
+                    SELECT *
+                    FROM pg_partitioned_table pt, UNNEST(pt.partattrs) partattrid
+                ) pa
+                JOIN pg_class c ON pa.partrelid = c.oid
+                JOIN pg_attribute a ON pa.partrelid = a.attrelid AND pa.partattrid = a.attnum
+                WHERE c.relname = 'users'
+                ",
+                &[],
+            )
+            .unwrap();
+
+        let id_row = &result[0];
+        assert_eq!('h' as i8, id_row.get::<_, i8>("partstrat"));
+        assert_eq!("id", id_row.get::<_, String>("attname"));
+    });
+
+    test.run();
+}
+
+#[test]
+fn create_table_with_partition_by_range() {
+    let mut test = Test::new("Create table with partition by range");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id", "name"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+            [actions.partition_by]
+            range = ["id", "name"]
+        "#,
+    );
+
+    test.after_first(|db| {
+        let result = db
+            .query(
+                "
+                SELECT pa.partstrat, a.attname
+                FROM (
+                    SELECT *
+                    FROM pg_partitioned_table pt, UNNEST(pt.partattrs) partattrid
+                ) pa
+                JOIN pg_class c ON pa.partrelid = c.oid
+                JOIN pg_attribute a ON pa.partrelid = a.attrelid AND pa.partattrid = a.attnum
+                WHERE c.relname = 'users'
+                ",
+                &[],
+            )
+            .unwrap();
+
+        let id_row = &result[0];
+        assert_eq!('r' as i8, id_row.get::<_, i8>("partstrat"));
+        assert_eq!("id", id_row.get::<_, String>("attname"));
+
+        let name_row = &result[1];
+        assert_eq!('r' as i8, name_row.get::<_, i8>("partstrat"));
+        assert_eq!("name", name_row.get::<_, String>("attname"));
+    });
+
+    test.run();
+}

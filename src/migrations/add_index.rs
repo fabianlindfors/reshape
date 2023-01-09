@@ -16,6 +16,8 @@ pub struct AddIndex {
 pub struct Index {
     pub name: String,
     pub columns: Vec<String>,
+    #[serde(default = "bool_true")]
+    pub concurrently: bool,
     #[serde(default)]
     pub unique: bool,
     #[serde(rename = "type")]
@@ -46,6 +48,7 @@ impl Action for AddIndex {
             .map(|column| format!("\"{}\"", column.real_name))
             .collect();
 
+        let concurrently = if self.index.concurrently { "CONCURRENTLY" } else { "" };
         let unique = if self.index.unique { "UNIQUE" } else { "" };
         let index_type_def = if let Some(index_type) = &self.index.index_type {
             format!("USING {index_type}")
@@ -55,7 +58,7 @@ impl Action for AddIndex {
 
         db.run(&format!(
             r#"
-			CREATE {unique} INDEX CONCURRENTLY "{name}" ON "{table}" {index_type_def} ({columns}) 
+			CREATE {unique} INDEX {concurrently} "{name}" ON "{table}" {index_type_def} ({columns})
 			"#,
             name = self.index.name,
             table = self.table,
@@ -76,13 +79,20 @@ impl Action for AddIndex {
     fn update_schema(&self, _ctx: &MigrationContext, _schema: &mut Schema) {}
 
     fn abort(&self, _ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
+        let concurrently = if self.index.concurrently { "CONCURRENTLY" } else { "" };
         db.run(&format!(
             r#"
-			DROP INDEX CONCURRENTLY IF EXISTS "{name}"
+			DROP INDEX {concurrently} IF EXISTS "{name}"
 			"#,
             name = self.index.name,
         ))
         .context("failed to drop index")?;
         Ok(())
     }
+}
+
+// A workaround for serde being unable to default to primitive true.
+// See https://github.com/serde-rs/serde/issues/368
+fn bool_true() -> bool {
+    return true
 }
