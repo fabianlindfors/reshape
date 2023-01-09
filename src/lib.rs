@@ -200,7 +200,7 @@ fn migrate(
     let mut last_action_index = usize::MAX;
     let mut result: anyhow::Result<()> = Ok(());
 
-    for (migration_index, migration) in remaining_migrations.iter().enumerate() {
+    'outer: for (migration_index, migration) in remaining_migrations.iter().enumerate() {
         println!("Migrating '{}':", migration.name);
         last_migration_index = migration_index;
 
@@ -220,7 +220,7 @@ fn migrate(
                 println!("{}", "done".green());
             } else {
                 println!("{}", "failed".red());
-                break;
+                break 'outer;
             }
         }
 
