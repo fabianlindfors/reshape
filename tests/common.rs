@@ -119,6 +119,14 @@ impl Test<'_> {
         }
     }
 
+    pub fn run_these(&mut self, migrations: &Vec<&str>) -> anyhow::Result<()> {
+        print_subheading("Clearing database");
+        self.reshape.remove().unwrap();
+
+        let parsed = migrations.iter().map(|m| { Self::parse_migration(m) });
+        return self.reshape.migrate(parsed);
+    }
+
     fn run_internal(&mut self, run_type: RunType) {
         print_subheading("Clearing database");
         self.reshape.remove().unwrap();

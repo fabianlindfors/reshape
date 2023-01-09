@@ -198,7 +198,7 @@ fn migrate(
     let mut new_schema = Schema::new();
     let mut last_migration_index = usize::MAX;
     let mut last_action_index = usize::MAX;
-    let mut result: anyhow::Result<()> = Ok(());
+    let mut succeeded = true;
 
     for (migration_index, migration) in remaining_migrations.iter().enumerate() {
         println!("Migrating '{}':", migration.name);
@@ -211,15 +211,17 @@ fn migrate(
             print!("  + {} ", description);
 
             let ctx = MigrationContext::new(migration_index, action_index);
-            result = action
+            let result = action
                 .run(&ctx, db, &new_schema)
                 .with_context(|| format!("failed to {}", description));
 
             if result.is_ok() {
                 action.update_schema(&ctx, &mut new_schema);
                 println!("{}", "done".green());
-            } else {
+            } else if let Err(err) = &result {
                 println!("{}", "failed".red());
+                println!("{:?}", &err);
+                succeeded = false;
                 break;
             }
         }
@@ -228,7 +230,7 @@ fn migrate(
     }
 
     // If a migration failed, we abort all the migrations that were applied
-    if let Err(err) = result {
+    if !succeeded {
         println!("A migration failed, aborting migrations that have already been applied");
 
         // Set to the Aborting state. This is to ensure that the failed
@@ -244,7 +246,7 @@ fn migrate(
         // Abort will only
         abort(db, state)?;
 
-        return Err(err);
+        return Err(anyhow::anyhow!("migrations failed"));
     }
 
     // Create schema and views for migration
