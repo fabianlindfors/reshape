@@ -112,7 +112,7 @@ impl Action for CreateTable {
     fn abort(&self, _ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         db.run(&format!(
             r#"
-            DROP TABLE IF EXISTS {name}
+            DROP TABLE IF EXISTS "{name}"
             "#,
             name = self.name,
         ))
