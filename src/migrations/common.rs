@@ -30,7 +30,10 @@ pub struct ForeignKey {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum OnDelete {
+    #[serde(rename = "restrict")]
     Restrict, 
+
+    #[serde(rename = "cascade")]
     Cascade,
 }
 
@@ -45,7 +48,10 @@ impl OnDelete {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum OnUpdate {
+    #[serde(rename = "restrict")]
     Restrict, 
+
+    #[serde(rename = "cascade")]
     Cascade,
 }
 

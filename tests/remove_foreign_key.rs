@@ -35,6 +35,8 @@ fn remove_foreign_key() {
             columns = ["user_id"]
             referenced_table = "users"
             referenced_columns = ["id"]
+            on_delete = "cascade"
+            on_update = "cascade"
         "#,
     );
 
