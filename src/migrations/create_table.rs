@@ -78,10 +78,14 @@ impl Action for CreateTable {
             definition_rows.push(format!(
                 r#"
                 FOREIGN KEY ({columns}) REFERENCES "{table}" ({referenced_columns})
+                ON DELETE {on_delete}
+                ON UPDATE {on_update}
                 "#,
                 columns = columns.join(", "),
                 table = referenced_table.real_name,
                 referenced_columns = referenced_columns.join(", "),
+                on_delete = foreign_key.on_delete.to_sql(),
+                on_update = foreign_key.on_update.to_sql(),
             ));
         }
 

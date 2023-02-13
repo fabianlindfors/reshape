@@ -24,6 +24,38 @@ pub struct ForeignKey {
     pub columns: Vec<String>,
     pub referenced_table: String,
     pub referenced_columns: Vec<String>,
+    pub on_delete: OnDelete,
+    pub on_update: OnUpdate,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum OnDelete {
+    Restrict, 
+    Cascade,
+}
+
+impl OnDelete {
+    pub fn to_sql(&self) -> &str {
+        match self {
+            OnDelete::Restrict => "RESTRICT",
+            OnDelete::Cascade => "CASCADE"
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum OnUpdate {
+    Restrict, 
+    Cascade,
+}
+
+impl OnUpdate {
+    pub fn to_sql(&self) -> &str {
+        match self {
+            OnUpdate::Restrict => "RESTRICT",
+            OnUpdate::Cascade => "CASCADE"
+        }
+    }
 }
 
 #[derive(Debug)]

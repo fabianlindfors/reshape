@@ -49,6 +49,8 @@ impl Action for AddForeignKey {
             ADD CONSTRAINT {constraint_name}
             FOREIGN KEY ({columns})
             REFERENCES {referenced_table} ({referenced_columns})
+            ON DELETE {on_delete}
+            ON UPDATE {on_update}
             NOT VALID
             "#,
             table = table.real_name,
@@ -56,6 +58,9 @@ impl Action for AddForeignKey {
             columns = columns.join(", "),
             referenced_table = referenced_table.real_name,
             referenced_columns = referenced_columns.join(", "),
+            on_update = self.foreign_key.on_update.to_sql(),
+            on_delete = self.foreign_key.on_delete.to_sql(),
+
         ))
         .context("failed to create foreign key")?;
 
