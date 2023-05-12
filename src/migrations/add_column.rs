@@ -61,7 +61,7 @@ impl Action for AddColumn {
         let temp_column_name = self.temp_column_name(ctx);
 
         let mut definition_parts = vec![
-            temp_column_name.to_string(),
+            ("\"".to_string() + &temp_column_name.to_string() + "\""),
             self.column.data_type.to_string(),
         ];
 
@@ -92,7 +92,7 @@ impl Action for AddColumn {
                 .iter()
                 .map(|column| {
                     format!(
-                        "{alias} public.{table}.{real_name}%TYPE := NEW.{real_name};",
+                        "\"{alias}\" public.{table}.{real_name}%TYPE := NEW.\"{real_name}\";",
                         table = table.real_name,
                         alias = column.name,
                         real_name = column.real_name,
@@ -110,7 +110,7 @@ impl Action for AddColumn {
                         DECLARE
                             {declarations}
                         BEGIN
-                            NEW.{temp_column_name} = {up};
+                            NEW."{temp_column_name}" = {up};
                         END;
                     END IF;
                     RETURN NEW;
