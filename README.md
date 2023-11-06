@@ -6,42 +6,41 @@ Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It 
 
 Designed for Postgres 12 and later.
 
-*Note: Reshape is **experimental** and should not be used in production. It can (and probably will) break your application.*
+_Note: Reshape is **experimental** and should not be used in production. It can (and probably will) break your application._
 
 - [How it works](#how-it-works)
 - [Getting started](#getting-started)
-	- [Installation](#installation)
-	- [Creating your first migration](#creating-your-first-migration)
-	- [Preparing your application](#preparing-your-application)
-	- [Running your migration](#running-your-migration)
-	- [Using during development](#using-during-development)
+  - [Installation](#installation)
+  - [Creating your first migration](#creating-your-first-migration)
+  - [Preparing your application](#preparing-your-application)
+  - [Running your migration](#running-your-migration)
+  - [Using during development](#using-during-development)
 - [Writing migrations](#writing-migrations)
-	- [Basics](#basics)
-	- [Tables](#tables)
-		- [Create table](#create-table)
-		- [Rename table](#rename-table)
-		- [Remove table](#remove-table)
-		- [Add foreign key](#add-foreign-key)
-		- [Remove foreign key](#remove-foreign-key)
-	- [Columns](#columns)
-		- [Add column](#add-column)
-		- [Alter column](#alter-column)
-		- [Remove column](#remove-column)
-	- [Indices](#indices)
-		- [Add index](#add-index)
-		- [Remove index](#remove-index)
-	- [Enums](#enums)
-		- [Create enum](#create-enum)
-		- [Remove enum](#remove-enum)
-	- [Custom](#custom)
+  - [Basics](#basics)
+  - [Tables](#tables)
+    - [Create table](#create-table)
+    - [Rename table](#rename-table)
+    - [Remove table](#remove-table)
+    - [Add foreign key](#add-foreign-key)
+    - [Remove foreign key](#remove-foreign-key)
+  - [Columns](#columns)
+    - [Add column](#add-column)
+    - [Alter column](#alter-column)
+    - [Remove column](#remove-column)
+  - [Indices](#indices)
+    - [Add index](#add-index)
+    - [Remove index](#remove-index)
+  - [Enums](#enums)
+    - [Create enum](#create-enum)
+    - [Remove enum](#remove-enum)
+  - [Custom](#custom)
 - [Commands and options](#commands-and-options)
-	- [`reshape migration start`](#reshape-migration-start)
-	- [`reshape migration complete`](#reshape-migration-complete)
-	- [`reshape migration abort`](#reshape-migration-abort)
-	- [`reshape schema-query`](#reshape-schema-query)
-	- [Connection options](#connection-options)
+  - [`reshape migration start`](#reshape-migration-start)
+  - [`reshape migration complete`](#reshape-migration-complete)
+  - [`reshape migration abort`](#reshape-migration-abort)
+  - [`reshape schema-query`](#reshape-schema-query)
+  - [Connection options](#connection-options)
 - [License](#license)
-
 
 ## How it works
 
@@ -49,7 +48,7 @@ Reshape works by creating views that encapsulate the underlying tables, which yo
 
 1. **Start migration** (`reshape migration start`): Sets up views and triggers to ensure both the new and old schema are usable at the same time.
 2. **Roll out application**: Your application can be gradually rolled out without downtime. The existing deployment will continue using the old schema whilst the new deployment uses the new schema.
-3. **Complete migration** (`reshape migration complete`): Removes the old schema and any intermediate data and triggers. 
+3. **Complete migration** (`reshape migration complete`): Removes the old schema and any intermediate data and triggers.
 
 If the application deployment fails, you should run `reshape migration abort` which will roll back any changes made by `reshape migration start` without losing data.
 
@@ -71,7 +70,7 @@ cargo install reshape
 
 #### Docker
 
-Reshape is available as a Docker image on [Docker Hub](https://hub.docker.com/repository/docker/fabianlindfors/reshape). 
+Reshape is available as a Docker image on [Docker Hub](https://hub.docker.com/repository/docker/fabianlindfors/reshape).
 
 ```shell
 docker run -v $(pwd):/usr/share/app fabianlindfors/reshape reshape migration start
@@ -169,7 +168,7 @@ Every action has a `type`. The supported types are detailed below.
 
 The `create_table` action will create a new table with the specified columns, indices and constraints.
 
-*Example: create a `customers` table with a few columns and a primary key*
+_Example: create a `customers` table with a few columns and a primary key_
 
 ```toml
 [[actions]]
@@ -187,13 +186,13 @@ primary_key = ["id"]
 	type = "TEXT"
 
 	# Columns default to nullable
-	nullable = false 
+	nullable = false
 
 	# default can be any valid SQL value, in this case a string literal
-	default = "'PLACEHOLDER'" 
+	default = "'PLACEHOLDER'"
 ```
 
-*Example: create `users` and `items` tables with a foreign key between them*
+_Example: create `users` and `items` tables with a foreign key between them_
 
 ```toml
 [[actions]]
@@ -230,7 +229,7 @@ primary_key = ["id"]
 
 The `rename_table` action will change the name of an existing table.
 
-*Example: change name of `users` table to `customers`*
+_Example: change name of `users` table to `customers`_
 
 ```toml
 [[actions]]
@@ -243,7 +242,7 @@ new_name = "customers"
 
 The `remove_table` action will remove an existing table.
 
-*Example: remove `users` table*
+_Example: remove `users` table_
 
 ```toml
 [[actions]]
@@ -255,7 +254,7 @@ table = "users"
 
 The `add_foreign_key` action will add a foreign key between two existing tables. The migration will fail if the existing column values aren't valid references.
 
-*Example: create foreign key from `items` to `users` table*
+_Example: create foreign key from `items` to `users` table_
 
 ```toml
 [[actions]]
@@ -272,7 +271,7 @@ table = "items"
 
 The `remove_foreign_key` action will remove an existing foreign key. The foreign key will only be removed once the migration is completed, which means that your new application must continue to adhere to the foreign key constraint.
 
-*Example: remove foreign key `items_user_id_fkey` from `users` table*
+_Example: remove foreign key `items_user_id_fkey` from `users` table_
 
 ```toml
 [[actions]]
@@ -287,7 +286,7 @@ foreign_key = "items_user_id_fkey"
 
 The `add_column` action will add a new column to an existing table. You can optionally provide an `up` setting. This should be an SQL expression which will be run for all existing rows to backfill the new column.
 
-*Example: add a new column `reference` to table `products`*
+_Example: add a new column `reference` to table `products`_
 
 ```toml
 [[actions]]
@@ -301,7 +300,7 @@ table = "products"
 	default = "10"
 ```
 
-*Example: replace an existing `name` column with two new columns, `first_name` and `last_name`*
+_Example: replace an existing `name` column with two new columns, `first_name` and `last_name`_
 
 ```toml
 [[actions]]
@@ -337,7 +336,7 @@ column = "name"
 down = "first_name || ' ' || last_name"
 ```
 
-*Example: extract nested value from unstructured JSON `data` column to new `name` column*
+_Example: extract nested value from unstructured JSON `data` column to new `name` column_
 
 ```toml
 [[actions]]
@@ -352,14 +351,13 @@ up = "data['path']['to']['value'] #>> '{}'"
 	type = "TEXT"
 ```
 
-
 #### Alter column
 
 The `alter_column` action enables many different changes to an existing column, for example renaming, changing type and changing existing values.
 
 When performing more complex changes than a rename, `up` and `down` should be provided. These should be SQL expressions which determine how to transform between the new and old version of the column. Inside those expressions, you can reference the current column value by the column name.
 
-*Example: rename `last_name` column on `users` table to `family_name`*
+_Example: rename `last_name` column on `users` table to `family_name`_
 
 ```toml
 [[actions]]
@@ -371,7 +369,7 @@ column = "last_name"
 	name = "family_name"
 ```
 
-*Example: change the type of `reference` column from `INTEGER` to `TEXT`*
+_Example: change the type of `reference` column from `INTEGER` to `TEXT`_
 
 ```toml
 [[actions]]
@@ -386,7 +384,7 @@ down = "CAST(reference AS INTEGER)" # Converts from text value to integer
 	type = "TEXT" # Previous type was 'INTEGER'
 ```
 
-*Example: increment all values of an `index` column by one*
+_Example: increment all values of an `index` column by one_
 
 ```toml
 [[actions]]
@@ -401,7 +399,7 @@ down = "index - 1" # Decrement to revert for old schema
 	name = "index"
 ```
 
-*Example: make `name` column not nullable*
+_Example: make `name` column not nullable_
 
 ```toml
 [[actions]]
@@ -416,7 +414,7 @@ up = "COALESCE(name, 'N/A')"
 	nullable = false
 ```
 
-*Example: change default value of `created_at` column to current time*
+_Example: change default value of `created_at` column to current time_
 
 ```toml
 [[actions]]
@@ -434,7 +432,7 @@ The `remove_column` action will remove an existing column from a table. You can 
 
 Any indices that cover the column will be removed.
 
-*Example: remove column `name` from table `users`*
+_Example: remove column `name` from table `users`_
 
 ```toml
 [[actions]]
@@ -452,7 +450,7 @@ down = "'N/A'"
 
 The `add_index` action will add a new index to an existing table.
 
-*Example: create a `users` table with a unique index on the `name` column*
+_Example: create a `users` table with a unique index on the `name` column_
 
 ```toml
 [[actions]]
@@ -481,7 +479,7 @@ table = "users"
 	unique = true
 ```
 
-*Example: add GIN index to `data` column on `products` table*
+_Example: add GIN index to `data` column on `products` table_
 
 ```toml
 [[actions]]
@@ -500,7 +498,7 @@ table = "products"
 
 The `remove_index` action will remove an existing index. The index won't actually be removed until the migration is completed.
 
-*Example: remove the `name_idx` index*
+_Example: remove the `name_idx` index_
 
 ```toml
 [[actions]]
@@ -514,7 +512,7 @@ index = "name_idx"
 
 The `create_enum` action will create a new [enum type](https://www.postgresql.org/docs/current/datatype-enum.html) with the specified values.
 
-*Example: add a new `mood` enum type with three possible values*
+_Example: add a new `mood` enum type with three possible values_
 
 ```toml
 [[actions]]
@@ -527,7 +525,7 @@ values = ["happy", "ok", "sad"]
 
 The `remove_enum` action will remove an existing [enum type](https://www.postgresql.org/docs/current/datatype-enum.html). Make sure all usages of the enum has been removed before running the migration. The enum will only be removed once the migration is completed.
 
-*Example: remove the `mood` enum type*
+_Example: remove the `mood` enum type_
 
 ```toml
 [[actions]]
@@ -545,7 +543,7 @@ There are three optional settings available which all accept SQL queries. All qu
 - `complete`: run when a migration is completed using `reshape migration complete`
 - `abort`: run when a migration is aborted using `reshape migration abort`
 
-*Example: enable PostGIS and pg_stat_statements extensions*
+_Example: enable PostGIS and pg_stat_statements extensions_
 
 ```toml
 [[actions]]
@@ -570,16 +568,16 @@ Starts a new migration, applying all migrations under `migrations/` that haven't
 
 #### Options
 
-*See also [Connection options](#connection-options)*
+_See also [Connection options](#connection-options)_
 
-| Option | Default | Description |
-| ------ | ------- | ----------- |
-| `--complete`, `-c` | `false` | Automatically complete migration after applying it. |
-| `--dirs` | `migrations/` | Directories to search for migration files. Multiple directories can be specified using `--dirs dir1 dir2 dir3`. |
+| Option             | Default       | Description                                                                                                     |
+| ------------------ | ------------- | --------------------------------------------------------------------------------------------------------------- |
+| `--complete`, `-c` | `false`       | Automatically complete migration after applying it.                                                             |
+| `--dirs`           | `migrations/` | Directories to search for migration files. Multiple directories can be specified using `--dirs dir1 dir2 dir3`. |
 
 ### `reshape migration complete`
 
-Completes migrations previously started with `reshape migration complete`. 
+Completes migrations previously started with `reshape migration complete`.
 
 #### Options
 
@@ -587,7 +585,7 @@ See [Connection options](#connection-options)
 
 ### `reshape migration abort`
 
-Aborts any migrations which haven't yet been completed. 
+Aborts any migrations which haven't yet been completed.
 
 #### Options
 
@@ -603,8 +601,8 @@ The query should look something like `SET search_path TO migration_1_initial_mig
 
 #### Options
 
-| Option | Default | Description |
-| ------ | ------- | ----------- |
+| Option   | Default       | Description                                                                                                     |
+| -------- | ------------- | --------------------------------------------------------------------------------------------------------------- |
 | `--dirs` | `migrations/` | Directories to search for migration files. Multiple directories can be specified using `--dirs dir1 dir2 dir3`. |
 
 ### Connection options
@@ -613,14 +611,14 @@ The options below can be used with all commands that communicate with Postgres. 
 
 All options can also be set using environment variables instead of flags. If a `.env` file exists, then variables will be automatically loaded from there.
 
-| Option | Default | Environment variable | Description |
-| ------ | ------- | -------------------- | ----------- |
-| `--url`  | | `DB_URL` | URL to your Postgres database |
-| `--host` | `localhost` | `DB_HOST` | Hostname to use when connecting to Postgres |
-| `--port` | `5432` | `DB_PORT` | Port which Postgres is listening on |
-| `--database` | `postgres` | `DB_NAME` | Database name |
-| `--username` | `postgres` | `DB_USERNAME` | Postgres username |
-| `--password` | `postgres` | `DB_PASSWORD` | Postgres password |
+| Option       | Default     | Environment variable | Description                                 |
+| ------------ | ----------- | -------------------- | ------------------------------------------- |
+| `--url`      |             | `DB_URL`             | URL to your Postgres database               |
+| `--host`     | `localhost` | `DB_HOST`            | Hostname to use when connecting to Postgres |
+| `--port`     | `5432`      | `DB_PORT`            | Port which Postgres is listening on         |
+| `--database` | `postgres`  | `DB_NAME`            | Database name                               |
+| `--username` | `postgres`  | `DB_USERNAME`        | Postgres username                           |
+| `--password` | `postgres`  | `DB_PASSWORD`        | Postgres password                           |
 
 ## License
 
