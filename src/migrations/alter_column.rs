@@ -150,7 +150,7 @@ impl Action for AlterColumn {
             .context("failed to create up and down triggers")?;
 
         // Backfill values in batches by touching the previous column
-        common::batch_touch_rows(db, &table.real_name, &column.real_name)
+        common::batch_touch_rows(db, &table.real_name, Some(&column.real_name))
             .context("failed to batch update existing rows")?;
 
         // Duplicate any indices to the temporary column

@@ -69,7 +69,11 @@ impl ToSql for PostgresRawValue {
     postgres::types::to_sql_checked!();
 }
 
-pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow::Result<()> {
+pub fn batch_touch_rows(
+    db: &mut dyn Conn,
+    table: &str,
+    column: Option<&str>,
+) -> anyhow::Result<()> {
     const BATCH_SIZE: u16 = 1000;
 
     let mut cursor: Option<PostgresRawValue> = None;
@@ -78,6 +82,13 @@ pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow:
         let mut params: Vec<&(dyn ToSql + Sync)> = Vec::new();
 
         let primary_key = get_primary_key_columns_for_table(db, table)?;
+
+        // If no column to touch is passed, we default to the first primary key column (just to make some "update")
+        let touched_column = match column {
+            Some(column) => column,
+            None => primary_key.first().unwrap(),
+        };
+
         let primary_key_columns = primary_key.join(", ");
 
         let primary_key_where = primary_key
@@ -120,8 +131,8 @@ pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow:
                 ORDER BY {primary_key_columns}
                 LIMIT {batch_size}
             ), update AS (
-                UPDATE public."{table}"
-                SET "{column}" = "{column}"
+                UPDATE public."{table}" "{table}"
+                SET "{touched_column}" = "{table}"."{touched_column}"
                 FROM rows
                 WHERE {primary_key_where}
                 RETURNING {returning_columns}
@@ -130,13 +141,7 @@ pub fn batch_touch_rows(db: &mut dyn Conn, table: &str, column: &str) -> anyhow:
             FROM update
             LIMIT 1
             "#,
-            table = table,
-            primary_key_columns = primary_key_columns,
-            cursor_where = cursor_where,
             batch_size = BATCH_SIZE,
-            column = column,
-            primary_key_where = primary_key_where,
-            returning_columns = returning_columns,
         );
         let last_value = db
             .query_with_params(&query, &params)?

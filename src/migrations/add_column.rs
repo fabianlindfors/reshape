@@ -9,8 +9,19 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AddColumn {
     pub table: String,
-    pub up: Option<String>,
     pub column: Column,
+    pub up: Option<Transformation>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum Transformation {
+    Simple(String),
+    Update {
+        table: String,
+        value: String,
+        r#where: String,
+    },
 }
 
 impl AddColumn {
@@ -87,52 +98,109 @@ impl Action for AddColumn {
         db.run(&query).context("failed to add column")?;
 
         if let Some(up) = &self.up {
-            let declarations: Vec<String> = table
-                .columns
-                .iter()
-                .map(|column| {
-                    format!(
-                        "{alias} public.{table}.{real_name}%TYPE := NEW.{real_name};",
-                        table = table.real_name,
-                        alias = column.name,
-                        real_name = column.real_name,
-                    )
-                })
-                .collect();
+            if let Transformation::Simple(up) = up {
+                let declarations: Vec<String> = table
+                    .columns
+                    .iter()
+                    .map(|column| {
+                        format!(
+                            "{alias} public.{table}.{real_name}%TYPE := NEW.{real_name};",
+                            table = table.real_name,
+                            alias = column.name,
+                            real_name = column.real_name,
+                        )
+                    })
+                    .collect();
 
-            // Add triggers to fill in values as they are inserted/updated
-            let query = format!(
-                r#"
-                CREATE OR REPLACE FUNCTION {trigger_name}()
-                RETURNS TRIGGER AS $$
-                BEGIN
-                    IF NOT reshape.is_new_schema() THEN
-                        DECLARE
-                            {declarations}
-                        BEGIN
-                            NEW.{temp_column_name} = {up};
-                        END;
-                    END IF;
-                    RETURN NEW;
-                END
-                $$ language 'plpgsql';
+                // Add triggers to fill in values as they are inserted/updated
+                let query = format!(
+                    r#"
+                    CREATE OR REPLACE FUNCTION {trigger_name}()
+                    RETURNS TRIGGER AS $$
+                    BEGIN
+                        IF NOT reshape.is_new_schema() THEN
+                            DECLARE
+                                {declarations}
+                            BEGIN
+                                NEW.{temp_column_name} = {up};
+                            END;
+                        END IF;
+                        RETURN NEW;
+                    END
+                    $$ language 'plpgsql';
 
-                DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
-                CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{table}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
-                "#,
-                temp_column_name = temp_column_name,
-                trigger_name = self.trigger_name(ctx),
-                up = up,
-                table = self.table,
-                declarations = declarations.join("\n"),
-            );
-            db.run(&query).context("failed to create up trigger")?;
-        }
+                    DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
+                    CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{table}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
+                    "#,
+                    temp_column_name = temp_column_name,
+                    trigger_name = self.trigger_name(ctx),
+                    up = up,
+                    table = self.table,
+                    declarations = declarations.join("\n"),
+                );
+                db.run(&query).context("failed to create up trigger")?;
 
-        // Backfill values in batches
-        if self.up.is_some() {
-            common::batch_touch_rows(db, &table.real_name, &temp_column_name)
-                .context("failed to batch update existing rows")?;
+                // Backfill values in batches
+                common::batch_touch_rows(db, &table.real_name, Some(&temp_column_name))
+                    .context("failed to batch update existing rows")?;
+            }
+
+            if let Transformation::Update {
+                table: from_table,
+                value,
+                r#where,
+            } = up
+            {
+                let from_table = schema.get_table(db, &from_table)?;
+
+                let declarations: Vec<String> = from_table
+                    .columns
+                    .iter()
+                    .map(|column| {
+                        format!(
+                            "{alias} public.{table}.{real_name}%TYPE := NEW.{real_name};",
+                            table = from_table.real_name,
+                            alias = column.name,
+                            real_name = column.real_name,
+                        )
+                    })
+                    .collect();
+
+                // Add triggers to fill in values as they are inserted/updated
+                let query = format!(
+                    r#"
+                    CREATE OR REPLACE FUNCTION {trigger_name}()
+                    RETURNS TRIGGER AS $$
+                    #variable_conflict use_variable
+                    BEGIN
+                        IF NOT reshape.is_new_schema() THEN
+                            DECLARE
+                                {declarations}
+                            BEGIN
+                                UPDATE public."{changed_table_real}"
+                                SET "{temp_column_name}" = {value}
+                                WHERE {where};
+                            END;
+                        END IF;
+                        RETURN NEW;
+                    END
+                    $$ language 'plpgsql';
+
+                    DROP TRIGGER IF EXISTS "{trigger_name}" ON "{from_table_real}";
+                    CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{from_table_real}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
+                    "#,
+                    changed_table_real = table.real_name,
+                    from_table_real = from_table.real_name,
+                    trigger_name = self.trigger_name(ctx),
+                    declarations = declarations.join("\n"),
+                    temp_column_name = temp_column_name,
+                );
+                db.run(&query).context("failed to create up trigger")?;
+
+                // Backfill values in batches by touching the from table
+                common::batch_touch_rows(db, &from_table.real_name, None)
+                    .context("failed to batch update existing rows")?;
+            }
         }
 
         // Add a temporary NOT NULL constraint if the column shouldn't be nullable.
@@ -167,10 +235,8 @@ impl Action for AddColumn {
         // Remove triggers and procedures
         let query = format!(
             r#"
-            DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
-            DROP FUNCTION IF EXISTS "{trigger_name}";
+            DROP FUNCTION IF EXISTS "{trigger_name}" CASCADE;
             "#,
-            table = self.table,
             trigger_name = self.trigger_name(ctx),
         );
         transaction
@@ -262,10 +328,8 @@ impl Action for AddColumn {
         // Remove triggers and procedures
         let query = format!(
             r#"
-            DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
-            DROP FUNCTION IF EXISTS "{trigger_name}";
+            DROP FUNCTION IF EXISTS "{trigger_name}" CASCADE;
             "#,
-            table = self.table,
             trigger_name = self.trigger_name(ctx),
         );
         db.run(&query).context("failed to drop up trigger")?;

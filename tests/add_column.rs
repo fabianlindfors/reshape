@@ -260,3 +260,102 @@ fn add_column_with_default() {
 
     test.run();
 }
+
+#[test]
+fn add_column_with_complex_up() {
+    let mut test = Test::new("Add column complex");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["user_id"]
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "add_profiles_email_column"
+
+        [[actions]]
+        type = "add_column"
+        table = "profiles"
+
+            [actions.column]
+            name = "email"
+            type = "TEXT"
+            nullable = false
+
+            [actions.up]
+            table = "users"
+            value = "email"
+            where = "user_id = id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+        db.simple_query("INSERT INTO profiles (user_id) VALUES (1)")
+            .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        // Ensure email was backfilled on profiles
+        let email: String = new_db
+            .query(
+                "
+                SELECT email
+                FROM profiles
+                WHERE user_id = 1
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| row.get("email"))
+            .unwrap();
+        assert_eq!("test@example.com", email);
+
+        // Ensure email change in old schema is propagated to profiles table in new schema
+        old_db
+            .simple_query("UPDATE users SET email = 'test2@example.com' WHERE id = 1")
+            .unwrap();
+        let email: String = new_db
+            .query(
+                "
+                SELECT email
+                FROM profiles
+                WHERE user_id = 1
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| row.get("email"))
+            .unwrap();
+        assert_eq!("test2@example.com", email);
+    });
+
+    test.run();
+}

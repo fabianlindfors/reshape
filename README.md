@@ -351,6 +351,26 @@ up = "data['path']['to']['value'] #>> '{}'"
 	type = "TEXT"
 ```
 
+_Example: duplicate `email` column from `users` to `profiles` table_
+
+```toml
+# `profiles` has `user_id` column which maps to `users.id`
+[[actions]]
+type = "add_column"
+table = "profiles"
+
+	[actions.column]
+	name = "email"
+	type = "TEXT"
+	nullable = false
+
+	# When `users` is updated in the old schema, we write the email value to `profiles`
+	[actions.up]
+	table = "users"
+	value = "email"
+	where = "user_id = id"
+```
+
 #### Alter column
 
 The `alter_column` action enables many different changes to an existing column, for example renaming, changing type and changing existing values.
