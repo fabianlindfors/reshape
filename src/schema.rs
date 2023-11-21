@@ -209,7 +209,7 @@ impl Schema {
         let real_columns: Vec<(String, String, bool, Option<String>)> = db
             .query(&format!(
                 "
-                SELECT column_name, data_type, is_nullable, column_default
+                SELECT column_name, CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END, is_nullable, column_default
                 FROM information_schema.columns
                 WHERE table_name = '{table}' AND table_schema = 'public'
                 ORDER BY ordinal_position
