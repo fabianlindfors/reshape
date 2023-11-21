@@ -128,4 +128,90 @@ fn remove_column_with_index() {
 
         assert_eq!(0, count, "expected index to not exist");
     });
+
+    test.run();
+}
+
+#[test]
+fn remove_column_with_complex_down() {
+    let mut test = Test::new("Remove column complex");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["user_id"]
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "remove_users_email_column"
+
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "email"
+
+            [actions.down]
+            table = "profiles"
+            value = "email"
+            where = "id = user_id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+        db.simple_query("INSERT INTO profiles (user_id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        new_db
+            .simple_query("UPDATE profiles SET email = 'test2@example.com' WHERE user_id = 1")
+            .unwrap();
+
+        // Ensure new email was propagated to users table in old schema
+        let email: String = old_db
+            .query(
+                "
+                SELECT email
+                FROM users
+                WHERE id = 1
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| row.get("email"))
+            .unwrap();
+        assert_eq!("test2@example.com", email);
+    });
+
+    test.run();
 }

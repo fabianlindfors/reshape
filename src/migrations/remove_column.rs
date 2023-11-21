@@ -3,14 +3,25 @@ use crate::{
     db::{Conn, Transaction},
     schema::Schema,
 };
-use anyhow::Context;
+use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RemoveColumn {
     pub table: String,
     pub column: String,
-    pub down: Option<String>,
+    pub down: Option<Transformation>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum Transformation {
+    Simple(String),
+    Update {
+        table: String,
+        value: String,
+        r#where: String,
+    },
 }
 
 impl RemoveColumn {
@@ -39,10 +50,10 @@ impl Action for RemoveColumn {
         db: &mut dyn Conn,
         schema: &Schema,
     ) -> anyhow::Result<()> {
+        let table = schema.get_table(db, &self.table)?;
+
         // Add down trigger
         if let Some(down) = &self.down {
-            let table = schema.get_table(db, &self.table)?;
-
             let declarations: Vec<String> = table
                 .columns
                 .iter()
@@ -56,32 +67,91 @@ impl Action for RemoveColumn {
                 })
                 .collect();
 
-            let query = format!(
-                r#"
-                CREATE OR REPLACE FUNCTION {trigger_name}()
-                RETURNS TRIGGER AS $$
-                BEGIN
-                    IF reshape.is_new_schema() THEN
-                        DECLARE
-                            {declarations}
-                        BEGIN
-                            NEW.{column_name} = {down};
-                        END;
-                    END IF;
-                    RETURN NEW;
-                END
-                $$ language 'plpgsql';
+            if let Transformation::Simple(down) = down {
+                let query = format!(
+                    r#"
+                    CREATE OR REPLACE FUNCTION {trigger_name}()
+                    RETURNS TRIGGER AS $$
+                    BEGIN
+                        IF reshape.is_new_schema() THEN
+                            DECLARE
+                                {declarations}
+                            BEGIN
+                                NEW.{column_name} = {down};
+                            END;
+                        END IF;
+                        RETURN NEW;
+                    END
+                    $$ language 'plpgsql';
 
-                DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
-                CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{table}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
-                "#,
-                column_name = self.column,
-                trigger_name = self.trigger_name(ctx),
-                down = down,
-                table = self.table,
-                declarations = declarations.join("\n"),
-            );
-            db.run(&query).context("failed to create down trigger")?;
+                    DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
+                    CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{table}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
+                    "#,
+                    column_name = self.column,
+                    trigger_name = self.trigger_name(ctx),
+                    down = down,
+                    table = self.table,
+                    declarations = declarations.join("\n"),
+                );
+                db.run(&query).context("failed to create down trigger")?;
+            }
+
+            if let Transformation::Update {
+                table: from_table,
+                value,
+                r#where,
+            } = down
+            {
+                let existing_schema_name = match &ctx.existing_schema_name {
+                    Some(name) => name,
+                    None => bail!("can't use update without previous migration"),
+                };
+
+                let from_table = schema.get_table(db, &from_table)?;
+
+                let declarations: Vec<String> = from_table
+                    .columns
+                    .iter()
+                    .map(|column| {
+                        format!(
+                            "{alias} public.{table}.{real_name}%TYPE := NEW.{real_name};",
+                            table = from_table.real_name,
+                            alias = column.name,
+                            real_name = column.real_name,
+                        )
+                    })
+                    .collect();
+
+                let query = format!(
+                    r#"
+                    CREATE OR REPLACE FUNCTION {trigger_name}()
+                    RETURNS TRIGGER AS $$
+                    #variable_conflict use_variable
+                    BEGIN
+                        IF reshape.is_new_schema() THEN
+                            DECLARE
+                                {declarations}
+                            BEGIN
+                                UPDATE "migration_{existing_schema_name}"."{changed_table}" "{changed_table}"
+                                SET "{column_name}" = {value}
+                                WHERE {where};
+                            END;
+                        END IF;
+                        RETURN NEW;
+                    END
+                    $$ language 'plpgsql';
+
+                    DROP TRIGGER IF EXISTS "{trigger_name}" ON "{from_table_real}";
+                    CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{from_table_real}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
+                    "#,
+                    changed_table = self.table,
+                    from_table_real = from_table.real_name,
+                    column_name = self.column,
+                    trigger_name = self.trigger_name(ctx),
+                    declarations = declarations.join("\n"),
+                );
+                db.run(&query).context("failed to create down trigger")?;
+            }
         }
 
         Ok(())
@@ -106,12 +176,20 @@ impl Action for RemoveColumn {
         }
 
         // Remove column, function and trigger
+        let trigger_table = match &self.down {
+            Some(Transformation::Update {
+                table,
+                value: _,
+                r#where: _,
+            }) => table,
+            _ => &self.table,
+        };
         let query = format!(
             r#"
             ALTER TABLE "{table}"
             DROP COLUMN IF EXISTS "{column}";
 
-            DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
+            DROP TRIGGER IF EXISTS "{trigger_name}" ON "{trigger_table}";
             DROP FUNCTION IF EXISTS "{trigger_name}";
             "#,
             table = self.table,
@@ -134,12 +212,19 @@ impl Action for RemoveColumn {
 
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove function and trigger
+        let trigger_table = match &self.down {
+            Some(Transformation::Update {
+                table,
+                value: _,
+                r#where: _,
+            }) => table,
+            _ => &self.table,
+        };
         db.run(&format!(
             r#"
-            DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
+            DROP TRIGGER IF EXISTS "{trigger_name}" ON "{trigger_table}";
             DROP FUNCTION IF EXISTS "{trigger_name}";
             "#,
-            table = self.table,
             trigger_name = self.trigger_name(ctx),
         ))
         .context("failed to drop down trigger")?;

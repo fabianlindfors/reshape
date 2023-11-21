@@ -444,6 +444,22 @@ column = "name"
 down = "'N/A'"
 ```
 
+_Example: remove `email` column from `users` table and use column from `profiles` table instead_
+
+```toml
+[[actions]]
+type = "remove_column"
+name = "users"
+column = "email"
+
+	# Our application will use the `profiles.email` column instead
+	# For backwards compatibility, we will write back to the removed `email` column whenever `profiles` is changed
+	[actions.down]
+	table = "profiles"
+	value = "email"
+	where = "id = user_id"
+```
+
 ### Indices
 
 #### Add index

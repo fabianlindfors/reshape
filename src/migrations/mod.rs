@@ -88,13 +88,19 @@ impl Clone for Migration {
 pub struct MigrationContext {
     migration_index: usize,
     action_index: usize,
+    existing_schema_name: Option<String>,
 }
 
 impl MigrationContext {
-    pub fn new(migration_index: usize, action_index: usize) -> Self {
+    pub fn new(
+        migration_index: usize,
+        action_index: usize,
+        existing_schema_name: Option<String>,
+    ) -> Self {
         MigrationContext {
             migration_index,
             action_index,
+            existing_schema_name,
         }
     }
 
