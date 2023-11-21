@@ -34,6 +34,7 @@ Designed for Postgres 12 and later.
     - [Create enum](#create-enum)
     - [Remove enum](#remove-enum)
   - [Custom](#custom)
+  - [Complex changes across tables](#complex-changes-across-tables)
 - [Commands and options](#commands-and-options)
   - [`reshape migration start`](#reshape-migration-start)
   - [`reshape migration complete`](#reshape-migration-complete)
@@ -284,7 +285,7 @@ foreign_key = "items_user_id_fkey"
 
 #### Add column
 
-The `add_column` action will add a new column to an existing table. You can optionally provide an `up` setting. This should be an SQL expression which will be run for all existing rows to backfill the new column.
+The `add_column` action will add a new column to an existing table. You can optionally provide an `up` setting. This should be an SQL expression which will be run for all existing rows to backfill the new column. `up` may also reference another table to perform cross-table migrations (see ["Complex changes across tables"](#complex-changes-across-tables)).
 
 _Example: add a new column `reference` to table `products`_
 
@@ -448,7 +449,7 @@ column = "created_at"
 
 #### Remove column
 
-The `remove_column` action will remove an existing column from a table. You can optionally provide a `down` setting. This should be an SQL expression which will be used to determine values for the old schema when inserting or updating rows using the new schema. The `down` setting must be provided when the removed column is `NOT NULL` or doesn't have a default value.
+The `remove_column` action will remove an existing column from a table. You can optionally provide a `down` setting. This should be an SQL expression which will be used to determine values for the old schema when inserting or updating rows using the new schema. `down` may also reference another table to perform cross-table migrations (see ["Complex changes across tables"](#complex-changes-across-tables)) . The `down` setting must be provided when the removed column is `NOT NULL` or doesn't have a default value.
 
 Any indices that cover the column will be removed.
 
@@ -594,6 +595,40 @@ abort = """
 	DROP EXTENSION IF EXISTS postgis;
 	DROP EXTENSION IF EXISTS pg_stat_statements;
 """
+```
+
+### Complex changes across tables
+
+The `up` and `down` options available for many actions can also perform more complex changes that span tables.
+
+_Example: move `email` column from `users` to `profiles` table_
+
+```toml
+[[actions]]
+type = "remove_column"
+table = "users"
+column = "email"
+
+	# When `profiles` is changed in the new schema, we write the email address back to the removed column
+	[actions.down]
+	table = "profiles"
+	value = "email"
+	where = "id = user_id"
+
+[[actions]]
+type = "add_column"
+table = "profiles"
+
+	[actions.column]
+	name = "email"
+	type = "TEXT"
+	nullable = false
+
+	# When `users` is updated in the old schema, we write the email value to `profiles`
+	[actions.up]
+	table = "users"
+	value = "email"
+	where = "user_id = id"
 ```
 
 ## Commands and options
