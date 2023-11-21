@@ -449,7 +449,7 @@ _Example: remove `email` column from `users` table and use column from `profiles
 ```toml
 [[actions]]
 type = "remove_column"
-name = "users"
+table = "users"
 column = "email"
 
 	# Our application will use the `profiles.email` column instead
