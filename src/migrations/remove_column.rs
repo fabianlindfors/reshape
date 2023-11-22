@@ -122,6 +122,9 @@ impl Action for RemoveColumn {
                     })
                     .collect();
 
+                // TODO: If column is NOT NULL, remove the constraint and perform a NULL check in some other way.
+                // Otherwise, it's not possible to update the NOT NULL column from another table even in the same transaction.
+                // Either make the NULL check in here or maybe use a constraint trigger: https://www.postgresql.org/docs/9.0/sql-createconstraint.html.
                 let query = format!(
                     r#"
                     CREATE OR REPLACE FUNCTION {trigger_name}()
