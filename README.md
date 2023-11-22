@@ -167,7 +167,7 @@ Every action has a `type`. The supported types are detailed below.
 
 #### Create table
 
-The `create_table` action will create a new table with the specified columns, indices and constraints.
+The `create_table` action will create a new table with the specified columns, indices and constraints. You can optionally provide an `up` option to backfill values from an existing table.
 
 _Example: create a `customers` table with a few columns and a primary key_
 
@@ -224,6 +224,28 @@ primary_key = ["id"]
 	columns = ["user_id"]
 	referenced_table = "users"
 	referenced_columns = ["id"]
+```
+
+_Example: create `profiles` table based on existing `users` table_
+
+```toml
+[[actions]]
+type = "create_table"
+name = "profiles"
+primary_key = ["user_id"]
+
+	[[actions.columns]]
+	name = "user_id"
+	type = "INTEGER"
+
+	[[actions.columns]]
+	name = "user_email"
+	type = "TEXT"
+
+	# Backfill from `users` table and copy `users.email` to `user_email` column
+	[actions.up]
+	table = "users"
+	values = { user_id = "id", user_email = "email" }
 ```
 
 #### Rename table
