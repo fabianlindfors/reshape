@@ -2,7 +2,7 @@
 
 [![Test status badge](https://github.com/fabianlindfors/Reshape/actions/workflows/test.yaml/badge.svg)](https://github.com/fabianlindfors/reshape/actions/workflows/test.yaml) [![Latest release](https://shields.io/github/v/release/fabianlindfors/reshape?display_name=tag&sort=semver&color=blue)](https://github.com/fabianlindfors/reshape/releases)
 
-> Also check out [ReshapeDB](https://reshapedb.com), a new database built from the ground up to make zero-downtime schema and data migrations as simple and safe as possible
+> Also check out [ReshapeDB](https://reshapedb.com), a new database built from the ground up to make zero-downtime schema and data migrations as simple and safe as possible. If you'd like to chat about it, please [reach out](contact@reshapedb.com)!
 
 Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It automatically handles complex migrations that would normally require downtime or manual multi-step changes. During a migration, Reshape ensures both the old and new schema are available at the same time, allowing you to gradually roll out your application. It will also perform all changes without excessive locking, avoiding downtime caused by blocking other queries. For a more thorough introduction to Reshape, check out the [introductory blog post](https://fabianlindfors.se/blog/schema-migrations-in-postgres-using-reshape/).
 
@@ -243,6 +243,7 @@ primary_key = ["user_id"]
 	type = "TEXT"
 
 	# Backfill from `users` table and copy `users.email` to `user_email` column
+	# This will perform an upsert based on the primary key to avoid duplicate rows
 	[actions.up]
 	table = "users"
 	values = { user_id = "id", user_email = "email" }
@@ -621,7 +622,7 @@ abort = """
 
 ### Complex changes across tables
 
-The `up` and `down` options available for many actions can also perform more complex changes that span tables.
+The `up` and `down` options available when creating tables, adding columns and removing columns can also perform more complex changes that span tables.
 
 _Example: move `email` column from `users` to `profiles` table_
 
@@ -651,6 +652,57 @@ table = "profiles"
 	table = "users"
 	value = "email"
 	where = "user_id = id"
+```
+
+_Example: turn a 1:N relationship between `users` and `accounts` into N:M and change the format of the associated `role`_
+
+```toml
+# Add `user_account_connections` as a junction table
+[[actions]]
+type = "create_table"
+name = "user_account_connections"
+primary_key = ["account_id", "user_id"]
+
+	[[actions.columns]]
+	name = "account_id"
+	type = "INTEGER"
+
+	[[actions.columns]]
+	name = "user_id"
+	type = "INTEGER"
+
+	# `role` is currently stored directly on the `users` table but is part of the relationship
+	[[actions.columns]]
+	name = "role"
+	type = "TEXT"
+
+	# Backfill the new table from `users` and uppercase the `role`
+	[actions.up]
+	table = "users"
+	values = { user_id = "id", account_id = "account_id", role = "UPPER(account_role)" }
+	where = "user_id = id"
+
+[[actions]]
+type = "remove_column"
+table = "users"
+column = "account_id"
+
+	# When `user_account_connections` is updated, we write the `account_id` back to `users`
+	[actions.down]
+	table = "user_account_connections"
+	value = "account_id"
+	where = "id = user_id"
+
+[[actions]]
+type = "remove_column"
+table = "users"
+column = "account_role"
+
+	# When `user_account_connections` is updated, we write the lowercase role back to `users`
+	[actions.down]
+	table = "user_account_connections"
+	value = "LOWER(role)"
+	where = "id = user_id"
 ```
 
 ## Commands and options
