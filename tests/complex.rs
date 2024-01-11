@@ -30,10 +30,12 @@ fn extract_relation_into_new_table() {
             [[actions.columns]]
             name = "account_id"
             type = "INTEGER"
+            nullable = false
 
             [[actions.columns]]
             name = "account_role"
             type = "TEXT"
+            nullable = false
         "#,
     );
 
@@ -57,6 +59,7 @@ fn extract_relation_into_new_table() {
             [[actions.columns]]
             name = "role"
             type = "TEXT"
+            nullable = false
 
             [actions.up]
             table = "users"
@@ -133,6 +136,13 @@ fn extract_relation_into_new_table() {
                 .len()
                 == 1
         );
+
+        // Ensure NOT NULL constraint still applies to old schema
+        let result = old_db
+            .simple_query(
+                "INSERT INTO users (id, account_id, account_role) VALUES (2, NULL, 'developer')",
+            );
+            assert!(result.is_err());
 
         // Ensure updated user role in old schema updates connection in new schema
         old_db
