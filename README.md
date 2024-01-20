@@ -500,8 +500,8 @@ column = "email"
 	# For backwards compatibility, we will write back to the removed `email` column whenever `profiles` is changed
 	[actions.down]
 	table = "profiles"
-	value = "email"
-	where = "id = user_id"
+	value = "profiles.email"
+	where = "users.id = profiles.user_id"
 ```
 
 ### Indices
@@ -635,8 +635,8 @@ column = "email"
 	# When `profiles` is changed in the new schema, we write the email address back to the removed column
 	[actions.down]
 	table = "profiles"
-	value = "email"
-	where = "id = user_id"
+	value = "profiles.email"
+	where = "users.id = profiles.user_id"
 
 [[actions]]
 type = "add_column"
@@ -650,8 +650,8 @@ table = "profiles"
 	# When `users` is updated in the old schema, we write the email value to `profiles`
 	[actions.up]
 	table = "users"
-	value = "email"
-	where = "user_id = id"
+	value = "users.email"
+	where = "profiles.user_id = users.id"
 ```
 
 _Example: turn a 1:N relationship between `users` and `accounts` into N:M and change the format of the associated `role`_
@@ -680,7 +680,7 @@ primary_key = ["account_id", "user_id"]
 	[actions.up]
 	table = "users"
 	values = { user_id = "id", account_id = "account_id", role = "UPPER(account_role)" }
-	where = "user_id = id"
+	where = "user_account_connections.user_id = users.id"
 
 [[actions]]
 type = "remove_column"
@@ -690,8 +690,8 @@ column = "account_id"
 	# When `user_account_connections` is updated, we write the `account_id` back to `users`
 	[actions.down]
 	table = "user_account_connections"
-	value = "account_id"
-	where = "id = user_id"
+	value = "user_account_connections.account_id"
+	where = "users.id = user_account_connections.user_id"
 
 [[actions]]
 type = "remove_column"
@@ -701,8 +701,8 @@ column = "account_role"
 	# When `user_account_connections` is updated, we write the lowercase role back to `users`
 	[actions.down]
 	table = "user_account_connections"
-	value = "LOWER(role)"
-	where = "id = user_id"
+	value = "LOWER(user_account_connections.role)"
+	where = "users.id = user_account_connections.user_id"
 ```
 
 ## Commands and options
