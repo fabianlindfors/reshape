@@ -34,6 +34,15 @@ impl RemoveColumn {
         )
     }
 
+    fn reverse_trigger_name(&self, ctx: &MigrationContext) -> String {
+        format!(
+            "{}_remove_column_{}_{}_rev",
+            ctx.prefix(),
+            self.table,
+            self.column
+        )
+    }
+
     fn null_constraint_trigger_name(&self, ctx: &MigrationContext) -> String {
         format!(
             "{}_remove_column_{}_{}_nn",
@@ -121,19 +130,6 @@ impl Action for RemoveColumn {
 
                 let from_table = schema.get_table(db, &from_table)?;
 
-                let declarations: Vec<String> = from_table
-                    .columns
-                    .iter()
-                    .map(|column| {
-                        format!(
-                            "{alias} public.{table}.{real_name}%TYPE := NEW.{real_name};",
-                            table = from_table.real_name,
-                            alias = column.name,
-                            real_name = column.real_name,
-                        )
-                    })
-                    .collect();
-
                 let maybe_null_check = if !column.nullable {
                     // Replace NOT NULL constraint with a constraint trigger that only triggers on the old schema.
                     // As we are using a complex down function, we must remove the NOT NULL check for the new schema.
@@ -190,6 +186,19 @@ impl Action for RemoveColumn {
                     "".to_string()
                 };
 
+                let into_variables = from_table
+                    .columns
+                    .iter()
+                    .map(|column| {
+                        format!(
+                            "NEW.{real_name} AS {alias}",
+                            alias = column.name,
+                            real_name = column.real_name,
+                        )
+                    })
+                    .collect::<Vec<String>>()
+                    .join(", ");
+
                 let query = format!(
                     r#"
                     CREATE OR REPLACE FUNCTION {trigger_name}()
@@ -198,12 +207,21 @@ impl Action for RemoveColumn {
                     BEGIN
                         IF reshape.is_new_schema() THEN
                             DECLARE
-                                {declarations}
+                                {from_table} record;
                             BEGIN
+                                SELECT {into_variables}
+                                INTO {from_table};
+
                                 {maybe_null_check}
+
+                                -- Don't trigger reverse trigger when making this update
+                                perform set_config('reshape.disable_triggers', 'TRUE', TRUE);
+
                                 UPDATE "migration_{existing_schema_name}"."{changed_table}" "{changed_table}"
                                 SET "{column_name}" = {value}
                                 WHERE {where};
+
+                                perform set_config('reshape.disable_triggers', '', TRUE);
                             END;
                         END IF;
                         RETURN NEW;
@@ -214,12 +232,81 @@ impl Action for RemoveColumn {
                     CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{from_table_real}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
                     "#,
                     changed_table = self.table,
+                    from_table = from_table.name,
                     from_table_real = from_table.real_name,
                     column_name = self.column,
                     trigger_name = self.trigger_name(ctx),
-                    declarations = declarations.join("\n"),
+                    // declarations = declarations.join("\n"),
                 );
                 db.run(&query).context("failed to create down trigger")?;
+
+                let changed_into_variables = table
+                    .columns
+                    .iter()
+                    .map(|column| {
+                        format!(
+                            "NEW.{real_name} AS {alias}",
+                            alias = column.name,
+                            real_name = column.real_name,
+                        )
+                    })
+                    .collect::<Vec<String>>()
+                    .join(", ");
+
+                let from_table_columns = from_table
+                    .columns
+                    .iter()
+                    .map(|column| format!("{} as {}", column.real_name, column.name))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+
+                let query = format!(
+                    r#"
+                    CREATE OR REPLACE FUNCTION {trigger_name}()
+                    RETURNS TRIGGER AS $$
+                    #variable_conflict use_variable
+                    BEGIN
+                        IF reshape.is_new_schema() AND NOT current_setting('reshape.disable_triggers', TRUE) = 'TRUE' THEN
+                            DECLARE
+                                {changed_table} record;
+                                __temp_row record;
+                            BEGIN
+                                SELECT {changed_into_variables}
+                                INTO {changed_table};
+
+                                SELECT *
+                                INTO __temp_row
+                                FROM (
+                                    SELECT {from_table_columns}
+                                    FROM public.{from_table_real}
+                                ) {from_table}
+                                WHERE {where};
+
+                                DECLARE
+                                    {from_table} record;
+                                BEGIN
+                                    {from_table} := __temp_row;
+                                    NEW.{column_name_real} = {value};
+                                END;
+                            END;
+                        END IF;
+                        RETURN NEW;
+                    END
+                    $$ language 'plpgsql';
+
+                    DROP TRIGGER IF EXISTS "{trigger_name}" ON "{changed_table_real}";
+                    CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{changed_table_real}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
+                    "#,
+                    changed_table = table.name,
+                    changed_table_real = table.real_name,
+                    from_table = from_table.name,
+                    from_table_real = from_table.real_name,
+                    column_name_real = column.real_name,
+                    trigger_name = self.reverse_trigger_name(ctx),
+                    // declarations = declarations.join("\n"),
+                );
+                db.run(&query)
+                    .context("failed to create reverse down trigger")?;
             }
         }
 
@@ -247,28 +334,19 @@ impl Action for RemoveColumn {
         }
 
         // Remove column, function and trigger
-        let trigger_table = match &self.down {
-            Some(Transformation::Update {
-                table,
-                value: _,
-                r#where: _,
-            }) => table,
-            _ => &self.table,
-        };
         let query = format!(
             r#"
             ALTER TABLE "{table}"
             DROP COLUMN IF EXISTS "{column}";
 
-            DROP TRIGGER IF EXISTS "{trigger_name}" ON "{trigger_table}";
-            DROP FUNCTION IF EXISTS "{trigger_name}";
-
-            DROP TRIGGER IF EXISTS "{null_trigger_name}" ON "{table}";
-            DROP FUNCTION IF EXISTS "{null_trigger_name}";
+            DROP FUNCTION IF EXISTS "{trigger_name}" CASCADE;
+            DROP FUNCTION IF EXISTS "{reverse_trigger_name}" CASCADE;
+            DROP FUNCTION IF EXISTS "{null_trigger_name}" CASCADE;
             "#,
             table = self.table,
             column = self.column,
             trigger_name = self.trigger_name(ctx),
+            reverse_trigger_name = self.reverse_trigger_name(ctx),
             null_trigger_name = self.null_constraint_trigger_name(ctx),
         );
         db.run(&query)
@@ -299,24 +377,14 @@ impl Action for RemoveColumn {
         .context("failed to reinstate column not null constraint")?;
 
         // Remove function and trigger
-        let trigger_table = match &self.down {
-            Some(Transformation::Update {
-                table,
-                value: _,
-                r#where: _,
-            }) => table,
-            _ => &self.table,
-        };
         db.run(&format!(
             r#"
-            DROP TRIGGER IF EXISTS "{trigger_name}" ON "{trigger_table}";
-            DROP FUNCTION IF EXISTS "{trigger_name}";
-
-            DROP TRIGGER IF EXISTS "{null_trigger_name}" ON "{table}";
-            DROP FUNCTION IF EXISTS "{null_trigger_name}";
+            DROP FUNCTION IF EXISTS "{trigger_name}" CASCADE;
+            DROP FUNCTION IF EXISTS "{reverse_trigger_name}" CASCADE;
+            DROP FUNCTION IF EXISTS "{null_trigger_name}" CASCADE;
             "#,
-            table = self.table,
             trigger_name = self.trigger_name(ctx),
+            reverse_trigger_name = self.reverse_trigger_name(ctx),
             null_trigger_name = self.null_constraint_trigger_name(ctx),
         ))
         .context("failed to drop down trigger")?;

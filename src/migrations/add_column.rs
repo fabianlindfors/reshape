@@ -3,7 +3,7 @@ use crate::{
     db::{Conn, Transaction},
     schema::Schema,
 };
-use anyhow::Context;
+use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -37,6 +37,15 @@ impl AddColumn {
     fn trigger_name(&self, ctx: &MigrationContext) -> String {
         format!(
             "{}_add_column_{}_{}",
+            ctx.prefix(),
+            self.table,
+            self.column.name
+        )
+    }
+
+    fn reverse_trigger_name(&self, ctx: &MigrationContext) -> String {
+        format!(
+            "{}_add_column_{}_{}_rev",
             ctx.prefix(),
             self.table,
             self.column.name
@@ -97,21 +106,21 @@ impl Action for AddColumn {
         );
         db.run(&query).context("failed to add column")?;
 
+        let declarations: Vec<String> = table
+            .columns
+            .iter()
+            .map(|column| {
+                format!(
+                    "{alias} public.{table}.{real_name}%TYPE := NEW.{real_name};",
+                    table = table.real_name,
+                    alias = column.name,
+                    real_name = column.real_name,
+                )
+            })
+            .collect();
+
         if let Some(up) = &self.up {
             if let Transformation::Simple(up) = up {
-                let declarations: Vec<String> = table
-                    .columns
-                    .iter()
-                    .map(|column| {
-                        format!(
-                            "{alias} public.{table}.{real_name}%TYPE := NEW.{real_name};",
-                            table = table.real_name,
-                            alias = column.name,
-                            real_name = column.real_name,
-                        )
-                    })
-                    .collect();
-
                 // Add triggers to fill in values as they are inserted/updated
                 let query = format!(
                     r#"
@@ -151,15 +160,20 @@ impl Action for AddColumn {
                 r#where,
             } = up
             {
+                let existing_schema_name = match &ctx.existing_schema_name {
+                    Some(name) => name,
+                    None => bail!("can't use update without previous migration"),
+                };
+
                 let from_table = schema.get_table(db, &from_table)?;
 
-                let declarations: Vec<String> = from_table
+                let from_table_assignments: Vec<String> = from_table
                     .columns
                     .iter()
                     .map(|column| {
                         format!(
-                            "{alias} public.{table}.{real_name}%TYPE := NEW.{real_name};",
-                            table = from_table.real_name,
+                            "{table}.{alias} = NEW.{real_name};",
+                            table = from_table.name,
                             alias = column.name,
                             real_name = column.real_name,
                         )
@@ -175,11 +189,18 @@ impl Action for AddColumn {
                     BEGIN
                         IF NOT reshape.is_new_schema() THEN
                             DECLARE
-                                {declarations}
+                                {from_table} migration_{existing_schema_name}.{from_table}%ROWTYPE;
                             BEGIN
+                                {assignments}
+
+                                -- Don't trigger reverse trigger when making this update
+                                perform set_config('reshape.disable_triggers', 'TRUE', TRUE);
+
                                 UPDATE public."{changed_table_real}"
                                 SET "{temp_column_name}" = {value}
                                 WHERE {where};
+
+                                perform set_config('reshape.disable_triggers', '', TRUE);
                             END;
                         END IF;
                         RETURN NEW;
@@ -189,13 +210,80 @@ impl Action for AddColumn {
                     DROP TRIGGER IF EXISTS "{trigger_name}" ON "{from_table_real}";
                     CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{from_table_real}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
                     "#,
+                    assignments = from_table_assignments.join("\n"),
                     changed_table_real = table.real_name,
+                    from_table = from_table.name,
                     from_table_real = from_table.real_name,
                     trigger_name = self.trigger_name(ctx),
-                    declarations = declarations.join("\n"),
+                    // declarations = from_table_declarations.join("\n"),
                     temp_column_name = temp_column_name,
                 );
                 db.run(&query).context("failed to create up trigger")?;
+
+                let from_table_columns = from_table
+                    .columns
+                    .iter()
+                    .map(|column| format!("{} as {}", column.real_name, column.name))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+
+                let changed_table_assignments: Vec<String> = table
+                    .columns
+                    .iter()
+                    .map(|column| {
+                        format!(
+                            "{table}.{alias} := NEW.{real_name};",
+                            table = table.name,
+                            alias = column.name,
+                            real_name = column.real_name,
+                        )
+                    })
+                    .collect();
+
+                // Add triggers to fill in values as they are inserted/updated
+                let query = format!(
+                    r#"
+                    CREATE OR REPLACE FUNCTION {trigger_name}()
+                    RETURNS TRIGGER AS $$
+                    #variable_conflict use_variable
+                    BEGIN
+                        IF NOT reshape.is_new_schema() AND NOT current_setting('reshape.disable_triggers', TRUE) = 'TRUE' THEN
+                            DECLARE
+                                {changed_table} migration_{existing_schema_name}.{changed_table}%ROWTYPE;
+                                __temp_row migration_{existing_schema_name}.{from_table}%ROWTYPE;
+                            BEGIN
+                                {changed_table_assignments}
+
+                                SELECT {from_table_columns}
+                                INTO __temp_row
+                                FROM migration_{existing_schema_name}.{from_table} {from_table}
+                                WHERE {where};
+
+                                DECLARE
+                                    {from_table} migration_{existing_schema_name}.{from_table}%ROWTYPE;
+                                BEGIN
+                                    {from_table} = __temp_row;
+                                    NEW.{temp_column_name} = {value};
+                                END;
+                            END;
+                        END IF;
+                        RETURN NEW;
+                    END
+                    $$ language 'plpgsql';
+
+                    DROP TRIGGER IF EXISTS "{trigger_name}" ON "{changed_table_real}";
+                    CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{changed_table_real}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
+                    "#,
+                    changed_table_assignments = changed_table_assignments.join("\n"),
+                    changed_table_real = table.real_name,
+                    changed_table = table.name,
+                    from_table = from_table.name,
+                    trigger_name = self.reverse_trigger_name(ctx),
+                    temp_column_name = temp_column_name,
+                    // declarations = declarations.join("\n"),
+                );
+                db.run(&query)
+                    .context("failed to create reverse up trigger")?;
 
                 // Backfill values in batches by touching the from table
                 common::batch_touch_rows(db, &from_table.real_name, None)
@@ -210,10 +298,10 @@ impl Action for AddColumn {
         if !self.column.nullable {
             let query = format!(
                 r#"
-                ALTER TABLE "{table}"
-                ADD CONSTRAINT "{constraint_name}"
-                CHECK ("{column}" IS NOT NULL) NOT VALID
-                "#,
+                 ALTER TABLE "{table}"
+                 ADD CONSTRAINT "{constraint_name}"
+                 CHECK ("{column}" IS NOT NULL) NOT VALID
+                 "#,
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(ctx),
                 column = temp_column_name,
@@ -236,8 +324,10 @@ impl Action for AddColumn {
         let query = format!(
             r#"
             DROP FUNCTION IF EXISTS "{trigger_name}" CASCADE;
+            DROP FUNCTION IF EXISTS "{reverse_trigger_name}" CASCADE;
             "#,
             trigger_name = self.trigger_name(ctx),
+            reverse_trigger_name = self.reverse_trigger_name(ctx),
         );
         transaction
             .run(&query)
@@ -329,8 +419,10 @@ impl Action for AddColumn {
         let query = format!(
             r#"
             DROP FUNCTION IF EXISTS "{trigger_name}" CASCADE;
+            DROP FUNCTION IF EXISTS "{reverse_trigger_name}" CASCADE;
             "#,
             trigger_name = self.trigger_name(ctx),
+            reverse_trigger_name = self.reverse_trigger_name(ctx),
         );
         db.run(&query).context("failed to drop up trigger")?;
 
