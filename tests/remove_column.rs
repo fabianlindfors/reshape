@@ -179,8 +179,8 @@ fn remove_column_with_complex_down() {
 
             [actions.down]
             table = "profiles"
-            value = "email"
-            where = "id = user_id"
+            value = "profiles.email"
+            where = "users.id = profiles.user_id"
         "#,
     );
 

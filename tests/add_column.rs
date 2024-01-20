@@ -308,8 +308,8 @@ fn add_column_with_complex_up() {
 
             [actions.up]
             table = "users"
-            value = "email"
-            where = "user_id = id"
+            value = "users.email"
+            where = "profiles.user_id = users.id"
         "#,
     );
 
