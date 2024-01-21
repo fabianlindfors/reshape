@@ -675,6 +675,7 @@ primary_key = ["account_id", "user_id"]
 	[[actions.columns]]
 	name = "role"
 	type = "TEXT"
+	nullable = false
 
 	# Backfill the new table from `users` and uppercase the `role`
 	[actions.up]
