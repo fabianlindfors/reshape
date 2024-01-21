@@ -9,7 +9,7 @@ license = "MIT"
 keywords = ["postgres", "migrations"]
 edition = "2021"
 authors = ["Fabian Lindfors"]
-rust-version = "1.58"
+rust-version = "1.60"
 
 [dependencies]
 postgres = { version = "0.19.2", features = ["with-serde_json-1"] }
