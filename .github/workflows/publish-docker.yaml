@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (without 'v' prefix)'
+        description: "Version (without 'v' prefix)"
         required: true
         type: string
 
@@ -12,14 +12,14 @@ jobs:
   publish-docker:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-    - name: Log in to Docker
-      env:
-        DOCKER_PASSWORD: ${{ secrets.DOCKER_ACCESS_TOKEN }}
-      run: |
-        docker login -u ${{ secrets.DOCKER_USER }} -p $DOCKER_PASSWORD
-    - name: Build Docker image
-      run: docker build . --tag ${{ secrets.DOCKER_USER }}/reshape:${{ inputs.version }} --tag ${{ secrets.DOCKER_USER }}/reshape:latest
-    - name: Push Docker image
-      run: docker push --all-tags ${{ secrets.DOCKER_USER }}/reshape
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Log in to Docker
+        env:
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+        run: |
+          docker login -u ${{ secrets.DOCKER_USER }} -p $DOCKER_PASSWORD
+      - name: Build Docker image
+        run: docker build . --tag ${{ secrets.DOCKER_USER }}/reshape:${{ inputs.version }} --tag ${{ secrets.DOCKER_USER }}/reshape:latest
+      - name: Push Docker image
+        run: docker push --all-tags ${{ secrets.DOCKER_USER }}/reshape
