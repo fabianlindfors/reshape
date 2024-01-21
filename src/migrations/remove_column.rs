@@ -43,9 +43,18 @@ impl RemoveColumn {
         )
     }
 
-    fn null_constraint_trigger_name(&self, ctx: &MigrationContext) -> String {
+    fn not_null_constraint_trigger_name(&self, ctx: &MigrationContext) -> String {
         format!(
             "{}_remove_column_{}_{}_nn",
+            ctx.prefix(),
+            self.table,
+            self.column
+        )
+    }
+
+    fn not_null_constraint_name(&self, ctx: &MigrationContext) -> String {
+        format!(
+            "{}_add_column_not_null_{}_{}",
             ctx.prefix(),
             self.table,
             self.column
@@ -132,6 +141,7 @@ impl Action for RemoveColumn {
 
                 let maybe_null_check = if !column.nullable {
                     // Replace NOT NULL constraint with a constraint trigger that only triggers on the old schema.
+                    // We will add a null check to the down function on the new schema below as well to cover both cases.
                     // As we are using a complex down function, we must remove the NOT NULL check for the new schema.
                     // NOT NULL is not checked at the end of a transaction, but immediately upon update.
                     let query = format!(
@@ -157,7 +167,7 @@ impl Action for RemoveColumn {
                             EXECUTE PROCEDURE {trigger_name}();
                         "#,
                         table = self.table,
-                        trigger_name = self.null_constraint_trigger_name(ctx),
+                        trigger_name = self.not_null_constraint_trigger_name(ctx),
                         column = self.column,
                     );
                     db.run(&query)
@@ -236,7 +246,6 @@ impl Action for RemoveColumn {
                     from_table_real = from_table.real_name,
                     column_name = self.column,
                     trigger_name = self.trigger_name(ctx),
-                    // declarations = declarations.join("\n"),
                 );
                 db.run(&query).context("failed to create down trigger")?;
 
@@ -310,8 +319,6 @@ impl Action for RemoveColumn {
             }
         }
 
-        if !column.nullable {}
-
         Ok(())
     }
 
@@ -347,7 +354,7 @@ impl Action for RemoveColumn {
             column = self.column,
             trigger_name = self.trigger_name(ctx),
             reverse_trigger_name = self.reverse_trigger_name(ctx),
-            null_trigger_name = self.null_constraint_trigger_name(ctx),
+            null_trigger_name = self.not_null_constraint_trigger_name(ctx),
         );
         db.run(&query)
             .context("failed to drop column and down trigger")?;
@@ -364,17 +371,70 @@ impl Action for RemoveColumn {
     }
 
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
-        // We might have removed the NOT NULL check so we reinstate it
-        db.run(&format!(
-            r#"
-            ALTER TABLE {table}
-            ALTER COLUMN {column}
-            SET NOT NULL
-            "#,
-            table = self.table,
-            column = self.column
-        ))
-        .context("failed to reinstate column not null constraint")?;
+        // We might have temporaily removed the NOT NULL check and have to reinstate it
+        let has_not_null_function = !db
+            .query_with_params(
+                "
+                SELECT routine_name
+                FROM information_schema.routines
+                WHERE routine_schema = 'public'
+                AND routine_name = $1
+                ",
+                &[&self.not_null_constraint_trigger_name(ctx)],
+            )
+            .context("failed to get any NOT NULL function")?
+            .is_empty();
+
+        if has_not_null_function {
+            // Make column NOT NULL again without taking any long lived locks with a temporary constraint
+            let query = format!(
+                r#"
+                 ALTER TABLE "{table}"
+                 ADD CONSTRAINT "{constraint_name}"
+                 CHECK ("{column}" IS NOT NULL) NOT VALID
+                 "#,
+                table = self.table,
+                constraint_name = self.not_null_constraint_name(ctx),
+                column = self.column,
+            );
+            db.run(&query)
+                .context("failed to add NOT NULL constraint")?;
+
+            let query = format!(
+                r#"
+                ALTER TABLE "{table}"
+                VALIDATE CONSTRAINT "{constraint_name}"
+                "#,
+                table = self.table,
+                constraint_name = self.not_null_constraint_name(ctx),
+            );
+            db.run(&query)
+                .context("failed to validate NOT NULL constraint")?;
+
+            // This ALTER TABLE call will not require any exclusive locks as it can use the validated constraint from above
+            db.run(&format!(
+                r#"
+                ALTER TABLE {table}
+                ALTER COLUMN {column}
+                SET NOT NULL
+                "#,
+                table = self.table,
+                column = self.column
+            ))
+            .context("failed to reinstate column NOT NULL")?;
+
+            // Drop the temporary constraint
+            let query = format!(
+                r#"
+                ALTER TABLE "{table}"
+                DROP CONSTRAINT "{constraint_name}"
+                "#,
+                table = self.table,
+                constraint_name = self.not_null_constraint_name(ctx),
+            );
+            db.run(&query)
+                .context("failed to drop NOT NULL constraint")?;
+        }
 
         // Remove function and trigger
         db.run(&format!(
@@ -385,7 +445,7 @@ impl Action for RemoveColumn {
             "#,
             trigger_name = self.trigger_name(ctx),
             reverse_trigger_name = self.reverse_trigger_name(ctx),
-            null_trigger_name = self.null_constraint_trigger_name(ctx),
+            null_trigger_name = self.not_null_constraint_trigger_name(ctx),
         ))
         .context("failed to drop down trigger")?;
 
