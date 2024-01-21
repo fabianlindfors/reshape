@@ -628,17 +628,6 @@ _Example: move `email` column from `users` to `profiles` table_
 
 ```toml
 [[actions]]
-type = "remove_column"
-table = "users"
-column = "email"
-
-	# When `profiles` is changed in the new schema, we write the email address back to the removed column
-	[actions.down]
-	table = "profiles"
-	value = "profiles.email"
-	where = "users.id = profiles.user_id"
-
-[[actions]]
 type = "add_column"
 table = "profiles"
 
@@ -652,6 +641,17 @@ table = "profiles"
 	table = "users"
 	value = "users.email"
 	where = "profiles.user_id = users.id"
+
+[[actions]]
+type = "remove_column"
+table = "users"
+column = "email"
+
+	# When `profiles` is changed in the new schema, we write the email address back to the removed column
+	[actions.down]
+	table = "profiles"
+	value = "profiles.email"
+	where = "users.id = profiles.user_id"
 ```
 
 _Example: turn a 1:N relationship between `users` and `accounts` into N:M and change the format of the associated `role`_

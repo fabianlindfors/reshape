@@ -52,7 +52,7 @@ fn move_column_between_tables() {
             nullable = false
 
             # When `users` is updated in the old schema, we write the email value to `profiles`
-            # When `profiles` is updated in the old schema, we touch the equivalent `users` row to update it
+            # When `profiles` is updated in the old schema, the equivalent `users.email` will also be updated
             [actions.up]
             table = "users"
             value = "users.email"
