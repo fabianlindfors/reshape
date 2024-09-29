@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: Select Rust toolchain with Clippy
       uses: actions-rs/toolchain@v1
       with:
@@ -23,6 +23,6 @@ jobs:
           components: clippy
           override: true
     - name: Use cache for Rust dependencies
-      uses: Swatinem/rust-cache@v1
+      uses: Swatinem/rust-cache@v2
     - name: Lint using Clippy
       run: cargo clippy
