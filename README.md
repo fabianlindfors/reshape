@@ -2,7 +2,7 @@
 
 [![Test status badge](https://github.com/fabianlindfors/Reshape/actions/workflows/test.yaml/badge.svg)](https://github.com/fabianlindfors/reshape/actions/workflows/test.yaml) [![Latest release](https://shields.io/github/v/release/fabianlindfors/reshape?display_name=tag&sort=semver&color=blue)](https://github.com/fabianlindfors/reshape/releases)
 
-> Also check out [ReshapeDB](https://reshapedb.com), a new database built from the ground up to make zero-downtime schema and data migrations as simple and safe as possible. If you'd like to chat about it, please [reach out](contact@reshapedb.com)!
+> If you like Postgres, you might also be interested in [pgfdb](https://github.com/fabianlindfors/pgfdb). pgfdb is an experimental project that turns Postgres into a distributed and horizontally scalable database.
 
 Reshape is an easy-to-use, zero-downtime schema migration tool for Postgres. It automatically handles complex migrations that would normally require downtime or manual multi-step changes. During a migration, Reshape ensures both the old and new schema are available at the same time, allowing you to gradually roll out your application. It will also perform all changes without excessive locking, avoiding downtime caused by blocking other queries. For a more thorough introduction to Reshape, check out the [introductory blog post](https://fabianlindfors.se/blog/schema-migrations-in-postgres-using-reshape/).
 
