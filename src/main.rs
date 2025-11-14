@@ -217,7 +217,13 @@ fn find_migrations(opts: &FindMigrationsOptions) -> anyhow::Result<Vec<Migration
         })
         .map(|result| {
             result.and_then(|(path, data)| {
-                let extension = path.extension().and_then(|ext| ext.to_str()).unwrap();
+                let extension = path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("migration file {} missing extension", path.display())
+                    })?;
+
                 let file_migration =
                     decode_migration_file(&data, extension).with_context(|| {
                         format!("failed to parse migration file {}", path.display())
