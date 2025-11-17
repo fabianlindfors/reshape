@@ -1,7 +1,9 @@
 use std::{cmp::min, time::Duration};
 
 use anyhow::{anyhow, Context};
-use postgres::{types::ToSql, NoTls, Row};
+use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
+use postgres::{types::ToSql, Row};
+use postgres_openssl::MakeTlsConnector;
 use rand::prelude::*;
 
 // DbLocker wraps a regular DbConn, only allowing access using the
@@ -25,7 +27,10 @@ impl DbLocker {
     const LOCK_KEY: i64 = 4036779288569897133;
 
     pub fn connect(config: &postgres::Config) -> anyhow::Result<Self> {
-        let mut pg = config.connect(NoTls)?;
+        let mut builder = SslConnector::builder(SslMethod::tls())?;
+        builder.set_verify(SslVerifyMode::NONE);
+        let connector = MakeTlsConnector::new(builder.build());
+        let mut pg = config.connect(connector)?;
 
         // When running DDL queries that acquire locks, we risk causing a "lock queue".
         // When attempting to acquire a lock, Postgres will wait for any long running queries to complete.
