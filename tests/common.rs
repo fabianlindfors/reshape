@@ -2,6 +2,12 @@ use colored::Colorize;
 use postgres::{Client, NoTls};
 use reshape::{migrations::Migration, Reshape};
 
+pub fn assert_invalid_sql(toml: &str) {
+    let migration: Migration = toml::from_str(toml).unwrap();
+    let errors: Vec<_> = migration.actions.iter().flat_map(|a| a.validate_sql()).collect();
+    assert!(!errors.is_empty(), "expected SQL validation to fail");
+}
+
 pub struct Test<'a> {
     name: &'a str,
     reshape: Reshape,

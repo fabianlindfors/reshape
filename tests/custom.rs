@@ -1,5 +1,41 @@
 mod common;
-use common::Test;
+use common::{assert_invalid_sql, Test};
+
+#[test]
+fn custom_invalid_start_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "custom"
+        start = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
+
+#[test]
+fn custom_invalid_complete_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "custom"
+        complete = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
+
+#[test]
+fn custom_invalid_abort_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "custom"
+        abort = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
 
 #[test]
 fn custom_enable_extension() {

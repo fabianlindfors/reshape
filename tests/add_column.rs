@@ -1,5 +1,75 @@
 mod common;
-use common::Test;
+use common::{assert_invalid_sql, Test};
+
+#[test]
+fn add_column_invalid_up_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "add_column"
+        table = "users"
+        up = "INVALID $$$ SYNTAX"
+        [actions.column]
+        name = "test"
+        type = "TEXT"
+        "#,
+    );
+}
+
+#[test]
+fn add_column_invalid_default_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "add_column"
+        table = "users"
+        [actions.column]
+        name = "test"
+        type = "TEXT"
+        default = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
+
+#[test]
+fn add_column_invalid_complex_up_value_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "add_column"
+        table = "users"
+        [actions.column]
+        name = "test"
+        type = "TEXT"
+        [actions.up]
+        table = "other"
+        value = "INVALID $$$ SYNTAX"
+        where = "users.id = other.id"
+        "#,
+    );
+}
+
+#[test]
+fn add_column_invalid_complex_up_where_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "add_column"
+        table = "users"
+        [actions.column]
+        name = "test"
+        type = "TEXT"
+        [actions.up]
+        table = "other"
+        value = "other.value"
+        where = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
 
 #[test]
 fn add_column() {

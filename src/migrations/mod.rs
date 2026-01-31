@@ -5,6 +5,17 @@ use crate::{
 use core::fmt::Debug;
 use serde::{Deserialize, Serialize};
 
+/// Validate a complete SQL statement using pg_query
+pub fn validate_sql_statement(sql: &str) -> Result<(), String> {
+    pg_query::parse(sql).map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// Validate an SQL expression by wrapping it in SELECT
+pub fn validate_sql_expression(expr: &str) -> Result<(), String> {
+    let wrapped = format!("SELECT ({})", expr);
+    pg_query::parse(&wrapped).map(|_| ()).map_err(|e| e.to_string())
+}
+
 // Re-export migration types
 mod common;
 pub use common::Column;
@@ -132,4 +143,9 @@ pub trait Action: Debug {
     ) -> anyhow::Result<Option<Transaction<'a>>>;
     fn update_schema(&self, ctx: &MigrationContext, schema: &mut Schema);
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()>;
+
+    /// Validate user-provided SQL. Returns list of (field_name, sql, error_message).
+    fn validate_sql(&self) -> Vec<(String, String, String)> {
+        vec![] // Default: no SQL to validate
+    }
 }

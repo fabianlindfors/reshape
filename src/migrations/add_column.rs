@@ -1,4 +1,4 @@
-use super::{common, Action, Column, MigrationContext};
+use super::{common, validate_sql_expression, Action, Column, MigrationContext};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -427,5 +427,44 @@ impl Action for AddColumn {
         db.run(&query).context("failed to drop up trigger")?;
 
         Ok(())
+    }
+
+    fn validate_sql(&self) -> Vec<(String, String, String)> {
+        let mut errors = vec![];
+
+        // Validate transformation
+        if let Some(up) = &self.up {
+            match up {
+                Transformation::Simple(expr) => {
+                    if let Err(e) = validate_sql_expression(expr) {
+                        errors.push(("up".to_string(), expr.clone(), e));
+                    }
+                }
+                Transformation::Update { value, r#where, .. } => {
+                    if let Err(e) = validate_sql_expression(value) {
+                        errors.push(("up.value".to_string(), value.clone(), e));
+                    }
+                    if let Err(e) = validate_sql_expression(r#where) {
+                        errors.push(("up.where".to_string(), r#where.clone(), e));
+                    }
+                }
+            }
+        }
+
+        // Validate column default
+        if let Some(default) = &self.column.default {
+            if let Err(e) = validate_sql_expression(default) {
+                errors.push(("column.default".to_string(), default.clone(), e));
+            }
+        }
+
+        // Validate column generated
+        if let Some(generated) = &self.column.generated {
+            if let Err(e) = validate_sql_expression(generated) {
+                errors.push(("column.generated".to_string(), generated.clone(), e));
+            }
+        }
+
+        errors
     }
 }

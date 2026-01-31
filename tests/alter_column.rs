@@ -1,5 +1,48 @@
 mod common;
-use common::Test;
+use common::{assert_invalid_sql, Test};
+
+#[test]
+fn alter_column_invalid_up_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        up = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
+
+#[test]
+fn alter_column_invalid_down_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        down = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
+
+#[test]
+fn alter_column_invalid_default_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        [actions.changes]
+        default = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
 
 #[test]
 fn alter_column_data() {

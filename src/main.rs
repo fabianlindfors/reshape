@@ -143,13 +143,31 @@ fn run(opts: Opts) -> anyhow::Result<()> {
             let migrations = find_migrations(&opts)?;
             if migrations.is_empty() {
                 println!("No migration files found");
+                return Ok(());
+            }
+
+            let mut has_errors = false;
+            for migration in &migrations {
+                for (idx, action) in migration.actions.iter().enumerate() {
+                    for (field, sql, error) in action.validate_sql() {
+                        has_errors = true;
+                        println!(
+                            "Invalid SQL in '{}' action {} field '{}': {}\n  SQL: {}",
+                            migration.name, idx, field, error, sql
+                        );
+                    }
+                }
+            }
+
+            if has_errors {
+                Err(anyhow::anyhow!("SQL validation failed"))
             } else {
                 println!("All {} migration(s) are valid", migrations.len());
                 for migration in &migrations {
                     println!("  {}", migration.name);
                 }
+                Ok(())
             }
-            Ok(())
         }
         Command::SchemaQuery(opts) | Command::GenerateSchemaQuery(opts) => {
             let migrations = find_migrations(&opts)?;

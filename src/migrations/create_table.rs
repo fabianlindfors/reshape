@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{common::ForeignKey, Action, Column, MigrationContext};
+use super::{common::ForeignKey, validate_sql_expression, Action, Column, MigrationContext};
 use crate::{
     db::{Conn, Transaction},
     migrations::common,
@@ -232,5 +232,43 @@ impl Action for CreateTable {
         .context("failed to drop table")?;
 
         Ok(())
+    }
+
+    fn validate_sql(&self) -> Vec<(String, String, String)> {
+        let mut errors = vec![];
+
+        // Validate column defaults and generated expressions
+        for (idx, column) in self.columns.iter().enumerate() {
+            if let Some(default) = &column.default {
+                if let Err(e) = validate_sql_expression(default) {
+                    errors.push((
+                        format!("columns[{}].default", idx),
+                        default.clone(),
+                        e,
+                    ));
+                }
+            }
+
+            if let Some(generated) = &column.generated {
+                if let Err(e) = validate_sql_expression(generated) {
+                    errors.push((
+                        format!("columns[{}].generated", idx),
+                        generated.clone(),
+                        e,
+                    ));
+                }
+            }
+        }
+
+        // Validate transformation values
+        if let Some(Transformation { values, .. }) = &self.up {
+            for (key, value) in values {
+                if let Err(e) = validate_sql_expression(value) {
+                    errors.push((format!("up.values.{}", key), value.clone(), e));
+                }
+            }
+        }
+
+        errors
     }
 }

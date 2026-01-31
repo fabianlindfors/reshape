@@ -1,5 +1,53 @@
 mod common;
-use common::Test;
+use common::{assert_invalid_sql, Test};
+
+#[test]
+fn remove_column_invalid_down_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "name"
+        down = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
+
+#[test]
+fn remove_column_invalid_complex_down_value_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "name"
+        [actions.down]
+        table = "other"
+        value = "INVALID $$$ SYNTAX"
+        where = "users.id = other.id"
+        "#,
+    );
+}
+
+#[test]
+fn remove_column_invalid_complex_down_where_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "name"
+        [actions.down]
+        table = "other"
+        value = "other.value"
+        where = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
 
 #[test]
 fn remove_column() {

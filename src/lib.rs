@@ -210,6 +210,22 @@ fn migrate(
             let description = action.describe();
             print!("  + {} ", description);
 
+            // Validate SQL before running action
+            let validation_errors = action.validate_sql();
+            if !validation_errors.is_empty() {
+                for (field, sql, error) in &validation_errors {
+                    println!(
+                        "\n    Invalid SQL in field '{}': {}\n      SQL: {}",
+                        field, error, sql
+                    );
+                }
+                result = Err(anyhow!(
+                    "SQL validation failed for action: {}",
+                    description
+                ));
+                break 'outer;
+            }
+
             let ctx =
                 MigrationContext::new(migration_index, action_index, state::current_migration(db)?);
             result = action

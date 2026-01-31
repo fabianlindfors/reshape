@@ -1,4 +1,4 @@
-use super::{Action, MigrationContext};
+use super::{validate_sql_statement, Action, MigrationContext};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -57,5 +57,29 @@ impl Action for Custom {
         }
 
         Ok(())
+    }
+
+    fn validate_sql(&self) -> Vec<(String, String, String)> {
+        let mut errors = vec![];
+
+        if let Some(start) = &self.start {
+            if let Err(e) = validate_sql_statement(start) {
+                errors.push(("start".to_string(), start.clone(), e));
+            }
+        }
+
+        if let Some(complete) = &self.complete {
+            if let Err(e) = validate_sql_statement(complete) {
+                errors.push(("complete".to_string(), complete.clone(), e));
+            }
+        }
+
+        if let Some(abort) = &self.abort {
+            if let Err(e) = validate_sql_statement(abort) {
+                errors.push(("abort".to_string(), abort.clone(), e));
+            }
+        }
+
+        errors
     }
 }

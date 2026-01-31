@@ -1,4 +1,4 @@
-use super::{common, Action, MigrationContext};
+use super::{common, validate_sql_expression, Action, MigrationContext};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -450,5 +450,29 @@ impl Action for RemoveColumn {
         .context("failed to drop down trigger")?;
 
         Ok(())
+    }
+
+    fn validate_sql(&self) -> Vec<(String, String, String)> {
+        let mut errors = vec![];
+
+        if let Some(down) = &self.down {
+            match down {
+                Transformation::Simple(expr) => {
+                    if let Err(e) = validate_sql_expression(expr) {
+                        errors.push(("down".to_string(), expr.clone(), e));
+                    }
+                }
+                Transformation::Update { value, r#where, .. } => {
+                    if let Err(e) = validate_sql_expression(value) {
+                        errors.push(("down.value".to_string(), value.clone(), e));
+                    }
+                    if let Err(e) = validate_sql_expression(r#where) {
+                        errors.push(("down.where".to_string(), r#where.clone(), e));
+                    }
+                }
+            }
+        }
+
+        errors
     }
 }

@@ -1,5 +1,45 @@
 mod common;
-use common::Test;
+use common::{assert_invalid_sql, Test};
+
+#[test]
+fn create_table_invalid_default_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+        [[actions.columns]]
+        name = "id"
+        type = "INTEGER"
+        [[actions.columns]]
+        name = "name"
+        type = "TEXT"
+        default = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
+
+#[test]
+fn create_table_invalid_up_values_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+        [[actions.columns]]
+        name = "id"
+        type = "INTEGER"
+        [actions.up]
+        table = "other"
+        [actions.up.values]
+        id = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
 
 #[test]
 fn create_table() {
