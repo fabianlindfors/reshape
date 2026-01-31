@@ -4,10 +4,11 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use version::version;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(tag = "state")]
 pub enum State {
     #[serde(rename = "idle")]
+    #[default]
     Idle,
 
     #[serde(rename = "applying")]
@@ -164,11 +165,6 @@ impl State {
     }
 }
 
-impl Default for State {
-    fn default() -> Self {
-        Self::Idle
-    }
-}
 
 pub fn current_migration(db: &mut dyn Conn) -> anyhow::Result<Option<String>> {
     let name: Option<String> = db

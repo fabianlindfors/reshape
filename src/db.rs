@@ -91,7 +91,7 @@ pub trait Conn {
         query: &str,
         params: &[&(dyn ToSql + Sync)],
     ) -> anyhow::Result<Vec<Row>>;
-    fn transaction(&mut self) -> anyhow::Result<Transaction>;
+    fn transaction(&mut self) -> anyhow::Result<Transaction<'_>>;
 }
 
 pub struct DbConn {
@@ -124,7 +124,7 @@ impl Conn for DbConn {
         Ok(rows)
     }
 
-    fn transaction(&mut self) -> anyhow::Result<Transaction> {
+    fn transaction(&mut self) -> anyhow::Result<Transaction<'_>> {
         let transaction = self.client.transaction()?;
         Ok(Transaction { transaction })
     }
@@ -166,7 +166,7 @@ impl Conn for Transaction<'_> {
         Ok(rows)
     }
 
-    fn transaction(&mut self) -> anyhow::Result<Transaction> {
+    fn transaction(&mut self) -> anyhow::Result<Transaction<'_>> {
         let transaction = self.transaction.transaction()?;
         Ok(Transaction { transaction })
     }

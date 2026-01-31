@@ -14,8 +14,8 @@ cargo test -- --test-threads=1
 # Run a single test
 cargo test test_name -- --test-threads=1
 
-# Lint (fix all warnings)
-cargo clippy
+# Lint (fails hard for warnings as well)
+cargo clippy -- -D warnings
 ```
 
 **Test database setup:** Tests require a Postgres database.
