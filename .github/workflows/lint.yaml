@@ -25,4 +25,4 @@ jobs:
     - name: Use cache for Rust dependencies
       uses: Swatinem/rust-cache@v2
     - name: Lint using Clippy
-      run: cargo clippy
+      run: cargo clippy -- -D warnings

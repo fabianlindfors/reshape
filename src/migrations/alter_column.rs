@@ -63,7 +63,7 @@ impl Action for AlterColumn {
             .changes
             .default
             .as_ref()
-            .or_else(|| column.default.as_ref());
+            .or(column.default.as_ref());
         if let Some(default) = default_value {
             temp_column_definition_parts.push("DEFAULT");
             temp_column_definition_parts.push(default);

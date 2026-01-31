@@ -120,7 +120,7 @@ impl Action for CreateTable {
             upsert_constraint,
         }) = &self.up
         {
-            let from_table = schema.get_table(db, &from_table)?;
+            let from_table = schema.get_table(db, from_table)?;
 
             let declarations: Vec<String> = from_table
                 .columns

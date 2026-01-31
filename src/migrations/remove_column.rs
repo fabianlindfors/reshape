@@ -137,7 +137,7 @@ impl Action for RemoveColumn {
                     None => bail!("can't use update without previous migration"),
                 };
 
-                let from_table = schema.get_table(db, &from_table)?;
+                let from_table = schema.get_table(db, from_table)?;
 
                 let maybe_null_check = if !column.nullable {
                     // Replace NOT NULL constraint with a constraint trigger that only triggers on the old schema.

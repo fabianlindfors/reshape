@@ -14,7 +14,7 @@ cargo test -- --test-threads=1
 # Run a single test
 cargo test test_name -- --test-threads=1
 
-# Lint
+# Lint (fix all warnings)
 cargo clippy
 ```
 

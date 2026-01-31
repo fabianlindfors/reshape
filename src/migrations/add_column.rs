@@ -165,7 +165,7 @@ impl Action for AddColumn {
                     None => bail!("can't use update without previous migration"),
                 };
 
-                let from_table = schema.get_table(db, &from_table)?;
+                let from_table = schema.get_table(db, from_table)?;
 
                 let from_table_assignments: Vec<String> = from_table
                     .columns

@@ -168,7 +168,7 @@ fn reshape_from_connection_options(opts: &ConnectionOptions) -> anyhow::Result<R
     dotenv::dotenv().ok();
 
     let url_env = std::env::var("DB_URL").ok();
-    let url = url_env.as_ref().or_else(|| opts.url.as_ref());
+    let url = url_env.as_ref().or(opts.url.as_ref());
 
     // Use the connection URL if it has been set
     if let Some(url) = url {
@@ -176,7 +176,7 @@ fn reshape_from_connection_options(opts: &ConnectionOptions) -> anyhow::Result<R
     }
 
     let host_env = std::env::var("DB_HOST").ok();
-    let host = host_env.as_ref().unwrap_or_else(|| &opts.host);
+    let host = host_env.as_ref().unwrap_or(&opts.host);
 
     let port = std::env::var("DB_PORT")
         .ok()
@@ -184,13 +184,13 @@ fn reshape_from_connection_options(opts: &ConnectionOptions) -> anyhow::Result<R
         .unwrap_or(opts.port);
 
     let username_env = std::env::var("DB_USERNAME").ok();
-    let username = username_env.as_ref().unwrap_or_else(|| &opts.username);
+    let username = username_env.as_ref().unwrap_or(&opts.username);
 
     let password_env = std::env::var("DB_PASSWORD").ok();
-    let password = password_env.as_ref().unwrap_or_else(|| &opts.password);
+    let password = password_env.as_ref().unwrap_or(&opts.password);
 
     let database_env = std::env::var("DB_NAME").ok();
-    let database = database_env.as_ref().unwrap_or_else(|| &opts.database);
+    let database = database_env.as_ref().unwrap_or(&opts.database);
 
     Reshape::new_with_options(host, port, database, username, password)
 }
