@@ -26,30 +26,36 @@ enum Command {
     Migration(MigrationCommand),
 
     #[clap(
-        about = "Output the query your application should use to select the right schema",
+        about = "Validates that all migration files are well-formed",
         display_order = 2
+    )]
+    Check(FindMigrationsOptions),
+
+    #[clap(
+        about = "Output the query your application should use to select the right schema",
+        display_order = 3
     )]
     SchemaQuery(FindMigrationsOptions),
 
     #[clap(
         about = "Deprecated. Use `reshape schema-query` instead",
-        display_order = 3
+        display_order = 4
     )]
     GenerateSchemaQuery(FindMigrationsOptions),
 
     #[clap(
         about = "Deprecated. Use `reshape migration start` instead",
-        display_order = 4
+        display_order = 5
     )]
     Migrate(MigrateOptions),
     #[clap(
         about = "Deprecated. Use `reshape migration complete` instead",
-        display_order = 5
+        display_order = 6
     )]
     Complete(ConnectionOptions),
     #[clap(
         about = "Deprecated. Use `reshape migration abort` instead",
-        display_order = 6
+        display_order = 7
     )]
     Abort(ConnectionOptions),
 }
@@ -132,6 +138,18 @@ fn run(opts: Opts) -> anyhow::Result<()> {
         Command::Migration(MigrationCommand::Abort(opts)) | Command::Abort(opts) => {
             let mut reshape = reshape_from_connection_options(&opts)?;
             reshape.abort()
+        }
+        Command::Check(opts) => {
+            let migrations = find_migrations(&opts)?;
+            if migrations.is_empty() {
+                println!("No migration files found");
+            } else {
+                println!("All {} migration(s) are valid", migrations.len());
+                for migration in &migrations {
+                    println!("  {}", migration.name);
+                }
+            }
+            Ok(())
         }
         Command::SchemaQuery(opts) | Command::GenerateSchemaQuery(opts) => {
             let migrations = find_migrations(&opts)?;
