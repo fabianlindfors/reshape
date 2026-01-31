@@ -30,12 +30,12 @@ jobs:
         - name: macOS
           file-name: darwin_amd64
           target: x86_64-apple-darwin
-          host: macos-11
+          host: macos-15-intel
           use-cross: false
         - name: macOS Apple Silicon
           file-name: darwin_aarch64
           target: aarch64-apple-darwin
-          host: macos-11
+          host: macos-15
           use-cross: false
 
     runs-on: ${{ matrix.host }}
