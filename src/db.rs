@@ -180,7 +180,7 @@ fn retry_automatically<T>(
     const MAX_WAIT_TIME: u64 = 3_200;
     const MAX_ATTEMPTS: u32 = 10;
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut attempts = 0;
     loop {
         let result = f();
@@ -211,7 +211,7 @@ fn retry_automatically<T>(
         );
 
         // The jitter is up to half the wait time
-        let jitter: u64 = rng.gen_range(0..wait_time / 2);
+        let jitter: u64 = rng.random_range(0..wait_time / 2);
 
         std::thread::sleep(Duration::from_millis(wait_time + jitter));
     }
