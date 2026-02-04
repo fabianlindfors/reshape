@@ -249,15 +249,8 @@ impl Action for CreateTable {
                 }
             }
 
-            if let Some(generated) = &column.generated {
-                if let Err(e) = validate_sql_expression(generated) {
-                    errors.push((
-                        format!("columns[{}].generated", idx),
-                        generated.clone(),
-                        e,
-                    ));
-                }
-            }
+            // Note: `generated` is not validated as it's a column generation clause
+            // (e.g., "ALWAYS AS IDENTITY"), not a SQL expression
         }
 
         // Validate transformation values
