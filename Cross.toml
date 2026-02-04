@@ -1,0 +1,8 @@
+[target.x86_64-unknown-linux-gnu]
+pre-build = ["apt-get update && apt-get install -y clang libclang-dev"]
+
+[target.i686-unknown-linux-gnu]
+pre-build = ["apt-get update && apt-get install -y clang libclang-dev"]
+
+[target.aarch64-unknown-linux-gnu]
+pre-build = ["apt-get update && apt-get install -y clang libclang-dev"]
