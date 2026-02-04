@@ -1,8 +1,35 @@
 [target.x86_64-unknown-linux-gnu]
-pre-build = ["apt-get update && apt-get install -y clang libclang-dev"]
+pre-build = [
+    "apt-get update && apt-get install -y wget gnupg software-properties-common",
+    "wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc",
+    "add-apt-repository -y 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal-14 main'",
+    "apt-get update && apt-get install -y clang-14 libclang-14-dev",
+    "ln -sf /usr/bin/clang-14 /usr/bin/clang"
+]
+
+[target.x86_64-unknown-linux-gnu.env]
+variables = { "LIBCLANG_PATH" = "/usr/lib/llvm-14/lib" }
 
 [target.i686-unknown-linux-gnu]
-pre-build = ["apt-get update && apt-get install -y clang libclang-dev"]
+pre-build = [
+    "apt-get update && apt-get install -y wget gnupg software-properties-common",
+    "wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc",
+    "add-apt-repository -y 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal-14 main'",
+    "apt-get update && apt-get install -y clang-14 libclang-14-dev",
+    "ln -sf /usr/bin/clang-14 /usr/bin/clang"
+]
+
+[target.i686-unknown-linux-gnu.env]
+variables = { "LIBCLANG_PATH" = "/usr/lib/llvm-14/lib" }
 
 [target.aarch64-unknown-linux-gnu]
-pre-build = ["apt-get update && apt-get install -y clang libclang-dev"]
+pre-build = [
+    "apt-get update && apt-get install -y wget gnupg software-properties-common",
+    "wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc",
+    "add-apt-repository -y 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal-14 main'",
+    "apt-get update && apt-get install -y clang-14 libclang-14-dev",
+    "ln -sf /usr/bin/clang-14 /usr/bin/clang"
+]
+
+[target.aarch64-unknown-linux-gnu.env]
+variables = { "LIBCLANG_PATH" = "/usr/lib/llvm-14/lib" }
