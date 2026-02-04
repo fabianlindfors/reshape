@@ -1,0 +1,14 @@
+ARG CROSS_BASE_IMAGE=ghcr.io/cross-rs/i686-unknown-linux-gnu:main
+FROM $CROSS_BASE_IMAGE
+
+RUN apt-get update && \
+    apt-get install --assume-yes --no-install-recommends \
+        wget gnupg software-properties-common && \
+    wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
+    . /etc/os-release && \
+    echo "deb http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-14 main" > /etc/apt/sources.list.d/llvm.list && \
+    apt-get update && \
+    apt-get install --assume-yes --no-install-recommends clang-14 libclang-14-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV LIBCLANG_PATH=/usr/lib/llvm-14/lib
