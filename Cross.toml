@@ -1,8 +1,11 @@
+[build]
+pre-build = ["apt-get update && apt-get install --assume-yes --no-install-recommends libclang-10-dev clang-10"]
+
 [target.x86_64-unknown-linux-gnu]
-dockerfile = "cross/Dockerfile.x86_64"
+image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:main"
 
 [target.i686-unknown-linux-gnu]
-dockerfile = "cross/Dockerfile.i686"
+image = "ghcr.io/cross-rs/i686-unknown-linux-gnu:main"
 
 [target.aarch64-unknown-linux-gnu]
-dockerfile = "cross/Dockerfile.aarch64"
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main"

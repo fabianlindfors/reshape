@@ -42,21 +42,22 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
-    - name: Select Rust toolchain 
-      uses: actions-rs/toolchain@v1
+      uses: actions/checkout@v4
+    - name: Select Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
       with:
-          toolchain: stable
-          override: true
-          target: ${{ matrix.target }}
+          targets: ${{ matrix.target }}
     - name: Use cache for Rust dependencies
-      uses: Swatinem/rust-cache@v1
-    - name: Build
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --release --target ${{ matrix.target }}
-        use-cross: ${{ matrix.use-cross }}
+      uses: Swatinem/rust-cache@v2
+    - name: Install cross
+      if: matrix.use-cross
+      run: cargo install cross --git https://github.com/cross-rs/cross
+    - name: Build with cross
+      if: matrix.use-cross
+      run: cross build --release --target ${{ matrix.target }}
+    - name: Build with cargo
+      if: ${{ !matrix.use-cross }}
+      run: cargo build --release --target ${{ matrix.target }}
     - name: Rename binary
       run: mv target/${{ matrix.target }}/release/reshape ./reshape-${{ matrix.file-name }}
     - name: Upload binary to release
@@ -68,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: Log in to Docker
       env:
         DOCKER_PASSWORD: ${{ secrets.DOCKER_ACCESS_TOKEN }}
@@ -86,14 +87,10 @@ jobs:
     needs: ["build-binary", "publish-docker"]
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
-    - name: Select Rust toolchain 
-      uses: actions-rs/toolchain@v1
-      with:
-          toolchain: stable
+      uses: actions/checkout@v4
+    - name: Select Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
     - name: Publish to crates.io
-      uses: actions-rs/cargo@v1
-      with:
-        command: publish
+      run: cargo publish
       env:
         CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
