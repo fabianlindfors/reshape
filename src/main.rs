@@ -26,6 +26,12 @@ enum Command {
     Migration(MigrationCommand),
 
     #[clap(
+        about = "Display documentation for coding agents",
+        display_order = 0
+    )]
+    Docs(DocsOptions),
+
+    #[clap(
         about = "Validates that all migration files are well-formed",
         display_order = 2
     )]
@@ -58,6 +64,13 @@ enum Command {
         display_order = 7
     )]
     Abort(ConnectionOptions),
+}
+
+#[derive(Parser)]
+struct DocsOptions {
+    /// Path to documentation section (e.g., /migrations/actions)
+    #[clap(default_value = "/")]
+    path: String,
 }
 
 #[derive(Parser)]
@@ -119,6 +132,11 @@ fn main() -> anyhow::Result<()> {
 
 fn run(opts: Opts) -> anyhow::Result<()> {
     match opts.cmd {
+        Command::Docs(opts) => {
+            let content = reshape::docs::get(&opts.path)?;
+            println!("{}", content);
+            Ok(())
+        }
         Command::Migration(MigrationCommand::Start(opts)) | Command::Migrate(opts) => {
             let mut reshape = reshape_from_connection_options(&opts.connection_options)?;
             let migrations = find_migrations(&opts.find_migrations_options)?;

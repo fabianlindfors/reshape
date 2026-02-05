@@ -15,6 +15,7 @@ Designed for Postgres 12 and later.
   - [Preparing your application](#preparing-your-application)
   - [Running your migration](#running-your-migration)
   - [Using during development](#using-during-development)
+  - [Using with coding agents](#using-with-coding-agents)
 - [Writing migrations](#writing-migrations)
   - [Basics](#basics)
   - [Tables](#tables)
@@ -40,6 +41,7 @@ Designed for Postgres 12 and later.
   - [`reshape migration complete`](#reshape-migration-complete)
   - [`reshape migration abort`](#reshape-migration-abort)
   - [`reshape schema-query`](#reshape-schema-query)
+  - [`reshape docs`](#reshape-docs)
   - [Connection options](#connection-options)
 - [License](#license)
 
@@ -133,6 +135,14 @@ If nothing else is specified, Reshape will try to connect to a Postgres database
 ### Using during development
 
 When adding new migrations during development, we recommend running `reshape migration start` but skipping `reshape migration complete`. This way, the new migrations can be iterated on by updating the migration file and running `reshape migration abort` followed by `reshape migration start`.
+
+### Using with coding agents
+
+Reshape is designed to be used with coding agents, so that coding agents can handle the workflow of writing and testing schema migrations during development. To facilitate this, the Reshape CLI includes a `reshape docs` command that should be used by agents. We recommend adding something like this to your agent's system prompt:
+
+```
+This project uses Reshape to manage Postgres schema migrations with zero-downtime guarantees. Run `reshape docs` to retrieve docs on how to write and manage these migrations.
+```
 
 ## Writing migrations
 
@@ -741,15 +751,34 @@ See [Connection options](#connection-options)
 
 Generates the SQL query you need to run in your application before using the database. This command does not require a database connection. Instead it will generate the query based on the latest migration in the `migrations/` directory (or the directories specified by `--dirs`).
 
-If your application is written in Rust, we recommend using the [Rust helper library](https://github.com/fabianlindfors/reshape-helper/) instead.
-
 The query should look something like `SET search_path TO migration_1_initial_migration`.
+
+We recommend using one of the helper libraries if available for your language to simplify this:
+
+- [Rust](https://github.com/fabianlindfors/reshape-helper)
+- [Ruby (and Rails)](https://github.com/fabianlindfors/reshape-ruby)
+- [Python (and Django)](https://github.com/fabianlindfors/reshape-python)
+- [Go](https://github.com/leourbina/reshape-helper)
 
 #### Options
 
 | Option   | Default       | Description                                                                                                     |
 | -------- | ------------- | --------------------------------------------------------------------------------------------------------------- |
 | `--dirs` | `migrations/` | Directories to search for migration files. Multiple directories can be specified using `--dirs dir1 dir2 dir3`. |
+
+### `reshape docs`
+
+Displays built-in documentation for Reshape, designed for use by coding agents to write and run schema migrations during development.
+
+```bash
+# Show overview documentation
+reshape docs
+
+# Show specific documentation section (available paths are referenced in docs)
+reshape docs /workflow
+reshape docs /migrations/actions
+reshape docs /migrations/actions/add-column
+```
 
 ### Connection options
 

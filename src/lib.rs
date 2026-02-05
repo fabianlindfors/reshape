@@ -10,6 +10,7 @@ use postgres::Config;
 use schema::Table;
 
 mod db;
+pub mod docs;
 mod helpers;
 pub mod migrations;
 mod schema;
