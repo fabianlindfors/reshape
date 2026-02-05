@@ -8,6 +8,36 @@ use colored::*;
 use db::{Conn, DbConn, DbLocker};
 use postgres::Config;
 use schema::Table;
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Status {
+    pub status: StatusType,
+    pub in_progress_migrations: Vec<String>,
+    pub latest_completed_migration: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StatusType {
+    Idle,
+    Applying,
+    InProgress,
+    Completing,
+    Aborting,
+}
+
+impl std::fmt::Display for StatusType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StatusType::Idle => write!(f, "idle"),
+            StatusType::Applying => write!(f, "applying"),
+            StatusType::InProgress => write!(f, "in_progress"),
+            StatusType::Completing => write!(f, "completing"),
+            StatusType::Aborting => write!(f, "aborting"),
+        }
+    }
+}
 
 mod db;
 pub mod docs;
@@ -72,6 +102,39 @@ impl Reshape {
         self.db.lock(|db| {
             let mut state = State::load(db)?;
             abort(db, &mut state)
+        })
+    }
+
+    pub fn status(&mut self) -> anyhow::Result<Status> {
+        self.db.lock(|db| {
+            let state = State::load(db)?;
+            let latest_completed_migration = state::current_migration(db)?;
+
+            let (status, in_progress_migrations) = match state {
+                State::Idle => (StatusType::Idle, Vec::new()),
+                State::Applying { migrations } => (
+                    StatusType::Applying,
+                    migrations.iter().map(|m| m.name.clone()).collect(),
+                ),
+                State::InProgress { migrations } => (
+                    StatusType::InProgress,
+                    migrations.iter().map(|m| m.name.clone()).collect(),
+                ),
+                State::Completing { migrations, .. } => (
+                    StatusType::Completing,
+                    migrations.iter().map(|m| m.name.clone()).collect(),
+                ),
+                State::Aborting { migrations, .. } => (
+                    StatusType::Aborting,
+                    migrations.iter().map(|m| m.name.clone()).collect(),
+                ),
+            };
+
+            Ok(Status {
+                status,
+                in_progress_migrations,
+                latest_completed_migration,
+            })
         })
     }
 

@@ -40,6 +40,7 @@ Designed for Postgres 12 and later.
   - [`reshape migration start`](#reshape-migration-start)
   - [`reshape migration complete`](#reshape-migration-complete)
   - [`reshape migration abort`](#reshape-migration-abort)
+  - [`reshape status`](#reshape-status)
   - [`reshape schema-query`](#reshape-schema-query)
   - [`reshape docs`](#reshape-docs)
   - [Connection options](#connection-options)
@@ -746,6 +747,38 @@ Aborts any migrations which haven't yet been completed.
 #### Options
 
 See [Connection options](#connection-options)
+
+### `reshape status`
+
+Checks the current migration status against the database. This command will show:
+
+- The current status (`idle`, `applying`, `in_progress`, `completing`, or `aborting`)
+- Any migrations currently in progress
+- The latest completed migration
+
+```bash
+# Human-readable output (default)
+reshape status
+
+# JSON output for scripts and automation
+reshape status --format json
+```
+
+JSON output schema:
+
+| Field                        | Type       | Description                                                                                 |
+| ---------------------------- | ---------- | ------------------------------------------------------------------------------------------- |
+| `status`                     | `string`   | Current state: `idle`, `applying`, `in_progress`, `completing`, or `aborting`               |
+| `in_progress_migrations`     | `string[]` | List of migration names currently being applied (empty when `status` is `idle`)             |
+| `latest_completed_migration` | `string?`  | Name of the most recently completed migration, or `null` if no migrations have been applied |
+
+#### Options
+
+_See also [Connection options](#connection-options)_
+
+| Option     | Default | Description                              |
+| ---------- | ------- | ---------------------------------------- |
+| `--format` | `human` | Output format. Can be `human` or `json`. |
 
 ### `reshape schema-query`
 

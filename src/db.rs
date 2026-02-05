@@ -48,10 +48,10 @@ impl DbLocker {
         })
     }
 
-    pub fn lock(
+    pub fn lock<T>(
         &mut self,
-        f: impl FnOnce(&mut DbConn) -> anyhow::Result<()>,
-    ) -> anyhow::Result<()> {
+        f: impl FnOnce(&mut DbConn) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
         self.acquire_lock()?;
         let result = f(&mut self.client);
         self.release_lock()?;

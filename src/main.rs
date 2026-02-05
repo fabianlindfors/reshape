@@ -31,6 +31,9 @@ enum Command {
     )]
     Docs(DocsOptions),
 
+    #[clap(about = "Check the current migration status", display_order = 1)]
+    Status(StatusOptions),
+
     #[clap(
         about = "Validates that all migration files are well-formed",
         display_order = 2
@@ -71,6 +74,21 @@ struct DocsOptions {
     /// Path to documentation section (e.g., /migrations/actions)
     #[clap(default_value = "/")]
     path: String,
+}
+
+#[derive(Parser)]
+struct StatusOptions {
+    #[clap(flatten)]
+    connection_options: ConnectionOptions,
+    /// Output format (human or json)
+    #[clap(long, default_value = "human")]
+    format: OutputFormat,
+}
+
+#[derive(Clone, clap::ValueEnum)]
+enum OutputFormat {
+    Human,
+    Json,
 }
 
 #[derive(Parser)]
@@ -135,6 +153,37 @@ fn run(opts: Opts) -> anyhow::Result<()> {
         Command::Docs(opts) => {
             let content = reshape::docs::get(&opts.path)?;
             println!("{}", content);
+            Ok(())
+        }
+        Command::Status(opts) => {
+            let mut reshape = reshape_from_connection_options(&opts.connection_options)?;
+            let status = reshape.status()?;
+
+            match opts.format {
+                OutputFormat::Human => {
+                    println!("Status: {}", status.status);
+
+                    if status.in_progress_migrations.is_empty() {
+                        println!("Migrations in progress: none");
+                    } else {
+                        println!("Migrations in progress:");
+                        for name in &status.in_progress_migrations {
+                            println!("  - {}", name);
+                        }
+                    }
+
+                    if let Some(name) = &status.latest_completed_migration {
+                        println!("Latest completed migration: {}", name);
+                    } else {
+                        println!("Latest completed migration: none");
+                    }
+                }
+                OutputFormat::Json => {
+                    let json = serde_json::to_string_pretty(&status)?;
+                    println!("{}", json);
+                }
+            }
+
             Ok(())
         }
         Command::Migration(MigrationCommand::Start(opts)) | Command::Migrate(opts) => {
