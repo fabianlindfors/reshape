@@ -730,6 +730,7 @@ _See also [Connection options](#connection-options)_
 | Option             | Default       | Description                                                                                                     |
 | ------------------ | ------------- | --------------------------------------------------------------------------------------------------------------- |
 | `--complete`, `-c` | `false`       | Automatically complete migration after applying it.                                                             |
+| `--migration`      |               | Apply migrations up to and including the given migration name, then stop.                                       |
 | `--dirs`           | `migrations/` | Directories to search for migration files. Multiple directories can be specified using `--dirs dir1 dir2 dir3`. |
 
 ### `reshape migration complete`

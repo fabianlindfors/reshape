@@ -115,6 +115,9 @@ struct MigrateOptions {
     // Some comment
     #[clap(long, short)]
     complete: bool,
+    /// Apply migrations up to and including the given migration name, then stop
+    #[clap(long)]
+    migration: Option<String>,
     #[clap(flatten)]
     connection_options: ConnectionOptions,
     #[clap(flatten)]
@@ -188,7 +191,16 @@ fn run(opts: Opts) -> anyhow::Result<()> {
         }
         Command::Migration(MigrationCommand::Start(opts)) | Command::Migrate(opts) => {
             let mut reshape = reshape_from_connection_options(&opts.connection_options)?;
-            let migrations = find_migrations(&opts.find_migrations_options)?;
+            let mut migrations = find_migrations(&opts.find_migrations_options)?;
+
+            if let Some(target) = &opts.migration {
+                let target_index = migrations
+                    .iter()
+                    .position(|m| m.name == *target)
+                    .ok_or_else(|| anyhow::anyhow!("migration '{}' not found", target))?;
+                migrations.truncate(target_index + 1);
+            }
+
             reshape.migrate(migrations)?;
 
             // Automatically complete migration if --complete flag is set
