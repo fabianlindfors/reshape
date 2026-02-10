@@ -25,5 +25,5 @@ rand = "0.9"
 dotenv = "0.15.0"
 lexical-sort = "0.3.1"
 pg_query = "6"
-native-tls = "0.2"
+native-tls = { version = "0.2", features = ["vendored"] }
 postgres-native-tls = "0.5"
