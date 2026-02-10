@@ -4,7 +4,8 @@ WORKDIR /usr/src/reshape
 COPY . .
 RUN cargo build --release
 
-FROM debian:bookworm AS runtime
+FROM debian:trixie-slim AS runtime
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /usr/share/app
 COPY --from=builder /usr/src/reshape/target/release/reshape /usr/local/bin/reshape
 CMD ["reshape"]
