@@ -1,5 +1,6 @@
 use colored::Colorize;
-use postgres::{Client, NoTls};
+use postgres::Client;
+use postgres_native_tls::MakeTlsConnector;
 use reshape::{migrations::Migration, Reshape};
 
 pub fn assert_invalid_sql(toml: &str) {
@@ -30,8 +31,10 @@ impl Test<'_> {
         let connection_string = std::env::var("POSTGRES_CONNECTION_STRING")
             .unwrap_or("postgres://postgres:postgres@localhost/reshape_test".to_string());
 
-        let old_db = Client::connect(&connection_string, NoTls).unwrap();
-        let new_db = Client::connect(&connection_string, NoTls).unwrap();
+        let tls_connector = native_tls::TlsConnector::new().unwrap();
+        let connector = MakeTlsConnector::new(tls_connector);
+        let old_db = Client::connect(&connection_string, connector.clone()).unwrap();
+        let new_db = Client::connect(&connection_string, connector).unwrap();
 
         let reshape = Reshape::new(&connection_string).unwrap();
 
