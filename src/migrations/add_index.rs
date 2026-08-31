@@ -1,9 +1,9 @@
-use super::{Action, MigrationContext};
+use super::{validate_sql_expression, Action, MigrationContext};
 use crate::{
     db::{Conn, Transaction},
-    schema::Schema,
+    schema::{Schema, Table},
 };
-use anyhow::Context;
+use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -15,11 +15,123 @@ pub struct AddIndex {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Index {
     pub name: String,
-    pub columns: Vec<String>,
+    pub columns: Vec<IndexColumn>,
     #[serde(default)]
     pub unique: bool,
     #[serde(rename = "type")]
     pub index_type: Option<String>,
+
+    // Predicate for a partial index, without the WHERE keyword
+    pub r#where: Option<String>,
+}
+
+// A single entry in an index. Can either be a plain column name, a column with an
+// explicit sort order or an arbitrary expression.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum IndexColumn {
+    Name(String),
+    Column(IndexColumnSpec),
+    Expression(IndexExpressionSpec),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct IndexColumnSpec {
+    pub column: String,
+    pub direction: Option<Direction>,
+    pub nulls: Option<Nulls>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct IndexExpressionSpec {
+    pub expression: String,
+    pub direction: Option<Direction>,
+    pub nulls: Option<Nulls>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    #[serde(rename = "ASC", alias = "asc")]
+    Asc,
+
+    #[serde(rename = "DESC", alias = "desc")]
+    Desc,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Nulls {
+    #[serde(rename = "FIRST", alias = "first")]
+    First,
+
+    #[serde(rename = "LAST", alias = "last")]
+    Last,
+}
+
+fn sort_definition(direction: &Option<Direction>, nulls: &Option<Nulls>) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+
+    match direction {
+        Some(Direction::Asc) => parts.push("ASC"),
+        Some(Direction::Desc) => parts.push("DESC"),
+        None => {}
+    }
+
+    match nulls {
+        Some(Nulls::First) => parts.push("NULLS FIRST"),
+        Some(Nulls::Last) => parts.push("NULLS LAST"),
+        None => {}
+    }
+
+    parts.join(" ")
+}
+
+impl Index {
+    // Whether the index relies on any user-provided SQL which references columns by name.
+    // Reshape can't rewrite those references to point at temporary columns, so such an
+    // index can't be created while the table's columns are being migrated.
+    fn has_raw_sql(&self) -> bool {
+        self.r#where.is_some()
+            || self
+                .columns
+                .iter()
+                .any(|column| matches!(column, IndexColumn::Expression(_)))
+    }
+
+    fn column_definitions(&self, table: &Table) -> Vec<String> {
+        self.columns
+            .iter()
+            .map(|column| {
+                let (target, direction, nulls) = match column {
+                    IndexColumn::Name(name) => (real_column_name(table, name), &None, &None),
+                    IndexColumn::Column(spec) => (
+                        real_column_name(table, &spec.column),
+                        &spec.direction,
+                        &spec.nulls,
+                    ),
+                    IndexColumn::Expression(spec) => (
+                        format!("({})", spec.expression),
+                        &spec.direction,
+                        &spec.nulls,
+                    ),
+                };
+
+                format!("{} {}", target, sort_definition(direction, nulls))
+                    .trim_end()
+                    .to_string()
+            })
+            .collect()
+    }
+}
+
+fn real_column_name(table: &Table, name: &str) -> String {
+    let real_name = table
+        .get_column(name)
+        .map(|column| column.real_name.as_ref())
+        .unwrap_or(name);
+
+    format!("\"{}\"", real_name)
 }
 
 #[typetag::serde(name = "add_index")]
@@ -39,12 +151,29 @@ impl Action for AddIndex {
     ) -> anyhow::Result<()> {
         let table = schema.get_table(db, &self.table)?;
 
-        let column_real_names: Vec<String> = table
-            .columns
-            .iter()
-            .filter(|column| self.index.columns.contains(&column.name))
-            .map(|column| format!("\"{}\"", column.real_name))
-            .collect();
+        // Columns which are being migrated are temporarily backed by a different column.
+        // Plain column references are rewritten to the temporary column but expressions
+        // and predicates are passed through as written, so they would silently reference
+        // the wrong column. Reject the index instead of creating a broken one.
+        if self.index.has_raw_sql() {
+            if let Some(column) = table
+                .columns
+                .iter()
+                .find(|column| column.name != column.real_name)
+            {
+                bail!(
+                    "index \"{index}\" uses an expression or a WHERE predicate, which can't be \
+                     combined with changes to the columns of table \"{table}\" in the same \
+                     migration. Column \"{column}\" is currently backed by the temporary column \
+                     \"{real_column}\". Move the index to a later migration or use plain column \
+                     references instead.",
+                    index = self.index.name,
+                    table = table.name,
+                    column = column.name,
+                    real_column = column.real_name,
+                );
+            }
+        }
 
         let unique = if self.index.unique { "UNIQUE" } else { "" };
         let index_type_def = if let Some(index_type) = &self.index.index_type {
@@ -52,14 +181,19 @@ impl Action for AddIndex {
         } else {
             "".to_string()
         };
+        let where_def = if let Some(predicate) = &self.index.r#where {
+            format!("WHERE {predicate}")
+        } else {
+            "".to_string()
+        };
 
         db.run(&format!(
             r#"
-			CREATE {unique} INDEX CONCURRENTLY "{name}" ON "{table}" {index_type_def} ({columns}) 
+			CREATE {unique} INDEX CONCURRENTLY "{name}" ON "{table}" {index_type_def} ({columns}) {where_def}
 			"#,
             name = self.index.name,
-            table = self.table,
-            columns = column_real_names.join(", "),
+            table = table.real_name,
+            columns = self.index.column_definitions(&table).join(", "),
         ))
         .context("failed to create index")?;
         Ok(())
@@ -84,5 +218,29 @@ impl Action for AddIndex {
         ))
         .context("failed to drop index")?;
         Ok(())
+    }
+
+    fn validate_sql(&self) -> Vec<(String, String, String)> {
+        let mut errors = vec![];
+
+        for (idx, column) in self.index.columns.iter().enumerate() {
+            if let IndexColumn::Expression(spec) = column {
+                if let Err(e) = validate_sql_expression(&spec.expression) {
+                    errors.push((
+                        format!("index.columns[{}].expression", idx),
+                        spec.expression.clone(),
+                        e,
+                    ));
+                }
+            }
+        }
+
+        if let Some(predicate) = &self.index.r#where {
+            if let Err(e) = validate_sql_expression(predicate) {
+                errors.push(("index.where".to_string(), predicate.clone(), e));
+            }
+        }
+
+        errors
     }
 }
