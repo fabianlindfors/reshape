@@ -408,7 +408,7 @@ fn complete(db: &mut DbConn, state: &mut State) -> anyhow::Result<()> {
             // We won't save this new state until after the action has completed.
             state.completing(
                 remaining_migrations.clone(),
-                migration_index + 1,
+                migration_index,
                 action_index + 1,
             );
 
