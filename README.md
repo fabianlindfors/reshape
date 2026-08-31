@@ -241,6 +241,42 @@ primary_key = ["id"]
 	on_update = "CASCADE"
 ```
 
+_Example: create `documents` table with check constraints_
+
+```toml
+[[actions]]
+type = "create_table"
+name = "documents"
+primary_key = ["id"]
+
+	[[actions.columns]]
+	name = "id"
+	type = "INTEGER"
+	generated = "ALWAYS AS IDENTITY"
+
+	[[actions.columns]]
+	name = "kind"
+	type = "TEXT"
+
+	[[actions.columns]]
+	name = "data"
+	type = "BYTEA"
+
+	[[actions.columns]]
+	name = "size_bytes"
+	type = "INTEGER"
+
+	[[actions.checks]]
+	# Optional, Postgres will generate a name if omitted
+	name = "documents_kind_check"
+	expression = "kind IN ('invoice', 'receipt')"
+
+	# A check can span multiple columns
+	[[actions.checks]]
+	name = "documents_size_bytes_check"
+	expression = "size_bytes = octet_length(data)"
+```
+
 _Example: create `profiles` table based on existing `users` table_
 
 ```toml
