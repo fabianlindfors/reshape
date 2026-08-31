@@ -1,5 +1,5 @@
 mod common;
-use common::{assert_invalid_sql, Test};
+use common::{assert_invalid_sql, get_column_comment, get_comment, Test};
 use reshape::migrations::Migration;
 
 #[test]
@@ -538,6 +538,61 @@ fn create_table_with_checks_during_migration() {
             .unwrap()
             .is_empty();
         assert!(!table_exists, "expected table to have been removed");
+    });
+
+    test.run();
+}
+
+#[test]
+fn create_table_with_comments() {
+    let mut test = Test::new("Create table with comments");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+        comment = "People who can sign in"
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+            comment = "Primary contact address. Don't share it"
+        "#,
+    );
+
+    test.after_first(|db| {
+        // Ensure the comments were set on the underlying table
+        assert_eq!(
+            Some("People who can sign in".to_string()),
+            get_comment(db, "public.users")
+        );
+        assert_eq!(
+            Some("Primary contact address. Don't share it".to_string()),
+            get_column_comment(db, "public.users", "email")
+        );
+
+        // Ensure the comments are also visible through the view the application uses.
+        // The connection's search path points at the migration schema, so the
+        // unqualified name resolves to the view.
+        assert_eq!(
+            Some("People who can sign in".to_string()),
+            get_comment(db, "users")
+        );
+        assert_eq!(
+            Some("Primary contact address. Don't share it".to_string()),
+            get_column_comment(db, "users", "email")
+        );
+
+        // Ensure a column without a comment doesn't get one
+        assert_eq!(None, get_column_comment(db, "users", "id"));
     });
 
     test.run();

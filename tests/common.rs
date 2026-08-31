@@ -9,6 +9,35 @@ pub fn assert_invalid_sql(toml: &str) {
     assert!(!errors.is_empty(), "expected SQL validation to fail");
 }
 
+// Looks up the comment on a table or view. The name is resolved using the connection's
+// search path, so an unqualified name will find the view in the current migration schema.
+#[allow(dead_code)]
+pub fn get_comment(db: &mut Client, relation: &str) -> Option<String> {
+    db.query(
+        "SELECT obj_description($1::text::regclass) AS comment",
+        &[&relation],
+    )
+    .unwrap()
+    .first()
+    .and_then(|row| row.get("comment"))
+}
+
+// Looks up the comment on a column of a table or view
+#[allow(dead_code)]
+pub fn get_column_comment(db: &mut Client, relation: &str, column: &str) -> Option<String> {
+    db.query(
+        "
+        SELECT col_description(attrelid, attnum) AS comment
+        FROM pg_attribute
+        WHERE attrelid = $1::text::regclass AND attname = $2
+        ",
+        &[&relation, &column],
+    )
+    .unwrap()
+    .first()
+    .and_then(|row| row.get("comment"))
+}
+
 pub struct Test<'a> {
     name: &'a str,
     reshape: Reshape,

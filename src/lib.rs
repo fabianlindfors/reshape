@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use crate::{
-    migrations::{Migration, MigrationContext},
+    migrations::{quote_string_literal, Migration, MigrationContext},
     schema::Schema,
 };
 
@@ -601,6 +603,75 @@ fn create_view_for_table(db: &mut impl Conn, table: &Table, schema: &str) -> any
         columns = select_columns.join(","),
     ))
     .with_context(|| format!("failed to create view for table {}", table.name))?;
+
+    copy_comments_to_view(db, table, schema)?;
+
+    Ok(())
+}
+
+// Copies the comments on a table and its columns onto the view which encapsulates it.
+// Applications and tooling introspect the migration schema rather than the underlying
+// table, so without this the comments would be invisible to them.
+fn copy_comments_to_view(db: &mut impl Conn, table: &Table, schema: &str) -> anyhow::Result<()> {
+    let table_comment: Option<String> = db
+        .query(&format!(
+            r#"
+            SELECT obj_description('public."{table_name}"'::regclass) AS comment
+            "#,
+            table_name = table.real_name,
+        ))
+        .with_context(|| format!("failed to get comment for table {}", table.real_name))?
+        .first()
+        .and_then(|row| row.get::<'_, _, Option<String>>("comment"));
+
+    if let Some(comment) = table_comment {
+        db.run(&format!(
+            r#"
+            COMMENT ON VIEW {schema}."{view_name}" IS {comment}
+            "#,
+            schema = schema,
+            view_name = table.name,
+            comment = quote_string_literal(&comment),
+        ))
+        .with_context(|| format!("failed to set comment for view {}", table.name))?;
+    }
+
+    let column_comments: HashMap<String, String> = db
+        .query(&format!(
+            r#"
+            SELECT attname AS name, col_description(attrelid, attnum) AS comment
+            FROM pg_attribute
+            WHERE attrelid = 'public."{table_name}"'::regclass
+                AND attnum > 0
+                AND NOT attisdropped
+                AND col_description(attrelid, attnum) IS NOT NULL
+            "#,
+            table_name = table.real_name,
+        ))
+        .with_context(|| format!("failed to get column comments for table {}", table.real_name))?
+        .iter()
+        .map(|row| (row.get("name"), row.get("comment")))
+        .collect();
+
+    for column in &table.columns {
+        if let Some(comment) = column_comments.get(&column.real_name) {
+            db.run(&format!(
+                r#"
+                COMMENT ON COLUMN {schema}."{view_name}"."{column_name}" IS {comment}
+                "#,
+                schema = schema,
+                view_name = table.name,
+                column_name = column.name,
+                comment = quote_string_literal(comment),
+            ))
+            .with_context(|| {
+                format!(
+                    "failed to set comment for column {} on view {}",
+                    column.name, table.name
+                )
+            })?;
+        }
+    }
 
     Ok(())
 }

@@ -9,6 +9,7 @@ Create a new table in the database.
 type = "create_table"
 name = "table_name"           # Required: name of the table
 primary_key = ["id"]          # Required: primary key column(s)
+comment = "description"       # Optional: comment on the table
 
     [[actions.columns]]       # Required: at least one column
     name = "column_name"
@@ -16,6 +17,7 @@ primary_key = ["id"]          # Required: primary key column(s)
     nullable = true           # Optional: default true
     default = "expression"    # Optional: SQL expression
     generated = "clause"      # Optional: generation clause
+    comment = "description"   # Optional: comment on the column
 
     [[actions.foreign_keys]]  # Optional: foreign key constraints
     columns = ["col"]
@@ -43,6 +45,7 @@ primary_key = ["id"]          # Required: primary key column(s)
 | `nullable` | boolean | No | Allow NULL values (default: true) |
 | `default` | string | No | SQL expression for default value |
 | `generated` | string | No | Generation clause (e.g., "ALWAYS AS IDENTITY") |
+| `comment` | string | No | Comment stored on the column |
 
 ## Foreign Key Fields
 
@@ -93,6 +96,30 @@ primary_key = ["id"]
     type = "TIMESTAMPTZ"
     default = "NOW()"
 ```
+
+### Documented Table
+
+```toml
+[[actions]]
+type = "create_table"
+name = "users"
+primary_key = ["id"]
+comment = "People who can sign in"
+
+    [[actions.columns]]
+    name = "id"
+    type = "INTEGER"
+    generated = "ALWAYS AS IDENTITY"
+
+    [[actions.columns]]
+    name = "email"
+    type = "TEXT"
+    nullable = false
+    comment = "Primary contact address"
+```
+
+Comments are also copied onto the views Reshape creates for each migration, so they
+stay visible to applications and tooling which introspect the schema they connect to.
 
 ### Table with Foreign Key
 
