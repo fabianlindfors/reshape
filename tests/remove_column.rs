@@ -181,6 +181,68 @@ fn remove_column_with_index() {
 }
 
 #[test]
+fn remove_column_with_unique_constraint() {
+    let mut test = Test::new("Remove column with unique constraint");
+
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "remove_email_column"
+
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "email"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query(
+            "ALTER TABLE public.users ADD CONSTRAINT users_email_unique UNIQUE (email)",
+        )
+        .unwrap();
+    });
+
+    test.after_completion(|db| {
+        let count: i64 = db
+            .query(
+                "
+                SELECT COUNT(*)
+                FROM pg_catalog.pg_constraint
+                WHERE conname = 'users_email_unique'
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| row.get(0))
+            .unwrap();
+
+        assert_eq!(0, count, "expected unique constraint to not exist");
+    });
+
+    test.run();
+}
+
+#[test]
 fn remove_column_with_complex_down() {
     let mut test = Test::new("Remove column complex");
 

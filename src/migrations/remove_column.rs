@@ -331,6 +331,12 @@ impl Action for RemoveColumn {
             .context("failed getting column indices")?;
 
         for index in indices {
+            // PostgreSQL does not allow dropping an index that backs a constraint.
+            // Dropping the column removes both the constraint and its index.
+            if index.constraint_owned {
+                continue;
+            }
+
             db.run(&format!(
                 "
                 DROP INDEX CONCURRENTLY IF EXISTS {name}

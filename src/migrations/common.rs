@@ -186,6 +186,7 @@ pub struct Index {
     pub oid: u32,
     pub unique: bool,
     pub index_type: String,
+    pub constraint_owned: bool,
 }
 
 pub fn get_indices_for_column(
@@ -200,7 +201,12 @@ pub fn get_indices_for_column(
                 i.relname AS name,
                 i.oid AS oid,
                 ix.indisunique AS unique,
-                am.amname AS type
+                am.amname AS type,
+                EXISTS (
+                    SELECT 1
+                    FROM pg_constraint con
+                    WHERE con.conindid = i.oid
+                ) AS constraint_owned
             FROM pg_index ix
             JOIN pg_class t ON t.oid = ix.indrelid
             JOIN pg_class i ON i.oid = ix.indexrelid
@@ -221,6 +227,7 @@ pub fn get_indices_for_column(
             oid: row.get("oid"),
             unique: row.get("unique"),
             index_type: row.get("type"),
+            constraint_owned: row.get("constraint_owned"),
         })
         .collect();
 
