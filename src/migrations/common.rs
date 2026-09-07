@@ -80,6 +80,28 @@ impl ReferentialAction {
     }
 }
 
+// A CHECK constraint on a table. The name is optional, in which case Postgres
+// will generate one, but naming it makes it possible to reference the constraint
+// later on.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Check {
+    pub name: Option<String>,
+    pub expression: String,
+}
+
+impl Check {
+    pub fn definition(&self) -> String {
+        match &self.name {
+            Some(name) => format!(
+                r#"CONSTRAINT "{name}" CHECK ({expression})"#,
+                name = name,
+                expression = self.expression,
+            ),
+            None => format!("CHECK ({})", self.expression),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct PostgresRawValue {
     bytes: Vec<u8>,

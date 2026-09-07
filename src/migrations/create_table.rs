@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use super::{common::ForeignKey, validate_sql_expression, Action, Column, MigrationContext};
+use super::{
+    common::{Check, ForeignKey},
+    validate_sql_expression, Action, Column, MigrationContext,
+};
 use crate::{
     db::{Conn, Transaction},
     migrations::common,
@@ -17,6 +20,9 @@ pub struct CreateTable {
 
     #[serde(default)]
     pub foreign_keys: Vec<ForeignKey>,
+
+    #[serde(default)]
+    pub checks: Vec<Check>,
 
     pub up: Option<Transformation>,
 }
@@ -102,6 +108,10 @@ impl Action for CreateTable {
                 referenced_columns = referenced_columns.join(", "),
                 referential_actions = foreign_key.referential_actions_definition(),
             ));
+        }
+
+        for check in &self.checks {
+            definition_rows.push(check.definition());
         }
 
         let query = &format!(
