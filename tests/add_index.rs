@@ -643,65 +643,6 @@ fn add_index_with_expression_alongside_a_column_migration() {
     test.run();
 }
 
-#[test]
-fn add_index_with_expression_to_renamed_column() {
-    let mut test = Test::new("Add expression index to renamed column");
-
-    test.first_migration(
-        r#"
-        name = "create_users_table"
-
-        [[actions]]
-        type = "create_table"
-        name = "users"
-        primary_key = ["id"]
-
-            [[actions.columns]]
-            name = "id"
-            type = "INTEGER"
-
-            [[actions.columns]]
-            name = "email"
-            type = "TEXT"
-        "#,
-    );
-
-    // A rename keeps the same underlying column, so the index follows it and the
-    // expression is written against the column's current, real name
-    test.second_migration(
-        r#"
-        name = "rename_email_and_index_it"
-
-        [[actions]]
-        type = "alter_column"
-        table = "users"
-        column = "email"
-
-            [actions.changes]
-            name = "email_address"
-
-        [[actions]]
-        type = "add_index"
-        table = "users"
-
-            [actions.index]
-            name = "users_email_idx"
-            columns = [{ expression = "lower(email)" }]
-        "#,
-    );
-
-    test.after_completion(|db| {
-        let definition = get_index_definition(db, "users_email_idx");
-        assert!(
-            definition.contains("lower(email_address)"),
-            "expected the index to follow the rename, got: {}",
-            definition
-        );
-    });
-
-    test.run();
-}
-
 fn get_index_definition(db: &mut postgres::Client, index_name: &str) -> String {
     db.query(
         "

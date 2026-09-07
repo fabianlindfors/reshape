@@ -160,8 +160,8 @@ table = "documents"
 - Indexes are created concurrently to avoid blocking
 - The index is immediately available after the start phase
 - For unique indexes, existing data must not have duplicates
-- Plain column references are automatically rewritten to the temporary column when a
-  column is being migrated in the same migration, so indexing a column added or altered
-  by an earlier action works as expected
-- Expressions and `where` predicates are passed to Postgres as written, so they reference
-  the table's real columns
+- Expressions and `where` predicates are passed to Postgres as written rather than being
+  resolved by Reshape, so they reference the table's real columns. Avoid referencing a
+  column which is being altered or renamed in the same migration: `alter_column` replaces
+  the column rather than modifying it in place, so creating the index can fail, and an
+  index that is created may be dropped again when the migration is completed
