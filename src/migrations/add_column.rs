@@ -472,13 +472,6 @@ impl Action for AddColumn {
             }
         }
 
-        // Validate column generated
-        if let Some(generated) = &self.column.generated {
-            if let Err(e) = validate_sql_expression(generated) {
-                errors.push(("column.generated".to_string(), generated.clone(), e));
-            }
-        }
-
         errors
     }
 }
