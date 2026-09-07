@@ -2,6 +2,7 @@ use super::{Action, MigrationContext};
 use crate::{
     db::{Conn, Transaction},
     schema::{Schema, Table},
+    sql::rewrite_column_references,
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -88,7 +89,9 @@ fn sort_definition(direction: &Option<Direction>, nulls: &Option<Nulls>) -> Stri
 }
 
 impl Index {
-    fn column_definitions(&self, table: &Table) -> Vec<String> {
+    // Expressions and predicates reference columns by their current names but the index
+    // is created on the real table, so they are rewritten to the real column names.
+    fn column_definitions(&self, table: &Table) -> anyhow::Result<Vec<String>> {
         self.columns
             .iter()
             .map(|column| {
@@ -100,17 +103,33 @@ impl Index {
                         &spec.nulls,
                     ),
                     IndexColumn::Expression(spec) => (
-                        format!("({})", spec.expression),
+                        format!(
+                            "({})",
+                            rewrite_column_references(&spec.expression, table).with_context(
+                                || format!("invalid index expression: {}", spec.expression)
+                            )?
+                        ),
                         &spec.direction,
                         &spec.nulls,
                     ),
                 };
 
-                format!("{} {}", target, sort_definition(direction, nulls))
+                Ok(format!("{} {}", target, sort_definition(direction, nulls))
                     .trim_end()
-                    .to_string()
+                    .to_string())
             })
             .collect()
+    }
+
+    fn where_definition(&self, table: &Table) -> anyhow::Result<String> {
+        match &self.r#where {
+            Some(predicate) => {
+                let rewritten = rewrite_column_references(predicate, table)
+                    .with_context(|| format!("invalid index predicate: {}", predicate))?;
+                Ok(format!("WHERE {rewritten}"))
+            }
+            None => Ok("".to_string()),
+        }
     }
 }
 
@@ -146,11 +165,7 @@ impl Action for AddIndex {
         } else {
             "".to_string()
         };
-        let where_def = if let Some(predicate) = &self.index.r#where {
-            format!("WHERE {predicate}")
-        } else {
-            "".to_string()
-        };
+        let where_def = self.index.where_definition(&table)?;
 
         db.run(&format!(
             r#"
@@ -158,7 +173,7 @@ impl Action for AddIndex {
 			"#,
             name = self.index.name,
             table = table.real_name,
-            columns = self.index.column_definitions(&table).join(", "),
+            columns = self.index.column_definitions(&table)?.join(", "),
         ))
         .context("failed to create index")?;
         Ok(())

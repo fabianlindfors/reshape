@@ -46,6 +46,7 @@ pub mod docs;
 mod helpers;
 pub mod migrations;
 mod schema;
+mod sql;
 mod state;
 
 pub use crate::state::State;
