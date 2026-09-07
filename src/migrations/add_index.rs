@@ -1,4 +1,4 @@
-use super::{Action, MigrationContext};
+use super::{validate_sql_expression, Action, MigrationContext};
 use crate::{
     db::{Conn, Transaction},
     schema::{Schema, Table},
@@ -183,5 +183,32 @@ impl Action for AddIndex {
         ))
         .context("failed to drop index")?;
         Ok(())
+    }
+
+    fn validate_sql(&self) -> Vec<(String, String, String)> {
+        let mut errors = vec![];
+
+        // Validate index expressions. Plain column names and sort options are not
+        // SQL expressions and don't need validation.
+        for (idx, column) in self.index.columns.iter().enumerate() {
+            if let IndexColumn::Expression(spec) = column {
+                if let Err(e) = validate_sql_expression(&spec.expression) {
+                    errors.push((
+                        format!("index.columns[{}].expression", idx),
+                        spec.expression.clone(),
+                        e,
+                    ));
+                }
+            }
+        }
+
+        // Validate partial index predicate
+        if let Some(predicate) = &self.index.r#where {
+            if let Err(e) = validate_sql_expression(predicate) {
+                errors.push(("index.where".to_string(), predicate.clone(), e));
+            }
+        }
+
+        errors
     }
 }

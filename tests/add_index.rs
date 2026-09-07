@@ -1,5 +1,36 @@
 mod common;
-use common::Test;
+use common::{assert_invalid_sql, Test};
+
+#[test]
+fn add_index_invalid_expression_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "add_index"
+        table = "users"
+        [actions.index]
+        name = "users_email_idx"
+        columns = [{ expression = "INVALID $$$ SYNTAX" }]
+        "#,
+    );
+}
+
+#[test]
+fn add_index_invalid_where_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "add_index"
+        table = "users"
+        [actions.index]
+        name = "users_email_idx"
+        columns = ["email"]
+        where = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
 
 #[test]
 fn add_index() {

@@ -291,6 +291,17 @@ impl Action for CreateTable {
             // (e.g., "ALWAYS AS IDENTITY"), not a SQL expression
         }
 
+        // Validate check constraint expressions
+        for (idx, check) in self.checks.iter().enumerate() {
+            if let Err(e) = validate_sql_expression(&check.expression) {
+                errors.push((
+                    format!("checks[{}].expression", idx),
+                    check.expression.clone(),
+                    e,
+                ));
+            }
+        }
+
         // Validate transformation values
         if let Some(Transformation { values, .. }) = &self.up {
             for (key, value) in values {
