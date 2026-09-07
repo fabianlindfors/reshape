@@ -575,8 +575,8 @@ fn add_index_to_migrating_column() {
 }
 
 #[test]
-fn add_index_with_expression_to_migrating_table() {
-    let mut test = Test::new("Add expression index while a column is being migrated");
+fn add_index_with_expression_alongside_a_column_migration() {
+    let mut test = Test::new("Add expression index while another column is being migrated");
 
     test.first_migration(
         r#"
@@ -597,19 +597,147 @@ fn add_index_with_expression_to_migrating_table() {
         "#,
     );
 
-    // Reshape can't rewrite the expression to reference the temporary column backing
-    // "name", so the migration should be rejected rather than create a broken index
+    // The index doesn't reference the column being added, so it is unaffected by it
     test.second_migration(
         r#"
-        name = "add_users_name_column_and_email_index"
+        name = "add_nickname_column_and_email_index"
 
         [[actions]]
         type = "add_column"
         table = "users"
 
             [actions.column]
-            name = "name"
+            name = "nickname"
             type = "TEXT"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_email_idx"
+            columns = [{ expression = "lower(email)" }]
+            where = "email IS NOT NULL"
+        "#,
+    );
+
+    test.intermediate(|db, _| {
+        let definition = get_index_definition(db, "users_email_idx");
+        assert!(
+            definition.contains("lower(email)"),
+            "expected an expression index, got: {}",
+            definition
+        );
+    });
+
+    test.after_completion(|db| {
+        // The index must survive the column being renamed to its final name
+        let definition = get_index_definition(db, "users_email_idx");
+        assert!(
+            definition.contains("lower(email)"),
+            "expected the index to survive completion, got: {}",
+            definition
+        );
+    });
+
+    test.run();
+}
+
+#[test]
+fn add_index_with_expression_to_renamed_column() {
+    let mut test = Test::new("Add expression index to renamed column");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+        "#,
+    );
+
+    // A rename keeps the same underlying column, so the index follows it and the
+    // expression is written against the column's current, real name
+    test.second_migration(
+        r#"
+        name = "rename_email_and_index_it"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "email"
+
+            [actions.changes]
+            name = "email_address"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_email_idx"
+            columns = [{ expression = "lower(email)" }]
+        "#,
+    );
+
+    test.after_completion(|db| {
+        let definition = get_index_definition(db, "users_email_idx");
+        assert!(
+            definition.contains("lower(email_address)"),
+            "expected the index to follow the rename, got: {}",
+            definition
+        );
+    });
+
+    test.run();
+}
+
+#[test]
+fn add_index_with_expression_to_replaced_column() {
+    let mut test = Test::new("Add expression index to a column being replaced");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+        "#,
+    );
+
+    // Altering the column replaces it with a new one and drops the original on
+    // completion, which would take the index with it. The migration must be rejected
+    // rather than silently losing the index.
+    test.second_migration(
+        r#"
+        name = "lowercase_email_and_index_it"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "email"
+        up = "LOWER(email)"
+        down = "email"
 
         [[actions]]
         type = "add_index"

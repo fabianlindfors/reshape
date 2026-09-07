@@ -88,9 +88,8 @@ fn sort_definition(direction: &Option<Direction>, nulls: &Option<Nulls>) -> Stri
 }
 
 impl Index {
-    // Whether the index relies on any user-provided SQL which references columns by name.
-    // Reshape can't rewrite those references to point at temporary columns, so such an
-    // index can't be created while the table's columns are being migrated.
+    // Whether the index relies on user-provided SQL, which is passed to Postgres as
+    // written rather than having its column references resolved by Reshape.
     fn has_raw_sql(&self) -> bool {
         self.r#where.is_some()
             || self
@@ -134,6 +133,81 @@ fn real_column_name(table: &Table, name: &str) -> String {
     format!("\"{}\"", real_name)
 }
 
+// Name of the temporary view used to work out which columns an index references.
+// Temporary views are session scoped, so this can't collide with another Reshape run.
+const PROBE_VIEW_NAME: &str = "__reshape_index_probe";
+
+impl AddIndex {
+    // Works out which columns of the table the index's expressions and predicate
+    // reference, by declaring them as a temporary view and asking Postgres what that view
+    // depends on. This gets the resolution exactly right without Reshape having to parse
+    // the SQL, and unlike creating the index it doesn't scan the table.
+    //
+    // Returns None if the probe can't be created, for example because the SQL references
+    // a column which doesn't exist. The CREATE INDEX statement will fail with the same
+    // error, which is the more useful place for it to surface.
+    fn referenced_columns(&self, db: &mut dyn Conn, table: &Table) -> Option<Vec<String>> {
+        let selects: Vec<String> = self
+            .index
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(idx, column)| {
+                let target = match column {
+                    IndexColumn::Name(name) => real_column_name(table, name),
+                    IndexColumn::Column(spec) => real_column_name(table, &spec.column),
+                    IndexColumn::Expression(spec) => format!("({})", spec.expression),
+                };
+
+                format!("{target} AS c{idx}")
+            })
+            .collect();
+
+        let where_def = match &self.index.r#where {
+            Some(predicate) => format!("WHERE {predicate}"),
+            None => "".to_string(),
+        };
+
+        let drop_query = format!(r#"DROP VIEW IF EXISTS pg_temp."{PROBE_VIEW_NAME}""#);
+        db.run(&drop_query).ok()?;
+        db.run(&format!(
+            r#"
+            CREATE VIEW pg_temp."{view}" AS
+                SELECT {selects}
+                FROM public."{table}"
+                {where_def}
+            "#,
+            view = PROBE_VIEW_NAME,
+            selects = selects.join(", "),
+            table = table.real_name,
+        ))
+        .ok()?;
+
+        let columns = db
+            .query(&format!(
+                r#"
+                SELECT DISTINCT attribute.attname AS name
+                FROM pg_depend dependency
+                JOIN pg_rewrite rule ON rule.oid = dependency.objid
+                JOIN pg_attribute attribute ON
+                    attribute.attrelid = dependency.refobjid AND
+                    attribute.attnum = dependency.refobjsubid
+                WHERE rule.ev_class = 'pg_temp."{view}"'::regclass
+                    AND dependency.refclassid = 'pg_class'::regclass
+                    AND dependency.refobjid = 'public."{table}"'::regclass
+                    AND dependency.refobjsubid > 0
+                "#,
+                view = PROBE_VIEW_NAME,
+                table = table.real_name,
+            ))
+            .map(|rows| rows.iter().map(|row| row.get("name")).collect());
+
+        db.run(&drop_query).ok()?;
+
+        columns.ok()
+    }
+}
+
 #[typetag::serde(name = "add_index")]
 impl Action for AddIndex {
     fn describe(&self) -> String {
@@ -151,27 +225,31 @@ impl Action for AddIndex {
     ) -> anyhow::Result<()> {
         let table = schema.get_table(db, &self.table)?;
 
-        // Columns which are being migrated are temporarily backed by a different column.
-        // Plain column references are rewritten to the temporary column but expressions
-        // and predicates are passed through as written, so they would silently reference
-        // the wrong column. Reject the index instead of creating a broken one.
+        // Expressions and predicates are passed to Postgres as written, which means they
+        // reference the real columns of the table. Most of the time that's fine, but a
+        // column which is being replaced in this migration will be dropped on completion,
+        // taking any index built on it along with it. That would leave the migration
+        // looking successful with the index silently gone, so reject it instead.
         if self.index.has_raw_sql() {
-            if let Some(column) = table
-                .columns
-                .iter()
-                .find(|column| column.name != column.real_name)
-            {
-                bail!(
-                    "index \"{index}\" uses an expression or a WHERE predicate, which can't be \
-                     combined with changes to the columns of table \"{table}\" in the same \
-                     migration. Column \"{column}\" is currently backed by the temporary column \
-                     \"{real_column}\". Move the index to a later migration or use plain column \
-                     references instead.",
-                    index = self.index.name,
-                    table = table.name,
-                    column = column.name,
-                    real_column = column.real_name,
-                );
+            if let Some(columns) = self.referenced_columns(db, &table) {
+                for column in columns {
+                    if !table
+                        .columns
+                        .iter()
+                        .any(|surviving| surviving.real_name == column)
+                    {
+                        bail!(
+                            "index \"{index}\" references column \"{column}\" of table \
+                             \"{table}\" in an expression or a WHERE predicate, but that column \
+                             is being replaced or removed in this migration. The index would be \
+                             dropped along with the column when the migration is completed. Move \
+                             the index to a later migration.",
+                            index = self.index.name,
+                            column = column,
+                            table = table.name,
+                        );
+                    }
+                }
             }
         }
 

@@ -585,7 +585,7 @@ table = "users"
 	unique = true
 ```
 
-Expressions and `where` predicates are passed to Postgres as written. Reshape can't rewrite the column references inside them to point at the temporary columns used during a migration, so an index using either will be rejected if any column of the table is being changed in the same migration.
+Expressions and `where` predicates are passed to Postgres as written, so they reference the table's real columns. The exception is a column being replaced by an `alter_column` in the same migration: the original column is dropped when the migration completes and would take the index with it, so an index whose expression or predicate references such a column is rejected.
 
 _Example: add GIN index to `data` column on `products` table_
 
