@@ -66,8 +66,7 @@ is rejected when the migration file is parsed.
 | `expression` | string | Yes | Boolean SQL expression the row must satisfy |
 
 A check can reference any column in the table, so both single-column and multi-column
-constraints are written the same way. The expression is validated when the migration
-file is parsed.
+constraints are written the same way.
 
 ## Examples
 

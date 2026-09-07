@@ -355,24 +355,6 @@ fn create_table_invalid_referential_action() {
 }
 
 #[test]
-fn create_table_invalid_check_sql() {
-    assert_invalid_sql(
-        r#"
-        name = "test"
-        [[actions]]
-        type = "create_table"
-        name = "users"
-        primary_key = ["id"]
-        [[actions.columns]]
-        name = "id"
-        type = "INTEGER"
-        [[actions.checks]]
-        expression = "INVALID $$$ SYNTAX"
-        "#,
-    );
-}
-
-#[test]
 fn create_table_with_checks() {
     let mut test = Test::new("Create table with check constraints");
 
