@@ -472,9 +472,6 @@ impl Action for AddColumn {
             }
         }
 
-        // Note: `generated` is not validated as it's a column generation clause
-        // (e.g., "ALWAYS AS IDENTITY"), not a SQL expression
-
         errors
     }
 }

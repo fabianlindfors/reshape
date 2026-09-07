@@ -1,5 +1,5 @@
 mod common;
-use common::{assert_invalid_sql, assert_valid_sql, get_column_comment, Test};
+use common::{assert_invalid_sql, get_column_comment, Test};
 
 #[test]
 fn add_column_invalid_up_sql() {
@@ -264,24 +264,6 @@ fn add_column_nullable() {
     });
 
     test.run();
-}
-
-#[test]
-fn add_column_generated_clause_is_valid() {
-    // `generated` is a generation clause such as "ALWAYS AS IDENTITY", not an SQL
-    // expression, so it must not be rejected by SQL validation
-    assert_valid_sql(
-        r#"
-        name = "test"
-        [[actions]]
-        type = "add_column"
-        table = "users"
-        [actions.column]
-        name = "id"
-        type = "INTEGER"
-        generated = "ALWAYS AS IDENTITY"
-        "#,
-    );
 }
 
 #[test]

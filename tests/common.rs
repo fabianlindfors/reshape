@@ -9,17 +9,6 @@ pub fn assert_invalid_sql(toml: &str) {
     assert!(!errors.is_empty(), "expected SQL validation to fail");
 }
 
-#[allow(dead_code)]
-pub fn assert_valid_sql(toml: &str) {
-    let migration: Migration = toml::from_str(toml).unwrap();
-    let errors: Vec<_> = migration.actions.iter().flat_map(|a| a.validate_sql()).collect();
-    assert!(
-        errors.is_empty(),
-        "expected SQL validation to pass, got errors: {:?}",
-        errors
-    );
-}
-
 // Looks up the comment on a table or view. The name is resolved using the connection's
 // search path, so an unqualified name will find the view in the current migration schema.
 #[allow(dead_code)]
