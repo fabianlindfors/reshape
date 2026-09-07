@@ -643,6 +643,208 @@ fn add_index_with_expression_alongside_a_column_migration() {
     test.run();
 }
 
+#[test]
+fn add_index_referencing_altered_column() {
+    let mut test = Test::new("Add indexes referencing an altered column");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "status"
+            type = "TEXT"
+        "#,
+    );
+
+    // Changing the type replaces `status` with a temporary column. The expression and
+    // predicate reference `status` by name and must be rewritten to the temporary column,
+    // otherwise the indexes are built on the old column and dropped along with it on
+    // completion.
+    test.second_migration(
+        r#"
+        name = "alter_status_and_add_indexes"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "status"
+        up = "status"
+        down = "status"
+
+            [actions.changes]
+            type = "VARCHAR(50)"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_active_idx"
+            columns = ["id"]
+            where = "status = 'active'"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_lower_status_idx"
+            columns = [{ expression = "lower(status)" }]
+        "#,
+    );
+
+    test.intermediate(|db, _| {
+        // Both indexes are created against the temporary column
+        for index in ["users_active_idx", "users_lower_status_idx"] {
+            let definition = get_index_definition(db, index);
+            assert!(
+                definition.contains("__reshape"),
+                "expected {} to reference the temporary column, got: {}",
+                index,
+                definition
+            );
+        }
+    });
+
+    test.after_completion(|db| {
+        // Once completed, the indexes follow the column to its final name
+        let definition = get_index_definition(db, "users_active_idx");
+        assert!(
+            definition.contains("WHERE")
+                && definition.contains("status")
+                && !definition.contains("__reshape"),
+            "expected partial index to survive completion, got: {}",
+            definition
+        );
+
+        let definition = get_index_definition(db, "users_lower_status_idx");
+        assert!(
+            definition.contains("lower((status)::text)") || definition.contains("lower(status)"),
+            "expected expression index to survive completion, got: {}",
+            definition
+        );
+    });
+
+    test.run();
+}
+
+#[test]
+fn add_index_referencing_renamed_column() {
+    let mut test = Test::new("Add index referencing a renamed column");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "status"
+            type = "TEXT"
+        "#,
+    );
+
+    // A rename keeps the real column until completion, so a predicate using the new
+    // name has to be rewritten to the old one for the index to be created
+    test.second_migration(
+        r#"
+        name = "rename_status_and_add_index"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "status"
+
+            [actions.changes]
+            name = "state"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_active_idx"
+            columns = ["id"]
+            where = "state = 'active'"
+        "#,
+    );
+
+    test.intermediate(|db, _| {
+        let definition = get_index_definition(db, "users_active_idx");
+        assert!(
+            definition.contains("(status = 'active'::text)"),
+            "expected predicate to reference the real column, got: {}",
+            definition
+        );
+    });
+
+    test.after_completion(|db| {
+        let definition = get_index_definition(db, "users_active_idx");
+        assert!(
+            definition.contains("(state = 'active'::text)"),
+            "expected predicate to follow the rename, got: {}",
+            definition
+        );
+    });
+
+    test.run();
+}
+
+#[test]
+fn add_index_referencing_unknown_column() {
+    let mut test = Test::new("Add index referencing an unknown column");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "add_index_with_bad_predicate"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_active_idx"
+            columns = ["id"]
+            where = "status = 'active'"
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
 fn get_index_definition(db: &mut postgres::Client, index_name: &str) -> String {
     db.query(
         "

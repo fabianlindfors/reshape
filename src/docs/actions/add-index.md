@@ -160,8 +160,7 @@ table = "documents"
 - Indexes are created concurrently to avoid blocking
 - The index is immediately available after the start phase
 - For unique indexes, existing data must not have duplicates
-- Expressions and `where` predicates are passed to Postgres as written rather than being
-  resolved by Reshape, so they reference the table's real columns. Avoid referencing a
-  column which is being altered or renamed in the same migration: `alter_column` replaces
-  the column rather than modifying it in place, so creating the index can fail, and an
-  index that is created may be dropped again when the migration is completed
+- Expressions and `where` predicates reference columns by their current names, just like
+  plain column entries. Columns which are added, altered or renamed earlier in the same
+  migration can be referenced by their new names and the index follows them when the
+  migration completes. Referencing a column which doesn't exist fails the migration
