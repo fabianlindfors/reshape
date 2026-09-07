@@ -235,6 +235,10 @@ primary_key = ["id"]
 	columns = ["user_id"]
 	referenced_table = "users"
 	referenced_columns = ["id"]
+
+	# Optional, one of: NO ACTION (default), RESTRICT, CASCADE, SET NULL, SET DEFAULT
+	on_delete = "CASCADE"
+	on_update = "CASCADE"
 ```
 
 _Example: create `profiles` table based on existing `users` table_
@@ -300,6 +304,10 @@ table = "items"
 	columns = ["user_id"]
 	referenced_table = "users"
 	referenced_columns = ["id"]
+
+	# Optional, one of: NO ACTION (default), RESTRICT, CASCADE, SET NULL, SET DEFAULT
+	on_delete = "CASCADE"
+	on_update = "CASCADE"
 ```
 
 #### Remove foreign key

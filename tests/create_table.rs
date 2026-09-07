@@ -1,5 +1,6 @@
 mod common;
 use common::{assert_invalid_sql, Test};
+use reshape::migrations::Migration;
 
 #[test]
 fn create_table_invalid_default_sql() {
@@ -237,4 +238,118 @@ fn create_table_with_foreign_keys() {
     });
 
     test.run();
+}
+
+#[test]
+fn create_table_with_referential_actions() {
+    let mut test = Test::new("Create table with referential actions");
+
+    test.first_migration(
+        r#"
+        name = "create_users_and_items_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+        [[actions]]
+        type = "create_table"
+        name = "items"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+
+            [[actions.foreign_keys]]
+            columns = ["user_id"]
+            referenced_table = "users"
+            referenced_columns = ["id"]
+            on_delete = "CASCADE"
+            on_update = "SET NULL"
+        "#,
+    );
+
+    test.after_first(|db| {
+        // Ensure the referential actions were applied to the constraint
+        let (on_delete, on_update): (i8, i8) = db
+            .query(
+                "
+                SELECT confdeltype, confupdtype
+                FROM pg_constraint
+                WHERE contype = 'f' AND conrelid = 'public.items'::regclass
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| (row.get("confdeltype"), row.get("confupdtype")))
+            .unwrap();
+        assert_eq!(b'c' as i8, on_delete, "expected ON DELETE CASCADE");
+        assert_eq!(b'n' as i8, on_update, "expected ON UPDATE SET NULL");
+
+        db.simple_query("INSERT INTO users (id) VALUES (1), (2)")
+            .unwrap();
+        db.simple_query("INSERT INTO items (id, user_id) VALUES (1, 1), (2, 2)")
+            .unwrap();
+
+        // Ensure updates set the referencing column to NULL
+        db.simple_query("UPDATE users SET id = 20 WHERE id = 1")
+            .unwrap();
+        let user_id: Option<i32> = db
+            .query("SELECT user_id FROM items WHERE id = 1", &[])
+            .unwrap()
+            .first()
+            .map(|row| row.get("user_id"))
+            .unwrap();
+        assert_eq!(None, user_id, "expected user_id to be set to NULL");
+
+        // Ensure deletes cascade
+        db.simple_query("DELETE FROM users WHERE id = 2").unwrap();
+        let remaining = db
+            .query("SELECT id FROM items WHERE id = 2", &[])
+            .unwrap()
+            .len();
+        assert_eq!(0, remaining, "expected item to be deleted by cascade");
+    });
+
+    test.run()
+}
+
+#[test]
+fn create_table_invalid_referential_action() {
+    let result = toml::from_str::<Migration>(
+        r#"
+        name = "create_items_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "items"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.foreign_keys]]
+            columns = ["user_id"]
+            referenced_table = "users"
+            referenced_columns = ["id"]
+            on_delete = "MAYBE"
+        "#,
+    );
+
+    assert!(
+        result.is_err(),
+        "expected an unknown referential action to be rejected"
+    );
 }

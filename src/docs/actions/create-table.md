@@ -21,6 +21,8 @@ primary_key = ["id"]          # Required: primary key column(s)
     columns = ["col"]
     referenced_table = "other"
     referenced_columns = ["id"]
+    on_delete = "CASCADE"     # Optional: referential action on delete
+    on_update = "CASCADE"     # Optional: referential action on update
 
     [actions.up]              # Optional: populate from existing table
     table = "source_table"
@@ -37,6 +39,20 @@ primary_key = ["id"]          # Required: primary key column(s)
 | `nullable` | boolean | No | Allow NULL values (default: true) |
 | `default` | string | No | SQL expression for default value |
 | `generated` | string | No | Generation clause (e.g., "ALWAYS AS IDENTITY") |
+
+## Foreign Key Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `columns` | array | Yes | Columns in this table |
+| `referenced_table` | string | Yes | Referenced table |
+| `referenced_columns` | array | Yes | Referenced columns |
+| `on_delete` | string | No | Referential action when the referenced row is deleted |
+| `on_update` | string | No | Referential action when the referenced row is updated |
+
+`on_delete` and `on_update` accept the same keywords as Postgres, in upper or lower case:
+`NO ACTION` (default), `RESTRICT`, `CASCADE`, `SET NULL` and `SET DEFAULT`. Any other value
+is rejected when the migration file is parsed.
 
 ## Examples
 
@@ -90,6 +106,9 @@ primary_key = ["id"]
     columns = ["user_id"]
     referenced_table = "users"
     referenced_columns = ["id"]
+
+    # Delete the posts when their user is deleted
+    on_delete = "CASCADE"
 ```
 
 ### Table with Data Migration

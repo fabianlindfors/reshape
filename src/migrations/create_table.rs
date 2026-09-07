@@ -95,11 +95,12 @@ impl Action for CreateTable {
 
             definition_rows.push(format!(
                 r#"
-                FOREIGN KEY ({columns}) REFERENCES "{table}" ({referenced_columns})
+                FOREIGN KEY ({columns}) REFERENCES "{table}" ({referenced_columns}) {referential_actions}
                 "#,
                 columns = columns.join(", "),
                 table = referenced_table.real_name,
                 referenced_columns = referenced_columns.join(", "),
+                referential_actions = foreign_key.referential_actions_definition(),
             ));
         }
 

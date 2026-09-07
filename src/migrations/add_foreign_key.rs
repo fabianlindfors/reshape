@@ -49,6 +49,7 @@ impl Action for AddForeignKey {
             ADD CONSTRAINT {constraint_name}
             FOREIGN KEY ({columns})
             REFERENCES "{referenced_table}" ({referenced_columns})
+            {referential_actions}
             NOT VALID
             "#,
             table = table.real_name,
@@ -56,6 +57,7 @@ impl Action for AddForeignKey {
             columns = columns.join(", "),
             referenced_table = referenced_table.real_name,
             referenced_columns = referenced_columns.join(", "),
+            referential_actions = self.foreign_key.referential_actions_definition(),
         ))
         .context("failed to create foreign key")?;
 

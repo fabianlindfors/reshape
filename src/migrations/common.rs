@@ -24,6 +24,60 @@ pub struct ForeignKey {
     pub columns: Vec<String>,
     pub referenced_table: String,
     pub referenced_columns: Vec<String>,
+    pub on_delete: Option<ReferentialAction>,
+    pub on_update: Option<ReferentialAction>,
+}
+
+impl ForeignKey {
+    // Renders the ON DELETE and ON UPDATE clauses, if any. The clauses have to be placed
+    // directly after the REFERENCES clause and before any constraint attributes, such as
+    // NOT VALID.
+    pub fn referential_actions_definition(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+
+        if let Some(on_delete) = &self.on_delete {
+            parts.push(format!("ON DELETE {}", on_delete.as_sql()));
+        }
+
+        if let Some(on_update) = &self.on_update {
+            parts.push(format!("ON UPDATE {}", on_update.as_sql()));
+        }
+
+        parts.join(" ")
+    }
+}
+
+// The referential action taken when the referenced row is deleted or updated.
+// Deserialized from the same keywords Postgres uses, for example "CASCADE" or
+// "SET NULL", in either upper or lower case.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReferentialAction {
+    #[serde(rename = "NO ACTION", alias = "no action")]
+    NoAction,
+
+    #[serde(rename = "RESTRICT", alias = "restrict")]
+    Restrict,
+
+    #[serde(rename = "CASCADE", alias = "cascade")]
+    Cascade,
+
+    #[serde(rename = "SET NULL", alias = "set null")]
+    SetNull,
+
+    #[serde(rename = "SET DEFAULT", alias = "set default")]
+    SetDefault,
+}
+
+impl ReferentialAction {
+    pub fn as_sql(&self) -> &'static str {
+        match self {
+            ReferentialAction::NoAction => "NO ACTION",
+            ReferentialAction::Restrict => "RESTRICT",
+            ReferentialAction::Cascade => "CASCADE",
+            ReferentialAction::SetNull => "SET NULL",
+            ReferentialAction::SetDefault => "SET DEFAULT",
+        }
+    }
 }
 
 #[derive(Debug)]
