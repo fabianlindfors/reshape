@@ -1,5 +1,5 @@
 mod common;
-use common::{assert_invalid_sql, get_column_comment, Test};
+use common::{assert_invalid_sql, assert_valid_sql, get_column_comment, Test};
 
 #[test]
 fn add_column_invalid_up_sql() {
@@ -261,6 +261,88 @@ fn add_column_nullable() {
             .collect();
 
         assert_eq!(result, expected);
+    });
+
+    test.run();
+}
+
+#[test]
+fn add_column_generated_clause_is_valid() {
+    // `generated` is a generation clause such as "ALWAYS AS IDENTITY", not an SQL
+    // expression, so it must not be rejected by SQL validation
+    assert_valid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "add_column"
+        table = "users"
+        [actions.column]
+        name = "id"
+        type = "INTEGER"
+        generated = "ALWAYS AS IDENTITY"
+        "#,
+    );
+}
+
+#[test]
+fn add_column_generated_identity() {
+    let mut test = Test::new("Add generated identity column");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "add_generated_column"
+
+        [[actions]]
+        type = "add_column"
+        table = "users"
+
+            [actions.column]
+            name = "seq"
+            type = "INTEGER"
+            nullable = false
+            generated = "ALWAYS AS IDENTITY"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id) VALUES (1), (2)")
+            .unwrap();
+    });
+
+    test.intermediate(|_old_db, new_db| {
+        // Existing rows are backfilled from the identity sequence
+        let values: Vec<i32> = new_db
+            .query("SELECT seq FROM users ORDER BY id", &[])
+            .unwrap()
+            .iter()
+            .map(|row| row.get("seq"))
+            .collect();
+        assert_eq!(values, vec![1, 2]);
+
+        // New rows get the next value automatically
+        new_db
+            .simple_query("INSERT INTO users (id) VALUES (3)")
+            .unwrap();
+        let seq: i32 = new_db
+            .query_one("SELECT seq FROM users WHERE id = 3", &[])
+            .unwrap()
+            .get("seq");
+        assert_eq!(seq, 3);
     });
 
     test.run();
