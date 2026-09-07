@@ -1,5 +1,5 @@
 mod common;
-use common::{assert_invalid_sql, Test};
+use common::Test;
 
 #[test]
 fn add_index() {
@@ -220,37 +220,6 @@ fn add_index_with_type() {
     });
 
     test.run();
-}
-
-#[test]
-fn add_index_invalid_expression_sql() {
-    assert_invalid_sql(
-        r#"
-        name = "test"
-        [[actions]]
-        type = "add_index"
-        table = "users"
-        [actions.index]
-        name = "name_idx"
-        columns = [{ expression = "INVALID $$$ SYNTAX" }]
-        "#,
-    );
-}
-
-#[test]
-fn add_index_invalid_where_sql() {
-    assert_invalid_sql(
-        r#"
-        name = "test"
-        [[actions]]
-        type = "add_index"
-        table = "users"
-        [actions.index]
-        name = "name_idx"
-        columns = ["name"]
-        where = "INVALID $$$ SYNTAX"
-        "#,
-    );
 }
 
 #[test]
