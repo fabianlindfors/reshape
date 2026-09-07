@@ -558,6 +558,41 @@ table = "users"
 	unique = true
 ```
 
+_Example: add a partial index with a custom sort order to the `posts` table_
+
+```toml
+[[actions]]
+type = "add_index"
+table = "posts"
+
+	[actions.index]
+	name = "posts_keyset_idx"
+
+	# An entry is either a plain column name or a table with more detail.
+	# The entries are indexed in the order they are declared.
+	columns = [
+		"audience",
+		{ column = "content_updated_at", direction = "DESC", nulls = "LAST" },
+		"id",
+	]
+
+	# Optional, makes the index partial. Written without the WHERE keyword
+	where = "is_public AND shared_to_community"
+```
+
+_Example: add a unique index on an expression to the `users` table_
+
+```toml
+[[actions]]
+type = "add_index"
+table = "users"
+
+	[actions.index]
+	name = "users_email_idx"
+	columns = [{ expression = "lower(email)" }]
+	unique = true
+```
+
 _Example: add GIN index to `data` column on `products` table_
 
 ```toml

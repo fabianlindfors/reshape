@@ -1,7 +1,7 @@
 use super::{Action, MigrationContext};
 use crate::{
     db::{Conn, Transaction},
-    schema::Schema,
+    schema::{Schema, Table},
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -15,11 +15,112 @@ pub struct AddIndex {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Index {
     pub name: String,
-    pub columns: Vec<String>,
+    pub columns: Vec<IndexColumn>,
     #[serde(default)]
     pub unique: bool,
     #[serde(rename = "type")]
     pub index_type: Option<String>,
+
+    // Predicate for a partial index, without the WHERE keyword
+    pub r#where: Option<String>,
+}
+
+// A single entry in an index. Can either be a plain column name, a column with an
+// explicit sort order or an arbitrary expression.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum IndexColumn {
+    Name(String),
+    Column(IndexColumnSpec),
+    Expression(IndexExpressionSpec),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct IndexColumnSpec {
+    pub column: String,
+    pub direction: Option<Direction>,
+    pub nulls: Option<Nulls>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct IndexExpressionSpec {
+    pub expression: String,
+    pub direction: Option<Direction>,
+    pub nulls: Option<Nulls>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    #[serde(rename = "ASC", alias = "asc")]
+    Asc,
+
+    #[serde(rename = "DESC", alias = "desc")]
+    Desc,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Nulls {
+    #[serde(rename = "FIRST", alias = "first")]
+    First,
+
+    #[serde(rename = "LAST", alias = "last")]
+    Last,
+}
+
+fn sort_definition(direction: &Option<Direction>, nulls: &Option<Nulls>) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+
+    match direction {
+        Some(Direction::Asc) => parts.push("ASC"),
+        Some(Direction::Desc) => parts.push("DESC"),
+        None => {}
+    }
+
+    match nulls {
+        Some(Nulls::First) => parts.push("NULLS FIRST"),
+        Some(Nulls::Last) => parts.push("NULLS LAST"),
+        None => {}
+    }
+
+    parts.join(" ")
+}
+
+impl Index {
+    fn column_definitions(&self, table: &Table) -> Vec<String> {
+        self.columns
+            .iter()
+            .map(|column| {
+                let (target, direction, nulls) = match column {
+                    IndexColumn::Name(name) => (real_column_name(table, name), &None, &None),
+                    IndexColumn::Column(spec) => (
+                        real_column_name(table, &spec.column),
+                        &spec.direction,
+                        &spec.nulls,
+                    ),
+                    IndexColumn::Expression(spec) => (
+                        format!("({})", spec.expression),
+                        &spec.direction,
+                        &spec.nulls,
+                    ),
+                };
+
+                format!("{} {}", target, sort_definition(direction, nulls))
+                    .trim_end()
+                    .to_string()
+            })
+            .collect()
+    }
+}
+
+fn real_column_name(table: &Table, name: &str) -> String {
+    let real_name = table
+        .get_column(name)
+        .map(|column| column.real_name.as_ref())
+        .unwrap_or(name);
+
+    format!("\"{}\"", real_name)
 }
 
 #[typetag::serde(name = "add_index")]
@@ -39,27 +140,25 @@ impl Action for AddIndex {
     ) -> anyhow::Result<()> {
         let table = schema.get_table(db, &self.table)?;
 
-        let column_real_names: Vec<String> = table
-            .columns
-            .iter()
-            .filter(|column| self.index.columns.contains(&column.name))
-            .map(|column| format!("\"{}\"", column.real_name))
-            .collect();
-
         let unique = if self.index.unique { "UNIQUE" } else { "" };
         let index_type_def = if let Some(index_type) = &self.index.index_type {
             format!("USING {index_type}")
         } else {
             "".to_string()
         };
+        let where_def = if let Some(predicate) = &self.index.r#where {
+            format!("WHERE {predicate}")
+        } else {
+            "".to_string()
+        };
 
         db.run(&format!(
             r#"
-			CREATE {unique} INDEX CONCURRENTLY "{name}" ON "{table}" {index_type_def} ({columns}) 
+			CREATE {unique} INDEX CONCURRENTLY "{name}" ON "{table}" {index_type_def} ({columns}) {where_def}
 			"#,
             name = self.index.name,
-            table = self.table,
-            columns = column_real_names.join(", "),
+            table = table.real_name,
+            columns = self.index.column_definitions(&table).join(", "),
         ))
         .context("failed to create index")?;
         Ok(())
