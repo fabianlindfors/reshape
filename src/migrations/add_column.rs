@@ -1,4 +1,4 @@
-use super::{common, validate_sql_expression, Action, Column, MigrationContext};
+use super::{common, quote_string_literal, validate_sql_expression, Action, Column, MigrationContext};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -105,6 +105,20 @@ impl Action for AddColumn {
             definition = definition_parts.join(" "),
         );
         db.run(&query).context("failed to add column")?;
+
+        // Set the comment on the temporary column. Comments follow the column, so it
+        // will still be there once the column is renamed to its final name.
+        if let Some(comment) = &self.column.comment {
+            db.run(&format!(
+                r#"
+                COMMENT ON COLUMN "{table}"."{column}" IS {comment}
+                "#,
+                table = self.table,
+                column = temp_column_name,
+                comment = quote_string_literal(comment),
+            ))
+            .context("failed to set column comment")?;
+        }
 
         let declarations: Vec<String> = table
             .columns

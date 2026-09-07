@@ -10,6 +10,13 @@ pub fn validate_sql_statement(sql: &str) -> Result<(), String> {
     pg_query::parse(sql).map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Quote a value so it can be used as an SQL string literal.
+///
+/// Used for statements which don't accept query parameters, such as `COMMENT ON`.
+pub fn quote_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
 /// Validate an SQL expression by wrapping it in SELECT
 pub fn validate_sql_expression(expr: &str) -> Result<(), String> {
     let wrapped = format!("SELECT ({})", expr);

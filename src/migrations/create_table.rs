@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::{
     common::{Check, ForeignKey},
-    validate_sql_expression, Action, Column, MigrationContext,
+    quote_string_literal, validate_sql_expression, Action, Column, MigrationContext,
 };
 use crate::{
     db::{Conn, Transaction},
@@ -23,6 +23,8 @@ pub struct CreateTable {
 
     #[serde(default)]
     pub checks: Vec<Check>,
+
+    pub comment: Option<String>,
 
     pub up: Option<Transformation>,
 }
@@ -124,6 +126,31 @@ impl Action for CreateTable {
             definition = definition_rows.join(",\n"),
         );
         db.run(query).context("failed to create table")?;
+
+        if let Some(comment) = &self.comment {
+            db.run(&format!(
+                r#"
+                COMMENT ON TABLE "{name}" IS {comment}
+                "#,
+                name = self.name,
+                comment = quote_string_literal(comment),
+            ))
+            .context("failed to set table comment")?;
+        }
+
+        for column in &self.columns {
+            if let Some(comment) = &column.comment {
+                db.run(&format!(
+                    r#"
+                    COMMENT ON COLUMN "{table}"."{column}" IS {comment}
+                    "#,
+                    table = self.name,
+                    column = column.name,
+                    comment = quote_string_literal(comment),
+                ))
+                .context("failed to set column comment")?;
+            }
+        }
 
         if let Some(Transformation {
             table: from_table,

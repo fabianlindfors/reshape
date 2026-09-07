@@ -1,5 +1,5 @@
 mod common;
-use common::{assert_invalid_sql, Test};
+use common::{assert_invalid_sql, get_column_comment, Test};
 
 #[test]
 fn add_column_invalid_up_sql() {
@@ -425,6 +425,65 @@ fn add_column_with_complex_up() {
             .map(|row| row.get("email"))
             .unwrap();
         assert_eq!("test2@example.com", email);
+    });
+
+    test.run();
+}
+
+#[test]
+fn add_column_with_comment() {
+    let mut test = Test::new("Add column with comment");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "add_users_name_column"
+
+        [[actions]]
+        type = "add_column"
+        table = "users"
+
+            [actions.column]
+            name = "name"
+            type = "TEXT"
+            comment = "The user's display name"
+        "#,
+    );
+
+    test.intermediate(|_, new_db| {
+        // Ensure the comment is visible through the new schema's view while the
+        // column is still backed by a temporary column
+        assert_eq!(
+            Some("The user's display name".to_string()),
+            get_column_comment(new_db, "users", "name")
+        );
+    });
+
+    test.after_completion(|db| {
+        // Ensure the comment follows the column when it is renamed to its final name
+        assert_eq!(
+            Some("The user's display name".to_string()),
+            get_column_comment(db, "public.users", "name")
+        );
+    });
+
+    test.after_abort(|db| {
+        // Ensure the column, and with it the comment, was removed
+        assert_eq!(None, get_column_comment(db, "public.users", "name"));
     });
 
     test.run();

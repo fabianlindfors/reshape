@@ -16,6 +16,7 @@ up = "expression"             # Optional: SQL expression or update config
     nullable = true           # Optional: default true
     default = "expression"    # Optional: SQL default
     generated = "clause"      # Optional: generation clause
+    comment = "description"   # Optional: comment on the column
 ```
 
 ### Complex Up Transformation
@@ -37,6 +38,7 @@ where = "join_condition"
 | `column.nullable` | boolean | No | Allow NULL (default: true) |
 | `column.default` | string | No | SQL default expression |
 | `column.generated` | string | No | Generation clause |
+| `column.comment` | string | No | Comment stored on the column |
 | `up` | string/object | No | Value transformation |
 
 ## Examples
