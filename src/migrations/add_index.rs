@@ -188,8 +188,7 @@ impl Action for AddIndex {
     fn validate_sql(&self) -> Vec<(String, String, String)> {
         let mut errors = vec![];
 
-        // Validate index expressions. Plain column names and sort options are not
-        // SQL expressions and don't need validation.
+        // Validate index expressions
         for (idx, column) in self.index.columns.iter().enumerate() {
             if let IndexColumn::Expression(spec) = column {
                 if let Err(e) = validate_sql_expression(&spec.expression) {
