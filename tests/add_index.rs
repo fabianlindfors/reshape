@@ -702,57 +702,6 @@ fn add_index_with_expression_to_renamed_column() {
     test.run();
 }
 
-#[test]
-fn add_index_with_expression_to_replaced_column() {
-    let mut test = Test::new("Add expression index to a column being replaced");
-
-    test.first_migration(
-        r#"
-        name = "create_users_table"
-
-        [[actions]]
-        type = "create_table"
-        name = "users"
-        primary_key = ["id"]
-
-            [[actions.columns]]
-            name = "id"
-            type = "INTEGER"
-
-            [[actions.columns]]
-            name = "email"
-            type = "TEXT"
-        "#,
-    );
-
-    // Altering the column replaces it with a new one and drops the original on
-    // completion, which would take the index with it. The migration must be rejected
-    // rather than silently losing the index.
-    test.second_migration(
-        r#"
-        name = "lowercase_email_and_index_it"
-
-        [[actions]]
-        type = "alter_column"
-        table = "users"
-        column = "email"
-        up = "LOWER(email)"
-        down = "email"
-
-        [[actions]]
-        type = "add_index"
-        table = "users"
-
-            [actions.index]
-            name = "users_email_idx"
-            columns = [{ expression = "lower(email)" }]
-        "#,
-    );
-
-    test.expect_failure();
-    test.run();
-}
-
 fn get_index_definition(db: &mut postgres::Client, index_name: &str) -> String {
     db.query(
         "

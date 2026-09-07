@@ -585,8 +585,6 @@ table = "users"
 	unique = true
 ```
 
-Expressions and `where` predicates are passed to Postgres as written, so they reference the table's real columns. The exception is a column being replaced by an `alter_column` in the same migration: the original column is dropped when the migration completes and would take the index with it, so an index whose expression or predicate references such a column is rejected.
-
 _Example: add GIN index to `data` column on `products` table_
 
 ```toml

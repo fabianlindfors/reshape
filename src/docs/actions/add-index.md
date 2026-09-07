@@ -164,8 +164,4 @@ table = "documents"
   column is being migrated in the same migration, so indexing a column added or altered
   by an earlier action works as expected
 - Expressions and `where` predicates are passed to Postgres as written, so they reference
-  the table's real columns. This is usually what you want, including alongside other
-  column changes in the same migration. The exception is a column being *replaced* by an
-  `alter_column` in the same migration: the original column is dropped on completion and
-  would take the index with it, so an index whose expression or predicate references such
-  a column is rejected. Move the index to a later migration in that case
+  the table's real columns
