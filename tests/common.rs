@@ -231,8 +231,9 @@ impl Test<'_> {
                     .reshape
                     .migrate(vec![first_migration.clone(), second_migration.clone()]);
 
-                if result.is_ok() {
-                    panic!("expected second migration to fail");
+                match result {
+                    Ok(_) => panic!("expected second migration to fail"),
+                    Err(error) => println!("Failed as expected: {:#}", error),
                 }
             } else {
                 print_subheading("Applying second migration");
@@ -314,6 +315,27 @@ fn add_spacer(text: &str, char: &str) -> String {
     };
 
     format!("{spacer} {text} {spacer}{extra}", spacer = spacer)
+}
+
+// The definitions of the check constraints on tables in the public schema whose names
+// match a LIKE pattern, ordered by name
+#[allow(dead_code)]
+pub fn check_constraint_definitions(db: &mut Client, name_pattern: &str) -> Vec<String> {
+    db.query(
+        "
+        SELECT pg_get_constraintdef(c.oid) AS definition
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.contype = 'c' AND n.nspname = 'public' AND c.conname LIKE $1
+        ORDER BY c.conname
+        ",
+        &[&name_pattern],
+    )
+    .unwrap()
+    .iter()
+    .map(|row| row.get("definition"))
+    .collect()
 }
 
 pub fn assert_cleaned_up(db: &mut Client) {

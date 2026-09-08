@@ -51,6 +51,17 @@ impl Schema {
         let table_changes = &mut self.table_changes[table_change_index];
         f(table_changes)
     }
+
+    /// Whether a check constraint on a table is removed by an earlier action of the
+    /// migration. The constraint still exists in the database until the migration
+    /// completes, but shouldn't be treated as part of the schema.
+    pub fn is_check_removed(&self, table_name: &str, check_name: &str) -> bool {
+        self.table_changes
+            .iter()
+            .find(|changes| changes.current_name == table_name)
+            .map(|changes| changes.removed_checks.iter().any(|name| name == check_name))
+            .unwrap_or(false)
+    }
 }
 
 impl Default for Schema {
@@ -65,6 +76,7 @@ pub struct TableChanges {
     real_name: String,
     column_changes: Vec<ColumnChanges>,
     removed: bool,
+    removed_checks: Vec<String>,
 }
 
 impl TableChanges {
@@ -74,7 +86,16 @@ impl TableChanges {
             real_name: name,
             column_changes: Vec::new(),
             removed: false,
+            removed_checks: Vec::new(),
         }
+    }
+
+    pub fn set_check_removed(&mut self, name: &str) {
+        self.removed_checks.push(name.to_string());
+    }
+
+    pub fn set_check_added(&mut self, name: &str) {
+        self.removed_checks.retain(|removed| removed != name);
     }
 
     pub fn set_name(&mut self, name: &str) {

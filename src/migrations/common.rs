@@ -369,6 +369,63 @@ pub fn is_temporary_not_null_constraint(name: &str) -> bool {
         && (name.ends_with("_alter_column_temporary") || name.contains("_add_column_not_null_"))
 }
 
+// Finds up to `limit` rows of a table which don't satisfy a check expression, described
+// by their primary key, or by ctid if the table has none. The expression must reference
+// the real columns of the table. A NULL result satisfies a check, so only rows where
+// the expression is false are returned.
+//
+// This is a plain read which doesn't block the application, but it isn't authoritative:
+// rows written after it has run are not covered.
+pub fn find_check_violations(
+    db: &mut dyn Conn,
+    table: &str,
+    expression: &str,
+    limit: usize,
+) -> anyhow::Result<Vec<String>> {
+    let mut key_columns = get_primary_key_columns_for_table(db, table)?;
+    if key_columns.is_empty() {
+        key_columns.push("ctid".to_string());
+    }
+
+    let selection: Vec<String> = key_columns
+        .iter()
+        .map(|column| format!(r#""{}"::text"#, column))
+        .collect();
+
+    let rows = db.query(&format!(
+        r#"
+        SELECT {selection}
+        FROM "{table}"
+        WHERE ({expression}) IS FALSE
+        LIMIT {limit}
+        "#,
+        selection = selection.join(", "),
+        table = table,
+        expression = expression,
+        limit = limit,
+    ))?;
+
+    let violations = rows
+        .iter()
+        .map(|row| {
+            let values: Vec<String> = (0..key_columns.len())
+                .map(|index| {
+                    row.get::<_, Option<String>>(index)
+                        .unwrap_or_else(|| "NULL".to_string())
+                })
+                .collect();
+
+            if key_columns.len() == 1 {
+                format!("{} = {}", key_columns[0], values[0])
+            } else {
+                format!("({}) = ({})", key_columns.join(", "), values.join(", "))
+            }
+        })
+        .collect();
+
+    Ok(violations)
+}
+
 pub fn check_constraint_exists(
     db: &mut dyn Conn,
     table: &str,
