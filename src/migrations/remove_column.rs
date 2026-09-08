@@ -3,7 +3,7 @@ use crate::{
     db::{Conn, Transaction},
     schema::Schema,
 };
-use anyhow::{anyhow, bail, Context};
+use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -132,11 +132,6 @@ impl Action for RemoveColumn {
                 r#where,
             } = down
             {
-                let existing_schema_name = match &ctx.existing_schema_name {
-                    Some(name) => name,
-                    None => bail!("can't use update without previous migration"),
-                };
-
                 let from_table = schema.get_table(db, from_table)?;
 
                 let maybe_null_check = if !column.nullable {
@@ -196,19 +191,11 @@ impl Action for RemoveColumn {
                     "".to_string()
                 };
 
-                let into_variables = from_table
-                    .columns
-                    .iter()
-                    .map(|column| {
-                        format!(
-                            "NEW.{real_name} AS {alias}",
-                            alias = column.name,
-                            real_name = column.real_name,
-                        )
-                    })
-                    .collect::<Vec<String>>()
-                    .join(", ");
+                // Both tables are exposed with their columns under their current names, so
+                // `value` and `where` reference the schema as it looks in this migration.
 
+                // When the source table is written in the new schema, update the removed
+                // column of the matching rows
                 let query = format!(
                     r#"
                     CREATE OR REPLACE FUNCTION {trigger_name}()
@@ -219,17 +206,21 @@ impl Action for RemoveColumn {
                             DECLARE
                                 {from_table} record;
                             BEGIN
-                                SELECT {into_variables}
-                                INTO {from_table};
+                                SELECT {from_table_row} INTO {from_table};
 
                                 {maybe_null_check}
 
                                 -- Don't trigger reverse trigger when making this update
                                 perform set_config('reshape.disable_triggers', 'TRUE', TRUE);
 
-                                UPDATE "migration_{existing_schema_name}"."{changed_table}" "{changed_table}"
-                                SET "{column_name}" = {value}
-                                WHERE {where};
+                                UPDATE public."{changed_table_real}" AS __target
+                                SET "{column_name_real}" = __values.value
+                                FROM (
+                                    SELECT "{changed_table}".ctid, ({value}) AS value
+                                    FROM {changed_table_subquery}
+                                    WHERE {where}
+                                ) __values
+                                WHERE __target.ctid = __values.ctid;
 
                                 perform set_config('reshape.disable_triggers', '', TRUE);
                             END;
@@ -241,34 +232,19 @@ impl Action for RemoveColumn {
                     DROP TRIGGER IF EXISTS "{trigger_name}" ON "{from_table_real}";
                     CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{from_table_real}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
                     "#,
-                    changed_table = self.table,
+                    changed_table = table.name,
+                    changed_table_real = table.real_name,
+                    changed_table_subquery = common::table_with_current_columns(&table),
+                    column_name_real = column.real_name,
                     from_table = from_table.name,
                     from_table_real = from_table.real_name,
-                    column_name = self.column,
+                    from_table_row = common::new_row_with_current_columns(&from_table),
                     trigger_name = self.trigger_name(ctx),
                 );
                 db.run(&query).context("failed to create down trigger")?;
 
-                let changed_into_variables = table
-                    .columns
-                    .iter()
-                    .map(|column| {
-                        format!(
-                            "NEW.{real_name} AS {alias}",
-                            alias = column.name,
-                            real_name = column.real_name,
-                        )
-                    })
-                    .collect::<Vec<String>>()
-                    .join(", ");
-
-                let from_table_columns = from_table
-                    .columns
-                    .iter()
-                    .map(|column| format!("{} as {}", column.real_name, column.name))
-                    .collect::<Vec<String>>()
-                    .join(", ");
-
+                // When the changed table is written in the new schema, fill in the removed
+                // column from the matching row of the source table
                 let query = format!(
                     r#"
                     CREATE OR REPLACE FUNCTION {trigger_name}()
@@ -278,24 +254,20 @@ impl Action for RemoveColumn {
                         IF reshape.is_new_schema() AND NOT current_setting('reshape.disable_triggers', TRUE) = 'TRUE' THEN
                             DECLARE
                                 {changed_table} record;
-                                __temp_row record;
+                                __from_row record;
                             BEGIN
-                                SELECT {changed_into_variables}
-                                INTO {changed_table};
+                                SELECT {changed_table_row} INTO {changed_table};
 
-                                SELECT *
-                                INTO __temp_row
-                                FROM (
-                                    SELECT {from_table_columns}
-                                    FROM public.{from_table_real}
-                                ) {from_table}
+                                SELECT "{from_table}".*
+                                INTO __from_row
+                                FROM {from_table_subquery}
                                 WHERE {where};
 
                                 DECLARE
                                     {from_table} record;
                                 BEGIN
-                                    {from_table} := __temp_row;
-                                    NEW.{column_name_real} = {value};
+                                    {from_table} := __from_row;
+                                    NEW."{column_name_real}" = {value};
                                 END;
                             END;
                         END IF;
@@ -308,11 +280,11 @@ impl Action for RemoveColumn {
                     "#,
                     changed_table = table.name,
                     changed_table_real = table.real_name,
-                    from_table = from_table.name,
-                    from_table_real = from_table.real_name,
+                    changed_table_row = common::new_row_with_current_columns(&table),
                     column_name_real = column.real_name,
+                    from_table = from_table.name,
+                    from_table_subquery = common::table_with_current_columns(&from_table),
                     trigger_name = self.reverse_trigger_name(ctx),
-                    // declarations = declarations.join("\n"),
                 );
                 db.run(&query)
                     .context("failed to create reverse down trigger")?;

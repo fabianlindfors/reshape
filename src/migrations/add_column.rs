@@ -6,7 +6,7 @@ use crate::{
     db::{Conn, Transaction},
     schema::Schema,
 };
-use anyhow::{bail, Context};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -177,27 +177,15 @@ impl Action for AddColumn {
                 r#where,
             } = up
             {
-                let existing_schema_name = match &ctx.existing_schema_name {
-                    Some(name) => name,
-                    None => bail!("can't use update without previous migration"),
-                };
-
                 let from_table = schema.get_table(db, from_table)?;
 
-                let from_table_assignments: Vec<String> = from_table
-                    .columns
-                    .iter()
-                    .map(|column| {
-                        format!(
-                            "{table}.{alias} = NEW.{real_name};",
-                            table = from_table.name,
-                            alias = column.name,
-                            real_name = column.real_name,
-                        )
-                    })
-                    .collect();
+                // Both tables are exposed with their columns under their current names, so
+                // `value` and `where` reference the schema as it looks in this migration. The
+                // table being written is a record built from the new row, the other table a
+                // subquery over the real table.
 
-                // Add triggers to fill in values as they are inserted/updated
+                // When the source table is written in the old schema, update the matching
+                // rows of the changed table
                 let query = format!(
                     r#"
                     CREATE OR REPLACE FUNCTION {trigger_name}()
@@ -206,16 +194,21 @@ impl Action for AddColumn {
                     BEGIN
                         IF NOT reshape.is_new_schema() THEN
                             DECLARE
-                                {from_table} migration_{existing_schema_name}.{from_table}%ROWTYPE;
+                                {from_table} record;
                             BEGIN
-                                {assignments}
+                                SELECT {from_table_row} INTO {from_table};
 
                                 -- Don't trigger reverse trigger when making this update
                                 perform set_config('reshape.disable_triggers', 'TRUE', TRUE);
 
-                                UPDATE public."{changed_table_real}"
-                                SET "{temp_column_name}" = {value}
-                                WHERE {where};
+                                UPDATE public."{changed_table_real}" AS __target
+                                SET "{temp_column_name}" = __values.value
+                                FROM (
+                                    SELECT "{changed_table}".ctid, ({value}) AS value
+                                    FROM {changed_table_subquery}
+                                    WHERE {where}
+                                ) __values
+                                WHERE __target.ctid = __values.ctid;
 
                                 perform set_config('reshape.disable_triggers', '', TRUE);
                             END;
@@ -227,37 +220,19 @@ impl Action for AddColumn {
                     DROP TRIGGER IF EXISTS "{trigger_name}" ON "{from_table_real}";
                     CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{from_table_real}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
                     "#,
-                    assignments = from_table_assignments.join("\n"),
+                    changed_table = table.name,
                     changed_table_real = table.real_name,
+                    changed_table_subquery = common::table_with_current_columns(&table),
                     from_table = from_table.name,
                     from_table_real = from_table.real_name,
+                    from_table_row = common::new_row_with_current_columns(&from_table),
                     trigger_name = self.trigger_name(ctx),
-                    // declarations = from_table_declarations.join("\n"),
                     temp_column_name = temp_column_name,
                 );
                 db.run(&query).context("failed to create up trigger")?;
 
-                let from_table_columns = from_table
-                    .columns
-                    .iter()
-                    .map(|column| format!("{} as {}", column.real_name, column.name))
-                    .collect::<Vec<String>>()
-                    .join(", ");
-
-                let changed_table_assignments: Vec<String> = table
-                    .columns
-                    .iter()
-                    .map(|column| {
-                        format!(
-                            "{table}.{alias} := NEW.{real_name};",
-                            table = table.name,
-                            alias = column.name,
-                            real_name = column.real_name,
-                        )
-                    })
-                    .collect();
-
-                // Add triggers to fill in values as they are inserted/updated
+                // When the changed table is written in the old schema, fill in the new
+                // column from the matching row of the source table
                 let query = format!(
                     r#"
                     CREATE OR REPLACE FUNCTION {trigger_name}()
@@ -266,21 +241,21 @@ impl Action for AddColumn {
                     BEGIN
                         IF NOT reshape.is_new_schema() AND NOT current_setting('reshape.disable_triggers', TRUE) = 'TRUE' THEN
                             DECLARE
-                                {changed_table} migration_{existing_schema_name}.{changed_table}%ROWTYPE;
-                                __temp_row migration_{existing_schema_name}.{from_table}%ROWTYPE;
+                                {changed_table} record;
+                                __from_row record;
                             BEGIN
-                                {changed_table_assignments}
+                                SELECT {changed_table_row} INTO {changed_table};
 
-                                SELECT {from_table_columns}
-                                INTO __temp_row
-                                FROM migration_{existing_schema_name}.{from_table} {from_table}
+                                SELECT "{from_table}".*
+                                INTO __from_row
+                                FROM {from_table_subquery}
                                 WHERE {where};
 
                                 DECLARE
-                                    {from_table} migration_{existing_schema_name}.{from_table}%ROWTYPE;
+                                    {from_table} record;
                                 BEGIN
-                                    {from_table} = __temp_row;
-                                    NEW.{temp_column_name} = {value};
+                                    {from_table} := __from_row;
+                                    NEW."{temp_column_name}" = {value};
                                 END;
                             END;
                         END IF;
@@ -291,13 +266,13 @@ impl Action for AddColumn {
                     DROP TRIGGER IF EXISTS "{trigger_name}" ON "{changed_table_real}";
                     CREATE TRIGGER "{trigger_name}" BEFORE UPDATE OR INSERT ON "{changed_table_real}" FOR EACH ROW EXECUTE PROCEDURE {trigger_name}();
                     "#,
-                    changed_table_assignments = changed_table_assignments.join("\n"),
-                    changed_table_real = table.real_name,
                     changed_table = table.name,
+                    changed_table_real = table.real_name,
+                    changed_table_row = common::new_row_with_current_columns(&table),
                     from_table = from_table.name,
+                    from_table_subquery = common::table_with_current_columns(&from_table),
                     trigger_name = self.reverse_trigger_name(ctx),
                     temp_column_name = temp_column_name,
-                    // declarations = declarations.join("\n"),
                 );
                 db.run(&query)
                     .context("failed to create reverse up trigger")?;
