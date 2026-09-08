@@ -167,6 +167,114 @@ fn add_invalid_foreign_key() {
 }
 
 #[test]
+fn add_foreign_key_with_unknown_column() {
+    let mut test = Test::new("Add foreign key on an unknown column");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+        [[actions]]
+        type = "create_table"
+        name = "items"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "add_foreign_key"
+
+        [[actions]]
+        type = "add_foreign_key"
+        table = "items"
+
+            [actions.foreign_key]
+            columns = ["owner_id"]
+            referenced_table = "users"
+            referenced_columns = ["id"]
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
+#[test]
+fn add_foreign_key_to_removed_table() {
+    let mut test = Test::new("Add foreign key to a table removed in the same migration");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+        [[actions]]
+        type = "create_table"
+        name = "items"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+        "#,
+    );
+
+    // The table still exists until the migration completes, so the foreign key could be
+    // created and would then be dropped together with the table
+    test.second_migration(
+        r#"
+        name = "remove_users_and_add_foreign_key"
+
+        [[actions]]
+        type = "remove_table"
+        table = "users"
+
+        [[actions]]
+        type = "add_foreign_key"
+        table = "items"
+
+            [actions.foreign_key]
+            columns = ["user_id"]
+            referenced_table = "users"
+            referenced_columns = ["id"]
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
+#[test]
 fn add_foreign_key_with_referential_actions() {
     let mut test = Test::new("Add foreign key with referential actions");
 

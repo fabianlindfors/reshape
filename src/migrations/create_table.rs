@@ -116,7 +116,8 @@ impl Action for CreateTable {
 
             let referenced_table = schema.get_table(db, &foreign_key.referenced_table)?;
             let referenced_columns: Vec<String> = referenced_table
-                .real_column_names(&foreign_key.referenced_columns)
+                .real_column_names(&foreign_key.referenced_columns)?
+                .iter()
                 .map(|col| format!("\"{}\"", col))
                 .collect();
 

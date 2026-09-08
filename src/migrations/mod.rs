@@ -206,12 +206,9 @@ fn validate_references_against_schema(
                 table,
                 excluded_columns,
             } => {
-                let mut resolved = schema.get_table(db, table)?;
-
-                // A table which doesn't exist comes back without any columns
-                if resolved.columns.is_empty() {
+                let Some(mut resolved) = schema.find_table(db, table)? else {
                     return Ok(Err(format!("table \"{}\" does not exist", table)));
-                }
+                };
 
                 resolved
                     .columns

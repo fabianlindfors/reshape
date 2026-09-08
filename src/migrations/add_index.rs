@@ -96,9 +96,11 @@ impl Index {
             .iter()
             .map(|column| {
                 let (target, direction, nulls) = match column {
-                    IndexColumn::Name(name) => (real_column_name(table, name), &None, &None),
+                    IndexColumn::Name(name) => {
+                        (quoted_real_column_name(table, name)?, &None, &None)
+                    }
                     IndexColumn::Column(spec) => (
-                        real_column_name(table, &spec.column),
+                        quoted_real_column_name(table, &spec.column)?,
                         &spec.direction,
                         &spec.nulls,
                     ),
@@ -133,13 +135,8 @@ impl Index {
     }
 }
 
-fn real_column_name(table: &Table, name: &str) -> String {
-    let real_name = table
-        .get_column(name)
-        .map(|column| column.real_name.as_ref())
-        .unwrap_or(name);
-
-    format!("\"{}\"", real_name)
+fn quoted_real_column_name(table: &Table, name: &str) -> anyhow::Result<String> {
+    Ok(format!("\"{}\"", table.real_column_name(name)?))
 }
 
 #[typetag::serde(name = "add_index")]

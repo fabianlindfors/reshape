@@ -32,11 +32,13 @@ impl Action for AddForeignKey {
 
         // Add quotes around all column names
         let columns: Vec<String> = table
-            .real_column_names(&self.foreign_key.columns)
+            .real_column_names(&self.foreign_key.columns)?
+            .iter()
             .map(|col| format!("\"{}\"", col))
             .collect();
         let referenced_columns: Vec<String> = referenced_table
-            .real_column_names(&self.foreign_key.referenced_columns)
+            .real_column_names(&self.foreign_key.referenced_columns)?
+            .iter()
             .map(|col| format!("\"{}\"", col))
             .collect();
 
