@@ -311,7 +311,7 @@ impl Action for CreateTable {
             fields.push(SqlField::expression(
                 format!("checks[{}].expression", idx),
                 &check.expression,
-                References::Tables(vec![TableScope::Explicit(self.schema_table())]),
+                References::Table(TableScope::Explicit(self.schema_table())),
             ));
         }
 

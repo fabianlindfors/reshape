@@ -446,8 +446,8 @@ table = "profiles"
 	# When `users` is updated in the old schema, we write the email value to `profiles`
 	[actions.up]
 	table = "users"
-	value = "email"
-	where = "user_id = id"
+	value = "users.email"
+	where = "profiles.user_id = users.id"
 ```
 
 #### Alter column

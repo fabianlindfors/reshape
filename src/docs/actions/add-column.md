@@ -138,3 +138,5 @@ table = "products"
 - For non-nullable columns, provide either `default` or `up` to populate existing rows
 - The `up` expression is evaluated for each row during backfill
 - Cross-table `up` requires a previous migration schema to exist
+- In a cross-table `up`, every column in `value` and `where` must be qualified with its
+  table name, as the expressions run in triggers on both tables

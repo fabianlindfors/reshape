@@ -450,6 +450,66 @@ fn add_column_complex_up_invalid_column_reference() {
 }
 
 #[test]
+fn add_column_complex_up_unqualified_reference() {
+    let mut test = Test::new("Add column with unqualified cross-table reference");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+        "#,
+    );
+
+    // `user_id` exists on `profiles` but resolves to the wrong table in one of the two
+    // triggers, so it has to be qualified
+    test.second_migration(
+        r#"
+        name = "add_column_with_unqualified_reference"
+
+        [[actions]]
+        type = "add_column"
+        table = "profiles"
+
+            [actions.column]
+            name = "name"
+            type = "TEXT"
+
+            [actions.up]
+            table = "users"
+            value = "users.name"
+            where = "user_id = users.id"
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
+#[test]
 fn add_column_up_references_column_added_earlier() {
     let mut test = Test::new("Add column referencing column added in same migration");
 

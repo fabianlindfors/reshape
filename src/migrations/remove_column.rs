@@ -458,7 +458,7 @@ impl Action for RemoveColumn {
             Some(Transformation::Simple(down)) => vec![SqlField::expression(
                 "down",
                 down,
-                References::Tables(vec![TableScope::schema(&self.table).excluding(&self.column)]),
+                References::Table(TableScope::schema(&self.table).excluding(&self.column)),
             )],
             // A cross-table `down` takes values from another table. The `where` clause
             // matches rows of the changed table and may use any of its columns.
@@ -470,18 +470,15 @@ impl Action for RemoveColumn {
                 SqlField::expression(
                     "down.value",
                     value,
-                    References::Tables(vec![
+                    References::Tables(
                         TableScope::schema(table),
                         TableScope::schema(&self.table).excluding(&self.column),
-                    ]),
+                    ),
                 ),
                 SqlField::expression(
                     "down.where",
                     r#where,
-                    References::Tables(vec![
-                        TableScope::schema(table),
-                        TableScope::schema(&self.table),
-                    ]),
+                    References::Tables(TableScope::schema(table), TableScope::schema(&self.table)),
                 ),
             ],
             None => vec![],

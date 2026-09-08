@@ -174,8 +174,17 @@ fn resolve<'a>(
     let fields = &reference.fields;
 
     match fields.len() {
-        // Unqualified column, e.g. `name`
+        // Unqualified column, e.g. `name`. With more than one table in scope, the name
+        // could resolve to a different table depending on where the SQL runs, so it
+        // must be qualified.
         1 => {
+            if tables.len() > 1 {
+                return Err(format!(
+                    "column \"{}\" must be qualified with a table name",
+                    fields[0]
+                ));
+            }
+
             let (table, column) = find_column(tables, &fields[0])?;
             Ok(Some(Resolution {
                 table_field: None,
@@ -206,7 +215,7 @@ fn resolve<'a>(
 
             // A two-part reference can also be a field of a composite-typed column, e.g.
             // `address.city`. In that case, the first part is the column reference.
-            if fields.len() == 2 {
+            if fields.len() == 2 && tables.len() == 1 {
                 if let Ok((table, column)) = find_column(tables, qualifier) {
                     return Ok(Some(Resolution {
                         table_field: None,
@@ -481,21 +490,26 @@ mod tests {
         let profiles = other_table();
         let tables = [&users, &profiles];
 
-        // Unqualified columns may come from either table, qualified ones must match
-        assert!(validate_column_references("user_id = id", &tables).is_empty());
+        // Every reference must be qualified when more than one table is in scope
         assert!(validate_column_references("profiles.user_id = users.id", &tables).is_empty());
-        assert!(validate_column_references("lower(email) = status", &tables).is_empty());
+        assert!(
+            validate_column_references("lower(profiles.email) = users.status", &tables).is_empty()
+        );
 
         assert_eq!(
-            validate_column_references("missing = id", &tables),
-            vec![r#"column "missing" does not exist on tables "users" or "profiles""#]
+            validate_column_references("user_id = users.id", &tables),
+            vec![r#"column "user_id" must be qualified with a table name"#]
         );
         assert_eq!(
-            validate_column_references("users.email = id", &tables),
+            validate_column_references("profiles.missing = users.id", &tables),
+            vec![r#"column "missing" does not exist on table "profiles""#]
+        );
+        assert_eq!(
+            validate_column_references("users.email = users.id", &tables),
             vec![r#"column "email" does not exist on table "users""#]
         );
         assert_eq!(
-            validate_column_references("accounts.id = id", &tables),
+            validate_column_references("accounts.id = users.id", &tables),
             vec![r#"unknown table "accounts""#]
         );
     }

@@ -21,13 +21,25 @@ pub enum References {
     Unchecked,
     /// The SQL may not reference any columns at all
     Forbidden,
-    /// Columns of the given tables
-    Tables(Vec<TableScope>),
+    /// Columns of a table, referenced with or without the table name
+    Table(TableScope),
+    /// Columns of two tables, as in a cross-table transformation. Every reference must
+    /// be qualified with the name of its table, as the SQL runs in triggers on both
+    /// tables where an unqualified name would resolve differently.
+    Tables(TableScope, TableScope),
 }
 
 impl References {
     pub fn table(table: &str) -> Self {
-        References::Tables(vec![TableScope::schema(table)])
+        References::Table(TableScope::schema(table))
+    }
+
+    fn scopes(&self) -> Vec<&TableScope> {
+        match self {
+            References::Unchecked | References::Forbidden => vec![],
+            References::Table(scope) => vec![scope],
+            References::Tables(first, second) => vec![first, second],
+        }
     }
 }
 
@@ -134,11 +146,12 @@ pub fn validate_sql_against_schema(
     let mut errors = Vec::new();
 
     for field in action.sql_fields() {
-        let result = match (validate_field(&field), &field.references) {
-            (Ok(()), References::Tables(scopes)) if !scopes.iter().all(TableScope::is_explicit) => {
-                validate_references_against_schema(&field.sql, scopes, db, schema)?
+        let scopes = field.references.scopes();
+        let result = match validate_field(&field) {
+            Ok(()) if !scopes.iter().all(|scope| scope.is_explicit()) => {
+                validate_references_against_schema(&field.sql, &scopes, db, schema)?
             }
-            (result, _) => result,
+            result => result,
         };
 
         if let Err(message) = result {
@@ -159,26 +172,29 @@ fn validate_field(field: &SqlField) -> Result<(), String> {
         SqlKind::Statement => crate::sql::validate_sql_statement(&field.sql)?,
     }
 
-    match &field.references {
-        References::Forbidden => crate::sql::validate_no_column_references(&field.sql),
-        // Tables in the schema can only be checked once the schema is available
-        References::Tables(scopes) if scopes.iter().all(TableScope::is_explicit) => {
-            let tables: Vec<&Table> = scopes
-                .iter()
-                .filter_map(|scope| match scope {
-                    TableScope::Explicit(table) => Some(table),
-                    TableScope::Schema { .. } => None,
-                })
-                .collect();
-            join_errors(crate::sql::validate_column_references(&field.sql, &tables))
-        }
-        References::Unchecked | References::Tables(_) => Ok(()),
+    if let References::Forbidden = field.references {
+        return crate::sql::validate_no_column_references(&field.sql);
     }
+
+    // Tables in the schema can only be checked once the schema is available
+    let scopes = field.references.scopes();
+    if scopes.is_empty() || !scopes.iter().all(|scope| scope.is_explicit()) {
+        return Ok(());
+    }
+
+    let tables: Vec<&Table> = scopes
+        .iter()
+        .filter_map(|scope| match scope {
+            TableScope::Explicit(table) => Some(table),
+            TableScope::Schema { .. } => None,
+        })
+        .collect();
+    join_errors(crate::sql::validate_column_references(&field.sql, &tables))
 }
 
 fn validate_references_against_schema(
     sql: &str,
-    scopes: &[TableScope],
+    scopes: &[&TableScope],
     db: &mut dyn Conn,
     schema: &Schema,
 ) -> anyhow::Result<Result<(), String>> {
