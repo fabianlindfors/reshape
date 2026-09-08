@@ -23,6 +23,25 @@ fn create_table_invalid_default_sql() {
 }
 
 #[test]
+fn create_table_invalid_check_sql() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+        [[actions.columns]]
+        name = "id"
+        type = "INTEGER"
+        [[actions.checks]]
+        name = "id_positive"
+        expression = "INVALID $$$ SYNTAX"
+        "#,
+    );
+}
+
+#[test]
 fn create_table_invalid_up_values_sql() {
     assert_invalid_sql(
         r#"
