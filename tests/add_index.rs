@@ -880,6 +880,105 @@ fn add_index_expression_referencing_unknown_column() {
 }
 
 #[test]
+fn add_index_with_stale_column_name() {
+    let mut test = Test::new("Add index using the old name of an altered column");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+        "#,
+    );
+
+    // The rename with a type change replaces `name` with a temporary column exposed as
+    // `full_name`. Indexing `name` would silently build the index on the old column,
+    // which is dropped on completion.
+    test.second_migration(
+        r#"
+        name = "rename_name_and_index_old_name"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        up = "name"
+        down = "name"
+
+            [actions.changes]
+            name = "full_name"
+            type = "VARCHAR(255)"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_name_idx"
+            columns = ["name"]
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
+#[test]
+fn add_index_with_stale_table_name() {
+    let mut test = Test::new("Add index using the old name of a renamed table");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "rename_users_and_index_old_name"
+
+        [[actions]]
+        type = "rename_table"
+        table = "users"
+        new_name = "customers"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_name_idx"
+            columns = ["name"]
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
+#[test]
 fn add_index_referencing_unknown_column() {
     let mut test = Test::new("Add index referencing an unknown column");
 

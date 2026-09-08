@@ -1,4 +1,5 @@
 use crate::db::Conn;
+use anyhow::anyhow;
 use std::collections::{HashMap, HashSet};
 
 // Schema tracks changes made to tables and columns during a migration.
@@ -184,16 +185,55 @@ impl Schema {
     }
 
     pub fn get_table(&self, db: &mut dyn Conn, table_name: &str) -> anyhow::Result<Table> {
+        self.find_table(db, table_name)?
+            .ok_or_else(|| anyhow!("table \"{}\" does not exist", table_name))
+    }
+
+    /// Looks up a table by its current name. Returns `None` if the schema has no such
+    /// table, either because it doesn't exist in the database, because it has been
+    /// removed or because the name is one it no longer has.
+    pub fn find_table(&self, db: &mut dyn Conn, table_name: &str) -> anyhow::Result<Option<Table>> {
         let table_changes = self
             .table_changes
             .iter()
             .find(|changes| changes.current_name == table_name);
 
-        let real_table_name = table_changes
-            .map(|changes| changes.real_name.to_string())
-            .unwrap_or_else(|| table_name.to_string());
+        let real_table_name = match table_changes {
+            Some(changes) if changes.removed => return Ok(None),
+            Some(changes) => changes.real_name.to_string(),
+            None => {
+                // The name may be the old name of a table which has been renamed. The
+                // real table still exists until the migration completes, but it's no
+                // longer known by that name.
+                let renamed = self.table_changes.iter().any(|changes| {
+                    changes.real_name == table_name && changes.current_name != table_name
+                });
+                if renamed {
+                    return Ok(None);
+                }
 
-        self.get_table_by_real_name(db, &real_table_name)
+                table_name.to_string()
+            }
+        };
+
+        if !self.table_exists(db, &real_table_name)? {
+            return Ok(None);
+        }
+
+        self.get_table_by_real_name(db, &real_table_name).map(Some)
+    }
+
+    fn table_exists(&self, db: &mut dyn Conn, real_table_name: &str) -> anyhow::Result<bool> {
+        let rows = db.query(&format!(
+            "
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_name = '{table}' AND table_schema = 'public'
+            ",
+            table = real_table_name,
+        ))?;
+
+        Ok(!rows.is_empty())
     }
 
     fn get_table_by_real_name(
@@ -288,15 +328,24 @@ impl Schema {
 }
 
 impl Table {
-    pub fn real_column_names<'a>(
-        &'a self,
-        columns: &'a [String],
-    ) -> impl Iterator<Item = &'a String> {
-        columns.iter().map(|name| {
-            self.get_column(name)
-                .map(|col| &col.real_name)
-                .unwrap_or(name)
-        })
+    /// The name of the real column backing a column, failing if the column doesn't exist
+    pub fn real_column_name(&self, name: &str) -> anyhow::Result<&str> {
+        self.get_column(name)
+            .map(|column| column.real_name.as_str())
+            .ok_or_else(|| {
+                anyhow!(
+                    "column \"{}\" does not exist on table \"{}\"",
+                    name,
+                    self.name
+                )
+            })
+    }
+
+    pub fn real_column_names(&self, columns: &[String]) -> anyhow::Result<Vec<String>> {
+        columns
+            .iter()
+            .map(|name| self.real_column_name(name).map(str::to_string))
+            .collect()
     }
 
     pub fn get_column(&self, name: &str) -> Option<&Column> {
