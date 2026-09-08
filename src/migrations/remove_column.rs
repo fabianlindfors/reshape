@@ -1,4 +1,4 @@
-use super::{common, Action, MigrationContext, References, SqlField, TableScope};
+use super::{common, Action, MigrationContext, NameField, References, SqlField, TableScope};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -486,5 +486,18 @@ impl Action for RemoveColumn {
             ],
             None => vec![],
         }
+    }
+
+    fn name_fields(&self) -> Vec<NameField> {
+        let mut fields = vec![
+            NameField::table("table", &self.table),
+            NameField::column("column", &self.column, TableScope::schema(&self.table)),
+        ];
+
+        if let Some(Transformation::Update { table, .. }) = &self.down {
+            fields.push(NameField::table("down.table", table));
+        }
+
+        fields
     }
 }

@@ -1,9 +1,9 @@
 mod common;
-use common::{assert_invalid_sql, Test};
+use common::{assert_invalid, Test};
 
 #[test]
 fn custom_invalid_start_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -15,7 +15,7 @@ fn custom_invalid_start_sql() {
 
 #[test]
 fn custom_invalid_complete_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -27,7 +27,7 @@ fn custom_invalid_complete_sql() {
 
 #[test]
 fn custom_invalid_abort_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]

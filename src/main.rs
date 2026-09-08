@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context;
 use clap::{Args, Parser};
 use reshape::{
-    migrations::{validate_sql, Action, Migration},
+    migrations::{validate, Action, Migration},
     Reshape,
 };
 use serde::{Deserialize, Serialize};
@@ -225,18 +225,18 @@ fn run(opts: Opts) -> anyhow::Result<()> {
             let mut has_errors = false;
             for migration in &migrations {
                 for (idx, action) in migration.actions.iter().enumerate() {
-                    for error in validate_sql(action.as_ref()) {
+                    for error in validate(action.as_ref()) {
                         has_errors = true;
                         println!(
-                            "Invalid SQL in '{}' action {} field '{}': {}\n  SQL: {}",
-                            migration.name, idx, error.field, error.message, error.sql
+                            "Invalid field '{}' in '{}' action {}: {}\n  Value: {}",
+                            error.field, migration.name, idx, error.message, error.value
                         );
                     }
                 }
             }
 
             if has_errors {
-                Err(anyhow::anyhow!("SQL validation failed"))
+                Err(anyhow::anyhow!("validation failed"))
             } else {
                 println!("All {} migration(s) are valid", migrations.len());
                 for migration in &migrations {

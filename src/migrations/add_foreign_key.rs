@@ -1,4 +1,4 @@
-use super::{common::ForeignKey, Action, MigrationContext};
+use super::{common::ForeignKey, Action, MigrationContext, NameField, TableScope};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -108,6 +108,34 @@ impl Action for AddForeignKey {
         .context("failed to validate foreign key")?;
 
         Ok(())
+    }
+
+    fn name_fields(&self) -> Vec<NameField> {
+        let mut fields = vec![
+            NameField::table("table", &self.table),
+            NameField::table(
+                "foreign_key.referenced_table",
+                &self.foreign_key.referenced_table,
+            ),
+        ];
+
+        for (idx, column) in self.foreign_key.columns.iter().enumerate() {
+            fields.push(NameField::column(
+                format!("foreign_key.columns[{}]", idx),
+                column,
+                TableScope::schema(&self.table),
+            ));
+        }
+
+        for (idx, column) in self.foreign_key.referenced_columns.iter().enumerate() {
+            fields.push(NameField::column(
+                format!("foreign_key.referenced_columns[{}]", idx),
+                column,
+                TableScope::schema(&self.foreign_key.referenced_table),
+            ));
+        }
+
+        fields
     }
 }
 

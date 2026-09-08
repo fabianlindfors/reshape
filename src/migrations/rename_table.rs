@@ -1,4 +1,4 @@
-use super::{Action, MigrationContext};
+use super::{Action, MigrationContext, NameField};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -54,5 +54,9 @@ impl Action for RenameTable {
 
     fn abort(&self, _ctx: &MigrationContext, _db: &mut dyn Conn) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    fn name_fields(&self) -> Vec<NameField> {
+        vec![NameField::table("table", &self.table)]
     }
 }

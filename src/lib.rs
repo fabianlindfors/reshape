@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    migrations::{quote_string_literal, validate_sql_against_schema, Migration, MigrationContext},
+    migrations::{quote_string_literal, validate_against_schema, Migration, MigrationContext},
     schema::Schema,
 };
 
@@ -277,9 +277,9 @@ fn migrate(
             let description = action.describe();
             print!("  + {} ", description);
 
-            // Validate SQL before running action
+            // Validate fields before running action
             let validation_errors =
-                match validate_sql_against_schema(action.as_ref(), db, &new_schema) {
+                match validate_against_schema(action.as_ref(), db, &new_schema) {
                     Ok(errors) => errors,
                     Err(err) => {
                         result = Err(err);
@@ -289,14 +289,11 @@ fn migrate(
             if !validation_errors.is_empty() {
                 for error in &validation_errors {
                     println!(
-                        "\n    Invalid SQL in field '{}': {}\n      SQL: {}",
-                        error.field, error.message, error.sql
+                        "\n    Invalid field '{}': {}\n      Value: {}",
+                        error.field, error.message, error.value
                     );
                 }
-                result = Err(anyhow!(
-                    "SQL validation failed for action: {}",
-                    description
-                ));
+                result = Err(anyhow!("validation failed for action: {}", description));
                 break 'outer;
             }
 

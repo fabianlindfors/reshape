@@ -1,10 +1,10 @@
 mod common;
-use common::{assert_invalid_sql, get_column_comment, get_comment, Test};
+use common::{assert_invalid, get_column_comment, get_comment, Test};
 use reshape::migrations::Migration;
 
 #[test]
 fn create_table_invalid_default_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -24,7 +24,7 @@ fn create_table_invalid_default_sql() {
 
 #[test]
 fn create_table_invalid_check_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -43,7 +43,7 @@ fn create_table_invalid_check_sql() {
 
 #[test]
 fn create_table_default_with_column_reference() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -63,7 +63,7 @@ fn create_table_default_with_column_reference() {
 
 #[test]
 fn create_table_check_invalid_column_reference() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -240,8 +240,63 @@ fn create_table_then_change_it_in_same_migration() {
 }
 
 #[test]
+fn create_table_primary_key_unknown_column() {
+    assert_invalid(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["user_id"]
+        [[actions.columns]]
+        name = "id"
+        type = "INTEGER"
+        "#,
+    );
+}
+
+#[test]
+fn create_table_foreign_key_unknown_column() {
+    assert_invalid(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "create_table"
+        name = "items"
+        primary_key = ["id"]
+        [[actions.columns]]
+        name = "id"
+        type = "INTEGER"
+        [[actions.foreign_keys]]
+        columns = ["user_id"]
+        referenced_table = "users"
+        referenced_columns = ["id"]
+        "#,
+    );
+}
+
+#[test]
+fn create_table_up_values_unknown_column() {
+    assert_invalid(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["id"]
+        [[actions.columns]]
+        name = "id"
+        type = "INTEGER"
+        [actions.up]
+        table = "users"
+        values = { id = "id", non_existent = "name" }
+        "#,
+    );
+}
+
+#[test]
 fn create_table_invalid_up_values_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]

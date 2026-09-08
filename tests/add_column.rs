@@ -1,9 +1,9 @@
 mod common;
-use common::{assert_invalid_sql, get_column_comment, Test};
+use common::{assert_invalid, get_column_comment, Test};
 
 #[test]
 fn add_column_invalid_up_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -19,7 +19,7 @@ fn add_column_invalid_up_sql() {
 
 #[test]
 fn add_column_invalid_default_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -35,7 +35,7 @@ fn add_column_invalid_default_sql() {
 
 #[test]
 fn add_column_invalid_complex_up_value_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -54,7 +54,7 @@ fn add_column_invalid_complex_up_value_sql() {
 
 #[test]
 fn add_column_invalid_complex_up_where_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -332,7 +332,7 @@ fn add_column_generated_identity() {
 
 #[test]
 fn add_column_default_with_column_reference() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
