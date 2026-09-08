@@ -465,8 +465,10 @@ impl Action for AddColumn {
                 value,
                 r#where,
             }) => {
-                let tables =
-                    References::Tables(vec![TableScope::new(table), TableScope::new(&self.table)]);
+                let tables = References::Tables(vec![
+                    TableScope::schema(table),
+                    TableScope::schema(&self.table),
+                ]);
                 fields.push(SqlField::expression("up.value", value, tables.clone()));
                 fields.push(SqlField::expression("up.where", r#where, tables));
             }

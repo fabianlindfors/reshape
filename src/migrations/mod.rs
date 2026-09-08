@@ -21,38 +21,50 @@ pub enum References {
     Unchecked,
     /// The SQL may not reference any columns at all
     Forbidden,
-    /// Columns of a table which doesn't exist in the schema yet
-    Table(Table),
-    /// Columns of tables in the schema, checked right before the action runs
+    /// Columns of the given tables
     Tables(Vec<TableScope>),
 }
 
 impl References {
     pub fn table(table: &str) -> Self {
-        References::Tables(vec![TableScope::new(table)])
+        References::Tables(vec![TableScope::schema(table)])
     }
 }
 
 /// A table whose columns may be referenced
 #[derive(Debug, Clone)]
-pub struct TableScope {
-    pub table: String,
-    /// Columns which exist on the table but can't be referenced, such as a column which is
-    /// being removed
-    pub excluded_columns: Vec<String>,
+pub enum TableScope {
+    /// A table in the schema, resolved right before the action runs
+    Schema {
+        table: String,
+        /// Columns which exist on the table but can't be referenced, such as a column
+        /// which is being removed
+        excluded_columns: Vec<String>,
+    },
+    /// A table which doesn't exist in the schema yet, with its columns known up front
+    Explicit(Table),
 }
 
 impl TableScope {
-    pub fn new(table: &str) -> Self {
-        TableScope {
+    pub fn schema(table: &str) -> Self {
+        TableScope::Schema {
             table: table.to_string(),
             excluded_columns: Vec::new(),
         }
     }
 
     pub fn excluding(mut self, column: &str) -> Self {
-        self.excluded_columns.push(column.to_string());
+        match &mut self {
+            TableScope::Schema {
+                excluded_columns, ..
+            } => excluded_columns.push(column.to_string()),
+            TableScope::Explicit(table) => table.columns.retain(|c| c.name != column),
+        }
         self
+    }
+
+    fn is_explicit(&self) -> bool {
+        matches!(self, TableScope::Explicit(_))
     }
 }
 
@@ -123,7 +135,7 @@ pub fn validate_sql_against_schema(
 
     for field in action.sql_fields() {
         let result = match (validate_field(&field), &field.references) {
-            (Ok(()), References::Tables(scopes)) => {
+            (Ok(()), References::Tables(scopes)) if !scopes.iter().all(TableScope::is_explicit) => {
                 validate_references_against_schema(&field.sql, scopes, db, schema)?
             }
             (result, _) => result,
@@ -149,8 +161,16 @@ fn validate_field(field: &SqlField) -> Result<(), String> {
 
     match &field.references {
         References::Forbidden => crate::sql::validate_no_column_references(&field.sql),
-        References::Table(table) => {
-            join_errors(crate::sql::validate_column_references(&field.sql, &[table]))
+        // Tables in the schema can only be checked once the schema is available
+        References::Tables(scopes) if scopes.iter().all(TableScope::is_explicit) => {
+            let tables: Vec<&Table> = scopes
+                .iter()
+                .filter_map(|scope| match scope {
+                    TableScope::Explicit(table) => Some(table),
+                    TableScope::Schema { .. } => None,
+                })
+                .collect();
+            join_errors(crate::sql::validate_column_references(&field.sql, &tables))
         }
         References::Unchecked | References::Tables(_) => Ok(()),
     }
@@ -164,16 +184,25 @@ fn validate_references_against_schema(
 ) -> anyhow::Result<Result<(), String>> {
     let mut tables = Vec::new();
     for scope in scopes {
-        let mut table = schema.get_table(db, &scope.table)?;
+        let table = match scope {
+            TableScope::Explicit(table) => table.clone(),
+            TableScope::Schema {
+                table,
+                excluded_columns,
+            } => {
+                let mut resolved = schema.get_table(db, table)?;
 
-        // A table which doesn't exist comes back without any columns
-        if table.columns.is_empty() {
-            return Ok(Err(format!("table \"{}\" does not exist", scope.table)));
-        }
+                // A table which doesn't exist comes back without any columns
+                if resolved.columns.is_empty() {
+                    return Ok(Err(format!("table \"{}\" does not exist", table)));
+                }
 
-        table
-            .columns
-            .retain(|column| !scope.excluded_columns.contains(&column.name));
+                resolved
+                    .columns
+                    .retain(|column| !excluded_columns.contains(&column.name));
+                resolved
+            }
+        };
         tables.push(table);
     }
 

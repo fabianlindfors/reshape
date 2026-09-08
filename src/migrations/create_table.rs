@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::{
     common::{Check, ForeignKey},
-    quote_string_literal, Action, Column, MigrationContext, References, SqlField,
+    quote_string_literal, Action, Column, MigrationContext, References, SqlField, TableScope,
 };
 use crate::{
     db::{Conn, Transaction},
@@ -311,7 +311,7 @@ impl Action for CreateTable {
             fields.push(SqlField::expression(
                 format!("checks[{}].expression", idx),
                 &check.expression,
-                References::Table(self.schema_table()),
+                References::Tables(vec![TableScope::Explicit(self.schema_table())]),
             ));
         }
 
