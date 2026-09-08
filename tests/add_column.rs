@@ -240,7 +240,7 @@ fn add_column_nullable() {
             .unwrap();
         let name: Option<String> = new_db
             .query_one("SELECT name from users WHERE id = 3", &[])
-            .map(|row| (row.get("name")))
+            .map(|row| row.get("name"))
             .unwrap();
         assert_eq!(None, name);
 

@@ -743,7 +743,7 @@ fn alter_column_multiple() {
             .unwrap()
             .iter()
             .map(|row| row.get("counter"))
-            .nth(0)
+            .next()
             .unwrap();
         assert_eq!(52, result);
 
@@ -756,7 +756,7 @@ fn alter_column_multiple() {
             .unwrap()
             .iter()
             .map(|row| row.get("counter"))
-            .nth(0)
+            .next()
             .unwrap();
         assert_eq!(48, result);
     });
