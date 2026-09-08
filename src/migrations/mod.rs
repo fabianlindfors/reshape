@@ -23,10 +23,10 @@ pub enum References {
     Forbidden,
     /// Columns of a table, referenced with or without the table name
     Table(TableScope),
-    /// Columns of two tables, as in a cross-table transformation. Every reference must
+    /// Columns of the two tables of a cross-table transformation. Every reference must
     /// be qualified with the name of its table, as the SQL runs in triggers on both
     /// tables where an unqualified name would resolve differently.
-    Tables(TableScope, TableScope),
+    CrossTable(TableScope, TableScope),
 }
 
 impl References {
@@ -38,7 +38,7 @@ impl References {
         match self {
             References::Unchecked | References::Forbidden => vec![],
             References::Table(scope) => vec![scope],
-            References::Tables(first, second) => vec![first, second],
+            References::CrossTable(first, second) => vec![first, second],
         }
     }
 }

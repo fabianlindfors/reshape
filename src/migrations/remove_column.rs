@@ -470,7 +470,7 @@ impl Action for RemoveColumn {
                 SqlField::expression(
                     "down.value",
                     value,
-                    References::Tables(
+                    References::CrossTable(
                         TableScope::schema(table),
                         TableScope::schema(&self.table).excluding(&self.column),
                     ),
@@ -478,7 +478,10 @@ impl Action for RemoveColumn {
                 SqlField::expression(
                     "down.where",
                     r#where,
-                    References::Tables(TableScope::schema(table), TableScope::schema(&self.table)),
+                    References::CrossTable(
+                        TableScope::schema(table),
+                        TableScope::schema(&self.table),
+                    ),
                 ),
             ],
             None => vec![],
