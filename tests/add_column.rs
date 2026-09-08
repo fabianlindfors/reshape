@@ -166,6 +166,9 @@ fn add_column() {
             .iter()
             .map(|row| (row.get("first"), row.get("last")))
             .eq(expected));
+
+        common::assert_not_null_constraint_name(db, "users", "first");
+        common::assert_not_null_constraint_name(db, "users", "last");
     });
 
     test.after_abort(|db| {
