@@ -191,9 +191,6 @@ impl Action for RemoveColumn {
                     "".to_string()
                 };
 
-                // Both tables are exposed with their columns under their current names, so
-                // `value` and `where` reference the schema as it looks in this migration.
-
                 // When the source table is written in the new schema, update the removed
                 // column of the matching rows
                 let query = format!(

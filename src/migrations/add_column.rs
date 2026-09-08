@@ -179,11 +179,6 @@ impl Action for AddColumn {
             {
                 let from_table = schema.get_table(db, from_table)?;
 
-                // Both tables are exposed with their columns under their current names, so
-                // `value` and `where` reference the schema as it looks in this migration. The
-                // table being written is a record built from the new row, the other table a
-                // subquery over the real table.
-
                 // When the source table is written in the old schema, update the matching
                 // rows of the changed table
                 let query = format!(
