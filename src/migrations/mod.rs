@@ -5,11 +5,9 @@ use crate::{
 use core::fmt::Debug;
 use serde::{Deserialize, Serialize};
 
-/// A field of an action which holds user-provided SQL, such as the `up` of `add_column`
-/// or the `start` of a custom action
+/// A field of an action which holds user-provided SQL
 #[derive(Debug, Clone)]
 pub struct SqlField {
-    /// The name of the field, used in error messages, e.g. "up" or "column.default"
     pub name: String,
     pub sql: String,
     pub kind: SqlKind,
@@ -17,9 +15,9 @@ pub struct SqlField {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SqlKind {
-    /// An expression evaluating to a value, for example the `up` of `add_column`
+    /// An expression evaluating to a value
     Expression,
-    /// One or more complete statements, for example the `start` of `custom`
+    /// One or more complete statements
     Statement,
 }
 
@@ -49,7 +47,6 @@ pub struct SqlError {
     pub message: String,
 }
 
-/// Validates all user-provided SQL in an action
 pub fn validate_sql(action: &dyn Action) -> Vec<SqlError> {
     action
         .sql_fields()
