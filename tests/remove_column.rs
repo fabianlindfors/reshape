@@ -129,6 +129,115 @@ fn remove_column_down_references_removed_column() {
 }
 
 #[test]
+fn remove_column_complex_down_with_renamed_source_column() {
+    let mut test = Test::new("Cross-table down with renamed source column");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+        "#,
+    );
+
+    // `user_id` is renamed and replaced by a temporary column, and referenced by its new
+    // name from the cross-table transformation
+    test.second_migration(
+        r#"
+        name = "rename_user_id_and_remove_user_email"
+
+        [[actions]]
+        type = "alter_column"
+        table = "profiles"
+        column = "user_id"
+        up = "user_id"
+        down = "user_id"
+
+            [actions.changes]
+            name = "owner_id"
+            type = "BIGINT"
+
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "email"
+
+            [actions.down]
+            table = "profiles"
+            value = "profiles.email"
+            where = "users.id = profiles.owner_id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query(
+            "
+            INSERT INTO users (id, email) VALUES (1, 'a@example.com');
+            INSERT INTO profiles (id, user_id, email) VALUES (10, 1, 'a@example.com');
+            ",
+        )
+        .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        // A profile updated in the new schema writes the email back to the user
+        new_db
+            .simple_query("UPDATE profiles SET email = 'b@example.com' WHERE id = 10")
+            .unwrap();
+        let email: String = old_db
+            .query_one("SELECT email FROM users WHERE id = 1", &[])
+            .unwrap()
+            .get("email");
+        assert_eq!("b@example.com", email);
+
+        // A user inserted in the new schema gets its email from the matching profile
+        new_db
+            .simple_query(
+                "INSERT INTO profiles (id, owner_id, email) VALUES (20, 2, 'c@example.com')",
+            )
+            .unwrap();
+        new_db
+            .simple_query("INSERT INTO users (id) VALUES (2)")
+            .unwrap();
+        let email: String = old_db
+            .query_one("SELECT email FROM users WHERE id = 2", &[])
+            .unwrap()
+            .get("email");
+        assert_eq!("c@example.com", email);
+    });
+
+    test.run();
+}
+
+#[test]
 fn remove_column() {
     let mut test = Test::new("Remove column");
 

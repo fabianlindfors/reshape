@@ -640,6 +640,295 @@ fn add_column_with_default() {
 }
 
 #[test]
+fn add_column_complex_up_with_renamed_source_column() {
+    let mut test = Test::new("Cross-table up with renamed source column");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "rename_email_and_add_profile_email"
+
+        # `email` is renamed and replaced by a temporary column, and referenced by its new
+        # name from the cross-table transformation
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "email"
+        up = "email"
+        down = "email"
+
+            [actions.changes]
+            name = "mail"
+            type = "VARCHAR(255)"
+
+        [[actions]]
+        type = "add_column"
+        table = "profiles"
+
+            [actions.column]
+            name = "email"
+            type = "TEXT"
+
+            [actions.up]
+            table = "users"
+            value = "users.mail"
+            where = "profiles.user_id = users.id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query(
+            "
+            INSERT INTO users (id, email) VALUES (1, 'a@example.com');
+            INSERT INTO profiles (id, user_id) VALUES (10, 1);
+            ",
+        )
+        .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        // Existing rows are backfilled
+        let email: Option<String> = new_db
+            .query_one("SELECT email FROM profiles WHERE id = 10", &[])
+            .unwrap()
+            .get("email");
+        assert_eq!(Some("a@example.com".to_string()), email);
+
+        // A profile written in the old schema gets its email from the user
+        old_db
+            .simple_query("INSERT INTO users (id, email) VALUES (2, 'b@example.com')")
+            .unwrap();
+        old_db
+            .simple_query("INSERT INTO profiles (id, user_id) VALUES (20, 2)")
+            .unwrap();
+        let email: Option<String> = new_db
+            .query_one("SELECT email FROM profiles WHERE id = 20", &[])
+            .unwrap()
+            .get("email");
+        assert_eq!(Some("b@example.com".to_string()), email);
+
+        // A user updated in the old schema updates the profile
+        old_db
+            .simple_query("UPDATE users SET email = 'c@example.com' WHERE id = 2")
+            .unwrap();
+        let email: Option<String> = new_db
+            .query_one("SELECT email FROM profiles WHERE id = 20", &[])
+            .unwrap()
+            .get("email");
+        assert_eq!(Some("c@example.com".to_string()), email);
+    });
+
+    test.run();
+}
+
+#[test]
+fn add_column_complex_up_with_renamed_target_column() {
+    let mut test = Test::new("Cross-table up with renamed target column");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "rename_user_id_and_add_profile_email"
+
+        # `user_id` is renamed and replaced by a temporary column on the table being
+        # changed, and referenced by its new name from the cross-table transformation
+        [[actions]]
+        type = "alter_column"
+        table = "profiles"
+        column = "user_id"
+        up = "user_id"
+        down = "user_id"
+
+            [actions.changes]
+            name = "owner_id"
+            type = "BIGINT"
+
+        [[actions]]
+        type = "add_column"
+        table = "profiles"
+
+            [actions.column]
+            name = "email"
+            type = "TEXT"
+
+            [actions.up]
+            table = "users"
+            value = "users.email"
+            where = "profiles.owner_id = users.id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query(
+            "
+            INSERT INTO users (id, email) VALUES (1, 'a@example.com');
+            INSERT INTO profiles (id, user_id) VALUES (10, 1);
+            ",
+        )
+        .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        // Existing rows are backfilled
+        let email: Option<String> = new_db
+            .query_one("SELECT email FROM profiles WHERE id = 10", &[])
+            .unwrap()
+            .get("email");
+        assert_eq!(Some("a@example.com".to_string()), email);
+
+        // A profile written in the old schema gets its email from the user
+        old_db
+            .simple_query("INSERT INTO users (id, email) VALUES (2, 'b@example.com')")
+            .unwrap();
+        old_db
+            .simple_query("INSERT INTO profiles (id, user_id) VALUES (20, 2)")
+            .unwrap();
+        let email: Option<String> = new_db
+            .query_one("SELECT email FROM profiles WHERE id = 20", &[])
+            .unwrap()
+            .get("email");
+        assert_eq!(Some("b@example.com".to_string()), email);
+
+        // A user updated in the old schema updates the profile
+        old_db
+            .simple_query("UPDATE users SET email = 'c@example.com' WHERE id = 2")
+            .unwrap();
+        let email: Option<String> = new_db
+            .query_one("SELECT email FROM profiles WHERE id = 20", &[])
+            .unwrap()
+            .get("email");
+        assert_eq!(Some("c@example.com".to_string()), email);
+    });
+
+    test.run();
+}
+
+#[test]
+fn add_column_complex_up_in_first_migration() {
+    let mut test = Test::new("Cross-table up without a previous migration");
+
+    // The tables are created in the same migration, so there is no previous schema to
+    // read the source table through
+    test.first_migration(
+        r#"
+        name = "create_tables_and_add_profile_email"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+
+        [[actions]]
+        type = "add_column"
+        table = "profiles"
+
+            [actions.column]
+            name = "email"
+            type = "TEXT"
+
+            [actions.up]
+            table = "users"
+            value = "users.email"
+            where = "profiles.user_id = users.id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id, email) VALUES (1, 'a@example.com')")
+            .unwrap();
+        db.simple_query(
+            "INSERT INTO profiles (id, user_id, email) VALUES (10, 1, 'a@example.com')",
+        )
+        .unwrap();
+    });
+
+    test.run();
+}
+
+#[test]
 fn add_column_with_complex_up() {
     let mut test = Test::new("Add column complex");
 

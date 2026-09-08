@@ -297,8 +297,7 @@ fn migrate(
                 break 'outer;
             }
 
-            let ctx =
-                MigrationContext::new(migration_index, action_index, state::current_migration(db)?);
+            let ctx = MigrationContext::new(migration_index, action_index);
             result = action
                 .run(&ctx, db, &new_schema)
                 .with_context(|| format!("failed to {}", description));
@@ -408,8 +407,7 @@ fn complete(db: &mut DbConn, state: &mut State) -> anyhow::Result<()> {
             let description = action.describe();
             print!("  + {} ", description);
 
-            let ctx =
-                MigrationContext::new(migration_index, action_index, state::current_migration(db)?);
+            let ctx = MigrationContext::new(migration_index, action_index);
 
             // Update state to indicate that this action has been completed.
             // We won't save this new state until after the action has completed.
@@ -534,8 +532,7 @@ fn abort(db: &mut DbConn, state: &mut State) -> anyhow::Result<()> {
                 continue;
             }
 
-            let ctx =
-                MigrationContext::new(migration_index, action_index, state::current_migration(db)?);
+            let ctx = MigrationContext::new(migration_index, action_index);
             action
                 .abort(&ctx, db)
                 .with_context(|| format!("failed to abort migration {}", migration.name))

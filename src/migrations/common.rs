@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use postgres::types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 
-use crate::db::Conn;
+use crate::{db::Conn, schema::Table};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Column {
@@ -322,4 +322,36 @@ pub fn get_index_definition(db: &mut dyn Conn, index_oid: u32) -> anyhow::Result
     .first()
     .map(|row| row.get("definition"))
     .ok_or_else(|| anyhow!("failed to get definition of index {}", index_oid))
+}
+
+// The row being written by a trigger with the columns under their current names, for
+// use as `SELECT {selection} INTO record`. Together with `table_with_current_columns`
+// this lets user-provided SQL reference both tables of a cross-table transformation by
+// the names they have in this migration, even when the real columns differ.
+pub fn new_row_with_current_columns(table: &Table) -> String {
+    table
+        .columns
+        .iter()
+        .map(|column| format!("NEW.\"{}\" AS \"{}\"", column.real_name, column.name))
+        .collect::<Vec<String>>()
+        .join(", ")
+}
+
+// The real table exposed with its columns under their current names, aliased to the
+// table's current name, for use in a FROM clause. Includes the ctid so that matched
+// rows can be updated.
+pub fn table_with_current_columns(table: &Table) -> String {
+    let columns = table
+        .columns
+        .iter()
+        .map(|column| format!("\"{}\" AS \"{}\"", column.real_name, column.name))
+        .collect::<Vec<String>>()
+        .join(", ");
+
+    format!(
+        "(SELECT ctid, {columns} FROM public.\"{real_name}\") \"{name}\"",
+        columns = columns,
+        real_name = table.real_name,
+        name = table.name,
+    )
 }
