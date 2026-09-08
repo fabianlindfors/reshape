@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use super::{
     common::{Check, ForeignKey},
-    quote_string_literal, Action, Column, MigrationContext, References, SqlField, TableScope,
+    quote_string_literal, Action, Column, MigrationContext, NameField, References, SqlField,
+    TableScope,
 };
 use crate::{
     db::{Conn, Transaction},
@@ -323,6 +324,64 @@ impl Action for CreateTable {
                     format!("up.values.{}", column),
                     value,
                     References::table(table),
+                ));
+            }
+        }
+
+        fields
+    }
+
+    fn name_fields(&self) -> Vec<NameField> {
+        // Columns of the new table are known up front, referenced tables must exist
+        let table = self.schema_table();
+        let mut fields = vec![];
+
+        for (idx, column) in self.primary_key.iter().enumerate() {
+            fields.push(NameField::column(
+                format!("primary_key[{}]", idx),
+                column,
+                TableScope::Explicit(table.clone()),
+            ));
+        }
+
+        for (key_idx, foreign_key) in self.foreign_keys.iter().enumerate() {
+            for (idx, column) in foreign_key.columns.iter().enumerate() {
+                fields.push(NameField::column(
+                    format!("foreign_keys[{}].columns[{}]", key_idx, idx),
+                    column,
+                    TableScope::Explicit(table.clone()),
+                ));
+            }
+
+            fields.push(NameField::table(
+                format!("foreign_keys[{}].referenced_table", key_idx),
+                &foreign_key.referenced_table,
+            ));
+
+            for (idx, column) in foreign_key.referenced_columns.iter().enumerate() {
+                fields.push(NameField::column(
+                    format!("foreign_keys[{}].referenced_columns[{}]", key_idx, idx),
+                    column,
+                    TableScope::schema(&foreign_key.referenced_table),
+                ));
+            }
+        }
+
+        if let Some(Transformation {
+            table: from_table,
+            values,
+            ..
+        }) = &self.up
+        {
+            fields.push(NameField::table("up.table", from_table));
+
+            let mut columns: Vec<&String> = values.keys().collect();
+            columns.sort();
+            for column in columns {
+                fields.push(NameField::column(
+                    format!("up.values.{}", column),
+                    column,
+                    TableScope::Explicit(table.clone()),
                 ));
             }
         }

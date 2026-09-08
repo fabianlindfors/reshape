@@ -1,4 +1,4 @@
-use super::{Action, MigrationContext, References, SqlField};
+use super::{Action, MigrationContext, NameField, References, SqlField, TableScope};
 use crate::sql::rewrite_index_definition;
 use crate::{
     db::{Conn, Transaction},
@@ -448,6 +448,13 @@ impl Action for AlterColumn {
         }
 
         fields
+    }
+
+    fn name_fields(&self) -> Vec<NameField> {
+        vec![
+            NameField::table("table", &self.table),
+            NameField::column("column", &self.column, TableScope::schema(&self.table)),
+        ]
     }
 }
 

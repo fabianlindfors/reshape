@@ -1,9 +1,9 @@
 mod common;
-use common::{assert_invalid_sql, Test};
+use common::{assert_invalid, Test};
 
 #[test]
 fn add_index_invalid_expression_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -18,7 +18,7 @@ fn add_index_invalid_expression_sql() {
 
 #[test]
 fn add_index_invalid_where_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]

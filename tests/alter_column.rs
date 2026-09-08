@@ -1,9 +1,9 @@
 mod common;
-use common::{assert_invalid_sql, Test};
+use common::{assert_invalid, Test};
 
 #[test]
 fn alter_column_invalid_up_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -17,7 +17,7 @@ fn alter_column_invalid_up_sql() {
 
 #[test]
 fn alter_column_invalid_down_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -31,7 +31,7 @@ fn alter_column_invalid_down_sql() {
 
 #[test]
 fn alter_column_invalid_default_sql() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]
@@ -46,7 +46,7 @@ fn alter_column_invalid_default_sql() {
 
 #[test]
 fn alter_column_default_with_column_reference() {
-    assert_invalid_sql(
+    assert_invalid(
         r#"
         name = "test"
         [[actions]]

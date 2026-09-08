@@ -1,4 +1,4 @@
-use super::{Action, MigrationContext, References, SqlField};
+use super::{Action, MigrationContext, NameField, References, SqlField, TableScope};
 use crate::{
     db::{Conn, Transaction},
     schema::{Schema, Table},
@@ -218,6 +218,27 @@ impl Action for AddIndex {
                 "index.where",
                 predicate,
                 References::table(&self.table),
+            ));
+        }
+
+        fields
+    }
+
+    fn name_fields(&self) -> Vec<NameField> {
+        let mut fields = vec![NameField::table("table", &self.table)];
+
+        for (idx, column) in self.index.columns.iter().enumerate() {
+            let (name, value) = match column {
+                IndexColumn::Name(name) => (format!("index.columns[{}]", idx), name),
+                IndexColumn::Column(spec) => {
+                    (format!("index.columns[{}].column", idx), &spec.column)
+                }
+                IndexColumn::Expression(_) => continue,
+            };
+            fields.push(NameField::column(
+                name,
+                value,
+                TableScope::schema(&self.table),
             ));
         }
 

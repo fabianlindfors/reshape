@@ -2,18 +2,18 @@ use colored::Colorize;
 use postgres::Client;
 use postgres_native_tls::MakeTlsConnector;
 use reshape::{
-    migrations::{validate_sql, Migration},
+    migrations::{validate, Migration},
     Reshape,
 };
 
-pub fn assert_invalid_sql(toml: &str) {
+pub fn assert_invalid(toml: &str) {
     let migration: Migration = toml::from_str(toml).unwrap();
     let errors: Vec<_> = migration
         .actions
         .iter()
-        .flat_map(|action| validate_sql(action.as_ref()))
+        .flat_map(|action| validate(action.as_ref()))
         .collect();
-    assert!(!errors.is_empty(), "expected SQL validation to fail");
+    assert!(!errors.is_empty(), "expected validation to fail");
 }
 
 // Looks up the comment on a table or view. The name is resolved using the connection's

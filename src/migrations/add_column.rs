@@ -1,6 +1,6 @@
 use super::{
-    common, quote_string_literal, Action, Column, MigrationContext, References, SqlField,
-    TableScope,
+    common, quote_string_literal, Action, Column, MigrationContext, NameField, References,
+    SqlField, TableScope,
 };
 use crate::{
     db::{Conn, Transaction},
@@ -481,6 +481,16 @@ impl Action for AddColumn {
                 default,
                 References::Forbidden,
             ));
+        }
+
+        fields
+    }
+
+    fn name_fields(&self) -> Vec<NameField> {
+        let mut fields = vec![NameField::table("table", &self.table)];
+
+        if let Some(Transformation::Update { table, .. }) = &self.up {
+            fields.push(NameField::table("up.table", table));
         }
 
         fields
