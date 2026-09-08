@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 use super::{
     common::{Check, ForeignKey},
-    quote_string_literal, Action, Column, MigrationContext, SqlField,
+    quote_string_literal, Action, Column, MigrationContext, References, SqlField,
 };
 use crate::{
     db::{Conn, Transaction},
     migrations::common,
-    schema::Schema,
+    schema::{self, Schema, Table},
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -39,6 +39,25 @@ pub struct Transformation {
 impl CreateTable {
     fn trigger_name(&self, ctx: &MigrationContext) -> String {
         format!("{}_create_table_{}", ctx.prefix(), self.name)
+    }
+
+    // The table as it will look once created
+    fn schema_table(&self) -> Table {
+        Table {
+            name: self.name.clone(),
+            real_name: self.name.clone(),
+            columns: self
+                .columns
+                .iter()
+                .map(|column| schema::Column {
+                    name: column.name.clone(),
+                    real_name: column.name.clone(),
+                    data_type: column.data_type.clone(),
+                    nullable: column.nullable,
+                    default: column.default.clone(),
+                })
+                .collect(),
+        }
     }
 }
 
@@ -282,22 +301,27 @@ impl Action for CreateTable {
                 fields.push(SqlField::expression(
                     format!("columns[{}].default", idx),
                     default,
+                    References::Forbidden,
                 ));
             }
         }
 
+        // Checks can only reference the table's own columns
         for (idx, check) in self.checks.iter().enumerate() {
             fields.push(SqlField::expression(
                 format!("checks[{}].expression", idx),
                 &check.expression,
+                References::Table(self.schema_table()),
             ));
         }
 
-        if let Some(Transformation { values, .. }) = &self.up {
+        // Values are computed from rows of the table the data is copied from
+        if let Some(Transformation { table, values, .. }) = &self.up {
             for (column, value) in values {
                 fields.push(SqlField::expression(
                     format!("up.values.{}", column),
                     value,
+                    References::table(table),
                 ));
             }
         }

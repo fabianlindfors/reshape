@@ -50,6 +50,85 @@ fn remove_column_invalid_complex_down_where_sql() {
 }
 
 #[test]
+fn remove_column_down_invalid_column_reference() {
+    let mut test = Test::new("Remove column with invalid down reference");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "remove_name_with_bad_reference"
+
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "name"
+        down = "non_existent"
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
+#[test]
+fn remove_column_down_references_removed_column() {
+    let mut test = Test::new("Remove column with down referencing removed column");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        "#,
+    );
+
+    // `down` computes the value of the removed column, so it can't reference it
+    test.second_migration(
+        r#"
+        name = "remove_name_referencing_itself"
+
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "name"
+        down = "UPPER(name)"
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
+#[test]
 fn remove_column() {
     let mut test = Test::new("Remove column");
 

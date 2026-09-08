@@ -1,4 +1,7 @@
-use super::{common, quote_string_literal, Action, Column, MigrationContext, SqlField};
+use super::{
+    common, quote_string_literal, Action, Column, MigrationContext, References, SqlField,
+    TableScope,
+};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -447,18 +450,36 @@ impl Action for AddColumn {
         let mut fields = vec![];
 
         match &self.up {
+            // `up` runs in a trigger on the table and can reference its existing columns
             Some(Transformation::Simple(up)) => {
-                fields.push(SqlField::expression("up", up));
+                fields.push(SqlField::expression(
+                    "up",
+                    up,
+                    References::table(&self.table),
+                ));
             }
-            Some(Transformation::Update { value, r#where, .. }) => {
-                fields.push(SqlField::expression("up.value", value));
-                fields.push(SqlField::expression("up.where", r#where));
+            // A cross-table `up` can reference both the table the values are taken from
+            // and the table being changed
+            Some(Transformation::Update {
+                table,
+                value,
+                r#where,
+            }) => {
+                let tables = || {
+                    References::Tables(vec![TableScope::new(table), TableScope::new(&self.table)])
+                };
+                fields.push(SqlField::expression("up.value", value, tables()));
+                fields.push(SqlField::expression("up.where", r#where, tables()));
             }
             None => {}
         }
 
         if let Some(default) = &self.column.default {
-            fields.push(SqlField::expression("column.default", default));
+            fields.push(SqlField::expression(
+                "column.default",
+                default,
+                References::Forbidden,
+            ));
         }
 
         fields

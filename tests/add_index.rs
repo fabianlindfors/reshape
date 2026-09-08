@@ -839,6 +839,47 @@ fn add_index_referencing_renamed_column() {
 }
 
 #[test]
+fn add_index_expression_referencing_unknown_column() {
+    let mut test = Test::new("Add index expression referencing an unknown column");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "add_index_with_bad_expression"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_lower_idx"
+            columns = [{ expression = "lower(non_existent)" }]
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
+#[test]
 fn add_index_referencing_unknown_column() {
     let mut test = Test::new("Add index referencing an unknown column");
 

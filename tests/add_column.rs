@@ -331,6 +331,190 @@ fn add_column_generated_identity() {
 }
 
 #[test]
+fn add_column_default_with_column_reference() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "add_column"
+        table = "users"
+        [actions.column]
+        name = "name_copy"
+        type = "TEXT"
+        default = "lower(name)"
+        "#,
+    );
+}
+
+#[test]
+fn add_column_up_invalid_column_reference() {
+    let mut test = Test::new("Add column with invalid up reference");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "add_column_with_bad_reference"
+
+        [[actions]]
+        type = "add_column"
+        table = "users"
+        up = "UPPER(non_existent)"
+
+            [actions.column]
+            name = "upper_name"
+            type = "TEXT"
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
+#[test]
+fn add_column_complex_up_invalid_column_reference() {
+    let mut test = Test::new("Add column with invalid cross-table up reference");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+
+        "#,
+    );
+
+    // `where` may reference both tables but `value` references a column which exists on
+    // neither
+    test.second_migration(
+        r#"
+        name = "add_column_with_bad_reference"
+
+        [[actions]]
+        type = "add_column"
+        table = "profiles"
+
+            [actions.column]
+            name = "name"
+            type = "TEXT"
+
+            [actions.up]
+            table = "users"
+            value = "users.non_existent"
+            where = "user_id = id"
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
+#[test]
+fn add_column_up_references_column_added_earlier() {
+    let mut test = Test::new("Add column referencing column added in same migration");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        "#,
+    );
+
+    // `display_name` references `nickname` which is added by the previous action and
+    // only exists as a temporary column at this point
+    test.second_migration(
+        r#"
+        name = "add_nickname_and_display_name"
+
+        [[actions]]
+        type = "add_column"
+        table = "users"
+        up = "LOWER(name)"
+
+            [actions.column]
+            name = "nickname"
+            type = "TEXT"
+
+        [[actions]]
+        type = "add_column"
+        table = "users"
+        up = "COALESCE(nickname, name)"
+
+            [actions.column]
+            name = "display_name"
+            type = "TEXT"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id, name) VALUES (1, 'John')")
+            .unwrap();
+    });
+
+    test.intermediate(|_old_db, new_db| {
+        let display_name: String = new_db
+            .query_one("SELECT display_name FROM users WHERE id = 1", &[])
+            .unwrap()
+            .get("display_name");
+        assert_eq!("john", display_name);
+    });
+
+    test.run();
+}
+
+#[test]
 fn add_column_with_default() {
     let mut test = Test::new("Add column with default value");
 

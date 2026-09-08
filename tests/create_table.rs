@@ -42,6 +42,94 @@ fn create_table_invalid_check_sql() {
 }
 
 #[test]
+fn create_table_default_with_column_reference() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+        [[actions.columns]]
+        name = "id"
+        type = "INTEGER"
+        [[actions.columns]]
+        name = "name"
+        type = "TEXT"
+        default = "lower(id)"
+        "#,
+    );
+}
+
+#[test]
+fn create_table_check_invalid_column_reference() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+        [[actions.columns]]
+        name = "id"
+        type = "INTEGER"
+        [[actions.checks]]
+        expression = "non_existent > 0"
+        "#,
+    );
+}
+
+#[test]
+fn create_table_up_values_invalid_column_reference() {
+    let mut test = Test::new("Create table with invalid up reference");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "create_profiles_with_bad_reference"
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+            [actions.up]
+            table = "users"
+            values = { id = "id", name = "non_existent" }
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
+#[test]
 fn create_table_invalid_up_values_sql() {
     assert_invalid_sql(
         r#"

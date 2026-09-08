@@ -45,6 +45,174 @@ fn alter_column_invalid_default_sql() {
 }
 
 #[test]
+fn alter_column_default_with_column_reference() {
+    assert_invalid_sql(
+        r#"
+        name = "test"
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        [actions.changes]
+        default = "lower(name)"
+        "#,
+    );
+}
+
+#[test]
+fn alter_column_up_invalid_column_reference() {
+    let mut test = Test::new("Alter column with invalid up reference");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "alter_column_with_bad_reference"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        up = "UPPER(non_existent)"
+        down = "name"
+
+            [actions.changes]
+            type = "VARCHAR(255)"
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
+#[test]
+fn alter_column_down_invalid_column_reference() {
+    let mut test = Test::new("Alter column with invalid down reference");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "alter_column_with_bad_reference"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        up = "name"
+        down = "non_existent"
+
+            [actions.changes]
+            type = "VARCHAR(255)"
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}
+
+#[test]
+fn alter_column_rename_down_uses_old_name() {
+    let mut test = Test::new("Alter column rename with down using old name");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        "#,
+    );
+
+    // The column is available under its old name in both `up` and `down`, even though it
+    // is exposed under the new name in the new schema
+    test.second_migration(
+        r#"
+        name = "rename_name_to_full_name"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        up = "UPPER(name)"
+        down = "LOWER(name)"
+
+            [actions.changes]
+            name = "full_name"
+            type = "VARCHAR(255)"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id, name) VALUES (1, 'john')")
+            .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        let full_name: String = new_db
+            .query_one("SELECT full_name FROM users WHERE id = 1", &[])
+            .unwrap()
+            .get("full_name");
+        assert_eq!("JOHN", full_name);
+
+        new_db
+            .simple_query("INSERT INTO users (id, full_name) VALUES (2, 'JANE')")
+            .unwrap();
+        let name: String = old_db
+            .query_one("SELECT name FROM users WHERE id = 2", &[])
+            .unwrap()
+            .get("name");
+        assert_eq!("jane", name);
+    });
+
+    test.run();
+}
+
+#[test]
 fn alter_column_data() {
     let mut test = Test::new("Alter column");
 
@@ -765,10 +933,7 @@ fn alter_column_rename_and_change_type() {
         let expected = vec!["10.00", "2.50"];
         assert!(
             new_db
-                .query(
-                    "SELECT balance_amount::TEXT FROM accounts ORDER BY id",
-                    &[],
-                )
+                .query("SELECT balance_amount::TEXT FROM accounts ORDER BY id", &[],)
                 .unwrap()
                 .iter()
                 .map(|row| row.get::<_, String>("balance_amount"))

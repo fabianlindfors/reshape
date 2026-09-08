@@ -1,4 +1,4 @@
-use super::{Action, MigrationContext, SqlField};
+use super::{Action, MigrationContext, References, SqlField};
 use crate::{
     db::{Conn, Transaction},
     schema::{Schema, Table},
@@ -210,13 +210,18 @@ impl Action for AddIndex {
                 IndexColumn::Expression(spec) => Some(SqlField::expression(
                     format!("index.columns[{}].expression", idx),
                     &spec.expression,
+                    References::table(&self.table),
                 )),
                 _ => None,
             })
             .collect();
 
         if let Some(predicate) = &self.index.r#where {
-            fields.push(SqlField::expression("index.where", predicate));
+            fields.push(SqlField::expression(
+                "index.where",
+                predicate,
+                References::table(&self.table),
+            ));
         }
 
         fields
