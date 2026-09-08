@@ -6,6 +6,7 @@ use reshape::{
     Reshape,
 };
 
+#[allow(dead_code)]
 pub fn assert_invalid(toml: &str) {
     let migration: Migration = toml::from_str(toml).unwrap();
     let errors: Vec<_> = migration
@@ -256,7 +257,7 @@ impl Test<'_> {
 }
 
 fn print_heading(text: &str) {
-    let delimiter = std::iter::repeat("=").take(80).collect::<String>();
+    let delimiter = "=".repeat(80);
 
     println!();
     println!();
@@ -276,12 +277,14 @@ fn print_success() {
 
 fn add_spacer(text: &str, char: &str) -> String {
     const TARGET_WIDTH: usize = 80;
-    let num_of_chars = (TARGET_WIDTH - text.len() - 2) / 2;
-    let spacer = std::iter::repeat(char)
-        .take(num_of_chars)
-        .collect::<String>();
+    let num_of_chars = TARGET_WIDTH.saturating_sub(text.len() + 2) / 2;
+    let spacer = char.repeat(num_of_chars);
 
-    let extra = if text.len() % 2 == 0 { "" } else { char };
+    let extra = if text.len().is_multiple_of(2) {
+        ""
+    } else {
+        char
+    };
 
     format!("{spacer} {text} {spacer}{extra}", spacer = spacer)
 }
