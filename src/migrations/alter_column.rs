@@ -1,5 +1,5 @@
 use super::{Action, MigrationContext, NameField, References, SqlField, TableScope};
-use crate::sql::rewrite_index_definition;
+use crate::sql::{rewrite_column_references, rewrite_index_definition};
 use crate::{
     db::{Conn, Transaction},
     migrations::common,
@@ -171,6 +171,54 @@ impl Action for AlterColumn {
                 .context("failed to create temporary index")?;
         }
 
+        // Duplicate any check constraints which reference the column onto the temporary
+        // column, rewriting the expression so the column is replaced by the temporary one.
+        // Dropping the old column on completion also drops every check constraint involving
+        // it, so these copies are what remain afterwards. Each copy is validated right away
+        // so that an `up` transformation which breaks a check fails the migration while it
+        // can still be aborted.
+        let checks =
+            common::get_check_constraints_for_column(db, &table.real_name, &column.real_name)?;
+        for check in checks
+            .into_iter()
+            .filter(|check| !common::is_temporary_not_null_constraint(&check.name))
+        {
+            let temp_check_name = self.temp_check_name(ctx, check.oid);
+
+            if !common::check_constraint_exists(db, &table.real_name, &temp_check_name)? {
+                let expression = rewrite_column_references(&check.expression, &index_table)
+                    .with_context(|| {
+                        format!(
+                            "failed to rewrite definition of check constraint {}",
+                            check.name
+                        )
+                    })?;
+
+                db.run(&format!(
+                    r#"
+                    ALTER TABLE "{table}"
+                    ADD CONSTRAINT "{constraint_name}"
+                    CHECK ({expression}) NOT VALID
+                    "#,
+                    table = table.real_name,
+                    constraint_name = temp_check_name,
+                    expression = expression,
+                ))
+                .with_context(|| format!("failed to copy check constraint {}", check.name))?;
+            }
+
+            // Validating scans the table but doesn't block reads or writes
+            db.run(&format!(
+                r#"
+                ALTER TABLE "{table}"
+                VALIDATE CONSTRAINT "{constraint_name}"
+                "#,
+                table = table.real_name,
+                constraint_name = temp_check_name,
+            ))
+            .with_context(|| format!("failed to validate check constraint {}", check.name))?;
+        }
+
         // Add a temporary NOT NULL constraint if the column shouldn't be nullable.
         // This constraint is set as NOT VALID so it doesn't apply to existing rows and
         // the existing rows don't need to be scanned under an exclusive lock.
@@ -310,6 +358,39 @@ impl Action for AlterColumn {
             .context("failed to drop old index")?;
         }
 
+        // Replace the check constraints which reference the old column with the copies
+        // made for the temporary column. The originals would be dropped together with the
+        // old column anyway, and the copies take over their names. Copies which don't
+        // exist belong to another action altering a column in the same migration.
+        let checks = common::get_check_constraints_for_column(db, &self.table, &self.column)?;
+        for check in checks {
+            let temp_check_name = self.temp_check_name(ctx, check.oid);
+            if !common::check_constraint_exists(db, &self.table, &temp_check_name)? {
+                continue;
+            }
+
+            db.run(&format!(
+                r#"
+                ALTER TABLE "{table}"
+                DROP CONSTRAINT IF EXISTS "{constraint_name}"
+                "#,
+                table = self.table,
+                constraint_name = check.name,
+            ))
+            .with_context(|| format!("failed to drop check constraint {}", check.name))?;
+
+            db.run(&format!(
+                r#"
+                ALTER TABLE "{table}"
+                RENAME CONSTRAINT "{temp_check_name}" TO "{constraint_name}"
+                "#,
+                table = self.table,
+                temp_check_name = temp_check_name,
+                constraint_name = check.name,
+            ))
+            .with_context(|| format!("failed to rename check constraint {}", check.name))?;
+        }
+
         // Remove old column
         let query = format!(
             r#"
@@ -396,6 +477,20 @@ impl Action for AlterColumn {
             ))?;
         }
 
+        // Remove any check constraints copied onto the temporary column
+        let checks = common::get_check_constraints_for_column(db, &self.table, &temp_column_name)?;
+        for check in checks {
+            db.run(&format!(
+                r#"
+                ALTER TABLE "{table}"
+                DROP CONSTRAINT IF EXISTS "{constraint_name}"
+                "#,
+                table = self.table,
+                constraint_name = check.name,
+            ))
+            .with_context(|| format!("failed to drop check constraint {}", check.name))?;
+        }
+
         // Drop temporary column
         let query = format!(
             r#"
@@ -479,6 +574,14 @@ impl AlterColumn {
 
     fn temp_index_name(&self, ctx: &MigrationContext, index_oid: u32) -> String {
         format!("{}_alter_column_temp_index_{}", ctx.prefix(), index_oid)
+    }
+
+    fn temp_check_name(&self, ctx: &MigrationContext, constraint_oid: u32) -> String {
+        format!(
+            "{}_alter_column_temp_check_{}",
+            ctx.prefix(),
+            constraint_oid
+        )
     }
 
     fn can_short_circuit(&self) -> bool {

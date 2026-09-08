@@ -314,6 +314,87 @@ pub fn get_indices_for_column(
     Ok(indices)
 }
 
+pub struct CheckConstraint {
+    pub name: String,
+    pub oid: u32,
+    pub expression: String,
+}
+
+// Finds all CHECK constraints which reference a column, including ones which span
+// several columns. The expression is returned without the surrounding CHECK ( ... ).
+pub fn get_check_constraints_for_column(
+    db: &mut dyn Conn,
+    table: &str,
+    column: &str,
+) -> anyhow::Result<Vec<CheckConstraint>> {
+    let constraints = db
+        .query(&format!(
+            "
+            SELECT
+                c.conname AS name,
+                c.oid AS oid,
+                pg_get_expr(c.conbin, c.conrelid) AS expression
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            JOIN pg_attribute a ON
+                a.attrelid = t.oid AND
+                a.attname = '{column}'
+            WHERE
+                c.contype = 'c' AND
+                n.nspname = 'public' AND
+                t.relname = '{table}' AND
+                a.attnum = ANY(c.conkey)
+            ORDER BY c.conname
+            ",
+            table = table,
+            column = column,
+        ))?
+        .iter()
+        .map(|row| CheckConstraint {
+            name: row.get("name"),
+            oid: row.get("oid"),
+            expression: row.get("expression"),
+        })
+        .collect();
+
+    Ok(constraints)
+}
+
+// Whether a constraint is one of the temporary NOT NULL checks which `add_column` and
+// `alter_column` add to a new column. These are replaced by a real NOT NULL on
+// completion and are not constraints which should be preserved.
+pub fn is_temporary_not_null_constraint(name: &str) -> bool {
+    name.starts_with("__reshape_")
+        && (name.ends_with("_alter_column_temporary") || name.contains("_add_column_not_null_"))
+}
+
+pub fn check_constraint_exists(
+    db: &mut dyn Conn,
+    table: &str,
+    constraint: &str,
+) -> anyhow::Result<bool> {
+    let exists = !db
+        .query(&format!(
+            "
+            SELECT 1
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE
+                c.contype = 'c' AND
+                n.nspname = 'public' AND
+                t.relname = '{table}' AND
+                c.conname = '{constraint}'
+            ",
+            table = table,
+            constraint = constraint,
+        ))?
+        .is_empty();
+
+    Ok(exists)
+}
+
 // The CREATE INDEX statement which defines an index
 pub fn get_index_definition(db: &mut dyn Conn, index_oid: u32) -> anyhow::Result<String> {
     db.query(&format!(
