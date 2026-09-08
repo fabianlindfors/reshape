@@ -297,13 +297,16 @@ fn find_migrations(opts: &FindMigrationsOptions) -> anyhow::Result<Vec<Migration
         // Filter out all directories that don't exist
         .filter(|path| path.exists());
 
-    // Find all files in the search paths
+    // Find all migration files in the search paths. Anything else in the directories,
+    // such as README files, editor files or subdirectories, is ignored.
     let mut file_paths = Vec::new();
     for search_path in search_paths {
         let entries = fs::read_dir(search_path)?;
         for entry in entries {
             let path = entry?.path();
-            file_paths.push(path);
+            if is_migration_file(&path) {
+                file_paths.push(path);
+            }
         }
     }
 
@@ -352,6 +355,16 @@ fn find_migrations(opts: &FindMigrationsOptions) -> anyhow::Result<Vec<Migration
         .collect()
 }
 
+const MIGRATION_FILE_EXTENSIONS: [&str; 2] = ["toml", "json"];
+
+fn is_migration_file(path: &Path) -> bool {
+    path.is_file()
+        && path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| MIGRATION_FILE_EXTENSIONS.contains(&extension))
+}
+
 fn decode_migration_file(data: &str, extension: &str) -> anyhow::Result<FileMigration> {
     let migration: FileMigration = match extension {
         "json" => serde_json::from_str(data)?,
@@ -372,4 +385,74 @@ struct FileMigration {
     name: Option<String>,
     description: Option<String>,
     actions: Vec<Box<dyn Action>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_migrations_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "reshape_find_migrations_{}_{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn find_migrations_ignores_non_migration_files() {
+        let dir = temp_migrations_dir();
+
+        let migration = r#"
+            [[actions]]
+            type = "create_table"
+            name = "users"
+            primary_key = ["id"]
+
+                [[actions.columns]]
+                name = "id"
+                type = "INTEGER"
+        "#;
+        fs::write(dir.join("1_create_users.toml"), migration).unwrap();
+        fs::write(
+            dir.join("2_create_accounts.json"),
+            r#"{"actions": [{"type": "create_table", "name": "accounts", "primary_key": ["id"], "columns": [{"name": "id", "type": "INTEGER"}]}]}"#,
+        )
+        .unwrap();
+
+        // Files which aren't migrations should be ignored
+        fs::write(dir.join("README.md"), "# Migrations").unwrap();
+        fs::write(dir.join(".DS_Store"), "").unwrap();
+        fs::write(dir.join("notes"), "no extension").unwrap();
+        fs::write(dir.join("3_not_a_migration.sql"), "SELECT 1").unwrap();
+        fs::create_dir(dir.join("archive")).unwrap();
+        fs::write(dir.join("archive").join("0_old.toml"), migration).unwrap();
+
+        let migrations = find_migrations(&FindMigrationsOptions {
+            dirs: vec![dir.to_str().unwrap().to_string()],
+        })
+        .unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+
+        let names: Vec<&str> = migrations
+            .iter()
+            .map(|migration| migration.name.as_str())
+            .collect();
+        assert_eq!(vec!["1_create_users", "2_create_accounts"], names);
+    }
+
+    #[test]
+    fn find_migrations_fails_on_invalid_migration_file() {
+        let dir = temp_migrations_dir();
+        fs::write(dir.join("1_broken.toml"), "this is not a migration").unwrap();
+
+        let result = find_migrations(&FindMigrationsOptions {
+            dirs: vec![dir.to_str().unwrap().to_string()],
+        });
+        fs::remove_dir_all(&dir).unwrap();
+
+        assert!(result.is_err());
+    }
 }
