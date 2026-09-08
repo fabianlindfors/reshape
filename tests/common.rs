@@ -1,11 +1,18 @@
 use colored::Colorize;
 use postgres::Client;
 use postgres_native_tls::MakeTlsConnector;
-use reshape::{migrations::Migration, Reshape};
+use reshape::{
+    migrations::{validate_sql, Migration},
+    Reshape,
+};
 
 pub fn assert_invalid_sql(toml: &str) {
     let migration: Migration = toml::from_str(toml).unwrap();
-    let errors: Vec<_> = migration.actions.iter().flat_map(|a| a.validate_sql()).collect();
+    let errors: Vec<_> = migration
+        .actions
+        .iter()
+        .flat_map(|action| validate_sql(action.as_ref()))
+        .collect();
     assert!(!errors.is_empty(), "expected SQL validation to fail");
 }
 

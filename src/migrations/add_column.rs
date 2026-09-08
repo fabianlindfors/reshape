@@ -1,4 +1,4 @@
-use super::{common, quote_string_literal, validate_sql_expression, Action, Column, MigrationContext};
+use super::{common, quote_string_literal, Action, Column, MigrationContext, SqlExpression};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -443,35 +443,24 @@ impl Action for AddColumn {
         Ok(())
     }
 
-    fn validate_sql(&self) -> Vec<(String, String, String)> {
-        let mut errors = vec![];
+    fn sql_expressions(&self) -> Vec<SqlExpression> {
+        let mut expressions = vec![];
 
-        // Validate transformation
-        if let Some(up) = &self.up {
-            match up {
-                Transformation::Simple(expr) => {
-                    if let Err(e) = validate_sql_expression(expr) {
-                        errors.push(("up".to_string(), expr.clone(), e));
-                    }
-                }
-                Transformation::Update { value, r#where, .. } => {
-                    if let Err(e) = validate_sql_expression(value) {
-                        errors.push(("up.value".to_string(), value.clone(), e));
-                    }
-                    if let Err(e) = validate_sql_expression(r#where) {
-                        errors.push(("up.where".to_string(), r#where.clone(), e));
-                    }
-                }
+        match &self.up {
+            Some(Transformation::Simple(up)) => {
+                expressions.push(SqlExpression::expression("up", up));
             }
+            Some(Transformation::Update { value, r#where, .. }) => {
+                expressions.push(SqlExpression::expression("up.value", value));
+                expressions.push(SqlExpression::expression("up.where", r#where));
+            }
+            None => {}
         }
 
-        // Validate column default
         if let Some(default) = &self.column.default {
-            if let Err(e) = validate_sql_expression(default) {
-                errors.push(("column.default".to_string(), default.clone(), e));
-            }
+            expressions.push(SqlExpression::expression("column.default", default));
         }
 
-        errors
+        expressions
     }
 }

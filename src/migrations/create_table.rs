@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::{
     common::{Check, ForeignKey},
-    quote_string_literal, validate_sql_expression, Action, Column, MigrationContext,
+    quote_string_literal, Action, Column, MigrationContext, SqlExpression,
 };
 use crate::{
     db::{Conn, Transaction},
@@ -272,45 +272,36 @@ impl Action for CreateTable {
         Ok(())
     }
 
-    fn validate_sql(&self) -> Vec<(String, String, String)> {
-        let mut errors = vec![];
+    fn sql_expressions(&self) -> Vec<SqlExpression> {
+        let mut expressions = vec![];
 
-        // Validate column defaults and generated expressions
+        // Note: `generated` is not included as it's a column generation clause
+        // (e.g., "ALWAYS AS IDENTITY"), not a SQL expression
         for (idx, column) in self.columns.iter().enumerate() {
             if let Some(default) = &column.default {
-                if let Err(e) = validate_sql_expression(default) {
-                    errors.push((
-                        format!("columns[{}].default", idx),
-                        default.clone(),
-                        e,
-                    ));
-                }
-            }
-
-            // Note: `generated` is not validated as it's a column generation clause
-            // (e.g., "ALWAYS AS IDENTITY"), not a SQL expression
-        }
-
-        // Validate check constraint expressions
-        for (idx, check) in self.checks.iter().enumerate() {
-            if let Err(e) = validate_sql_expression(&check.expression) {
-                errors.push((
-                    format!("checks[{}].expression", idx),
-                    check.expression.clone(),
-                    e,
+                expressions.push(SqlExpression::expression(
+                    format!("columns[{}].default", idx),
+                    default,
                 ));
             }
         }
 
-        // Validate transformation values
+        for (idx, check) in self.checks.iter().enumerate() {
+            expressions.push(SqlExpression::expression(
+                format!("checks[{}].expression", idx),
+                &check.expression,
+            ));
+        }
+
         if let Some(Transformation { values, .. }) = &self.up {
-            for (key, value) in values {
-                if let Err(e) = validate_sql_expression(value) {
-                    errors.push((format!("up.values.{}", key), value.clone(), e));
-                }
+            for (column, value) in values {
+                expressions.push(SqlExpression::expression(
+                    format!("up.values.{}", column),
+                    value,
+                ));
             }
         }
 
-        errors
+        expressions
     }
 }
