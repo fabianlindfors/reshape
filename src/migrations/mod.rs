@@ -5,7 +5,66 @@ use crate::{
 use core::fmt::Debug;
 use serde::{Deserialize, Serialize};
 
-pub use crate::sql::{validate_sql_expression, validate_sql_statement};
+/// A field of an action which holds user-provided SQL
+#[derive(Debug, Clone)]
+pub struct SqlField {
+    pub name: String,
+    pub sql: String,
+    pub kind: SqlKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SqlKind {
+    /// An expression evaluating to a value
+    Expression,
+    /// One or more complete statements
+    Statement,
+}
+
+impl SqlField {
+    pub fn expression(name: impl Into<String>, sql: impl Into<String>) -> Self {
+        SqlField {
+            name: name.into(),
+            sql: sql.into(),
+            kind: SqlKind::Expression,
+        }
+    }
+
+    pub fn statement(name: impl Into<String>, sql: impl Into<String>) -> Self {
+        SqlField {
+            name: name.into(),
+            sql: sql.into(),
+            kind: SqlKind::Statement,
+        }
+    }
+}
+
+/// An error found in user-provided SQL
+#[derive(Debug, Clone)]
+pub struct SqlError {
+    pub field: String,
+    pub sql: String,
+    pub message: String,
+}
+
+pub fn validate_sql(action: &dyn Action) -> Vec<SqlError> {
+    action
+        .sql_fields()
+        .into_iter()
+        .filter_map(|field| {
+            let result = match field.kind {
+                SqlKind::Expression => crate::sql::validate_sql_expression(&field.sql),
+                SqlKind::Statement => crate::sql::validate_sql_statement(&field.sql),
+            };
+
+            result.err().map(|message| SqlError {
+                field: field.name,
+                sql: field.sql,
+                message,
+            })
+        })
+        .collect()
+}
 
 /// Quote a value so it can be used as an SQL string literal.
 ///
@@ -142,8 +201,8 @@ pub trait Action: Debug {
     fn update_schema(&self, ctx: &MigrationContext, schema: &mut Schema);
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()>;
 
-    /// Validate user-provided SQL. Returns list of (field_name, sql, error_message).
-    fn validate_sql(&self) -> Vec<(String, String, String)> {
-        vec![] // Default: no SQL to validate
+    /// User-provided SQL in the action, which is validated before the action runs
+    fn sql_fields(&self) -> Vec<SqlField> {
+        vec![]
     }
 }

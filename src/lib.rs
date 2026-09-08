@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    migrations::{quote_string_literal, Migration, MigrationContext},
+    migrations::{quote_string_literal, validate_sql, Migration, MigrationContext},
     schema::Schema,
 };
 
@@ -278,12 +278,12 @@ fn migrate(
             print!("  + {} ", description);
 
             // Validate SQL before running action
-            let validation_errors = action.validate_sql();
+            let validation_errors = validate_sql(action.as_ref());
             if !validation_errors.is_empty() {
-                for (field, sql, error) in &validation_errors {
+                for error in &validation_errors {
                     println!(
                         "\n    Invalid SQL in field '{}': {}\n      SQL: {}",
-                        field, error, sql
+                        error.field, error.message, error.sql
                     );
                 }
                 result = Err(anyhow!(

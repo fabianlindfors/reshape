@@ -1,4 +1,4 @@
-use super::{validate_sql_expression, Action, MigrationContext};
+use super::{Action, MigrationContext, SqlField};
 use crate::{
     db::{Conn, Transaction},
     migrations::common,
@@ -436,28 +436,18 @@ impl Action for AlterColumn {
         Ok(())
     }
 
-    fn validate_sql(&self) -> Vec<(String, String, String)> {
-        let mut errors = vec![];
-
-        if let Some(up) = &self.up {
-            if let Err(e) = validate_sql_expression(up) {
-                errors.push(("up".to_string(), up.clone(), e));
-            }
-        }
-
-        if let Some(down) = &self.down {
-            if let Err(e) = validate_sql_expression(down) {
-                errors.push(("down".to_string(), down.clone(), e));
-            }
-        }
-
-        if let Some(default) = &self.changes.default {
-            if let Err(e) = validate_sql_expression(default) {
-                errors.push(("changes.default".to_string(), default.clone(), e));
-            }
-        }
-
-        errors
+    fn sql_fields(&self) -> Vec<SqlField> {
+        [
+            ("up", &self.up),
+            ("down", &self.down),
+            ("changes.default", &self.changes.default),
+        ]
+        .into_iter()
+        .filter_map(|(field, sql)| {
+            sql.as_ref()
+                .map(|sql| SqlField::expression(field, sql))
+        })
+        .collect()
     }
 }
 

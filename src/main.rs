@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context;
 use clap::{Args, Parser};
 use reshape::{
-    migrations::{Action, Migration},
+    migrations::{validate_sql, Action, Migration},
     Reshape,
 };
 use serde::{Deserialize, Serialize};
@@ -25,10 +25,7 @@ enum Command {
     #[clap(subcommand)]
     Migration(MigrationCommand),
 
-    #[clap(
-        about = "Display documentation for coding agents",
-        display_order = 0
-    )]
+    #[clap(about = "Display documentation for coding agents", display_order = 0)]
     Docs(DocsOptions),
 
     #[clap(about = "Check the current migration status", display_order = 1)]
@@ -228,11 +225,11 @@ fn run(opts: Opts) -> anyhow::Result<()> {
             let mut has_errors = false;
             for migration in &migrations {
                 for (idx, action) in migration.actions.iter().enumerate() {
-                    for (field, sql, error) in action.validate_sql() {
+                    for error in validate_sql(action.as_ref()) {
                         has_errors = true;
                         println!(
                             "Invalid SQL in '{}' action {} field '{}': {}\n  SQL: {}",
-                            migration.name, idx, field, error, sql
+                            migration.name, idx, error.field, error.message, error.sql
                         );
                     }
                 }

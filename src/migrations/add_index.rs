@@ -1,4 +1,4 @@
-use super::{validate_sql_expression, Action, MigrationContext};
+use super::{Action, MigrationContext, SqlField};
 use crate::{
     db::{Conn, Transaction},
     schema::{Schema, Table},
@@ -200,29 +200,25 @@ impl Action for AddIndex {
         Ok(())
     }
 
-    fn validate_sql(&self) -> Vec<(String, String, String)> {
-        let mut errors = vec![];
+    fn sql_fields(&self) -> Vec<SqlField> {
+        let mut fields: Vec<SqlField> = self
+            .index
+            .columns
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, column)| match column {
+                IndexColumn::Expression(spec) => Some(SqlField::expression(
+                    format!("index.columns[{}].expression", idx),
+                    &spec.expression,
+                )),
+                _ => None,
+            })
+            .collect();
 
-        // Validate index expressions
-        for (idx, column) in self.index.columns.iter().enumerate() {
-            if let IndexColumn::Expression(spec) = column {
-                if let Err(e) = validate_sql_expression(&spec.expression) {
-                    errors.push((
-                        format!("index.columns[{}].expression", idx),
-                        spec.expression.clone(),
-                        e,
-                    ));
-                }
-            }
-        }
-
-        // Validate partial index predicate
         if let Some(predicate) = &self.index.r#where {
-            if let Err(e) = validate_sql_expression(predicate) {
-                errors.push(("index.where".to_string(), predicate.clone(), e));
-            }
+            fields.push(SqlField::expression("index.where", predicate));
         }
 
-        errors
+        fields
     }
 }
