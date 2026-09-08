@@ -1,4 +1,4 @@
-use super::{common, Action, MigrationContext, SqlField};
+use super::{common, Action, MigrationContext, References, SqlField, TableScope};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -454,10 +454,35 @@ impl Action for RemoveColumn {
 
     fn sql_fields(&self) -> Vec<SqlField> {
         match &self.down {
-            Some(Transformation::Simple(down)) => vec![SqlField::expression("down", down)],
-            Some(Transformation::Update { value, r#where, .. }) => vec![
-                SqlField::expression("down.value", value),
-                SqlField::expression("down.where", r#where),
+            // `down` computes the value of the removed column and can't reference it
+            Some(Transformation::Simple(down)) => vec![SqlField::expression(
+                "down",
+                down,
+                References::Table(TableScope::schema(&self.table).excluding(&self.column)),
+            )],
+            // A cross-table `down` takes values from another table. The `where` clause
+            // matches rows of the changed table and may use any of its columns.
+            Some(Transformation::Update {
+                table,
+                value,
+                r#where,
+            }) => vec![
+                SqlField::expression(
+                    "down.value",
+                    value,
+                    References::CrossTable(
+                        TableScope::schema(table),
+                        TableScope::schema(&self.table).excluding(&self.column),
+                    ),
+                ),
+                SqlField::expression(
+                    "down.where",
+                    r#where,
+                    References::CrossTable(
+                        TableScope::schema(table),
+                        TableScope::schema(&self.table),
+                    ),
+                ),
             ],
             None => vec![],
         }

@@ -90,4 +90,6 @@ column = "customer_name"
 - The column is only removed during the complete phase
 - If the column is NOT NULL and you need backward compatibility, provide a `down` expression
 - For non-nullable columns with complex `down`, the NOT NULL constraint is temporarily converted to a trigger
+- In a cross-table `down`, every column in `value` and `where` must be qualified with its
+  table name, as the expressions run in triggers on both tables
 - Data in the column is permanently lost after completion

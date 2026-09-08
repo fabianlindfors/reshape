@@ -1,4 +1,4 @@
-use super::{Action, MigrationContext, SqlField};
+use super::{Action, MigrationContext, References, SqlField};
 use crate::{
     db::{Conn, Transaction},
     migrations::common,
@@ -59,11 +59,7 @@ impl Action for AlterColumn {
             vec![&temporary_column_name, temporary_column_type];
 
         // Use either new default value or existing one if one exists
-        let default_value = self
-            .changes
-            .default
-            .as_ref()
-            .or(column.default.as_ref());
+        let default_value = self.changes.default.as_ref().or(column.default.as_ref());
         if let Some(default) = default_value {
             temp_column_definition_parts.push("DEFAULT");
             temp_column_definition_parts.push(default);
@@ -437,17 +433,29 @@ impl Action for AlterColumn {
     }
 
     fn sql_fields(&self) -> Vec<SqlField> {
-        [
-            ("up", &self.up),
-            ("down", &self.down),
-            ("changes.default", &self.changes.default),
-        ]
-        .into_iter()
-        .filter_map(|(field, sql)| {
-            sql.as_ref()
-                .map(|sql| SqlField::expression(field, sql))
-        })
-        .collect()
+        let mut fields = vec![];
+
+        // Both `up` and `down` run in triggers on the table. The column being altered is
+        // available under its current name in both, even when it's being renamed.
+        for (name, sql) in [("up", &self.up), ("down", &self.down)] {
+            if let Some(sql) = sql {
+                fields.push(SqlField::expression(
+                    name,
+                    sql,
+                    References::table(&self.table),
+                ));
+            }
+        }
+
+        if let Some(default) = &self.changes.default {
+            fields.push(SqlField::expression(
+                "changes.default",
+                default,
+                References::Forbidden,
+            ));
+        }
+
+        fields
     }
 }
 

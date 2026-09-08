@@ -138,14 +138,14 @@ impl ColumnChanges {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Table {
     pub name: String,
     pub real_name: String,
     pub columns: Vec<Column>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Column {
     pub name: String,
     pub real_name: String,

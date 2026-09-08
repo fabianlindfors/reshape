@@ -32,7 +32,7 @@ pub fn rewrite_column_references(expression: &str, table: &Table) -> anyhow::Res
     let mut errors = Vec::new();
     let mut resolutions = Vec::new();
     for reference in references {
-        match resolve(&reference, table) {
+        match resolve(&reference, &[table]) {
             Ok(Some(resolution)) => resolutions.push((reference, resolution)),
             Ok(None) => {}
             Err(error) => errors.push(error),
@@ -45,6 +45,35 @@ pub fn rewrite_column_references(expression: &str, table: &Table) -> anyhow::Res
 
     let rewritten = splice(&wrapped, &resolutions).map_err(|e| anyhow!(e))?;
     Ok(unwrap_expression(&rewritten))
+}
+
+/// Checks that every column referenced by an expression exists in one of the given tables.
+/// Unqualified columns may belong to any of the tables, qualified ones must match the
+/// table they name. Returns one error message per invalid reference.
+pub fn validate_column_references(expression: &str, tables: &[&Table]) -> Vec<String> {
+    let references = match extract_column_references(&wrap_expression(expression)) {
+        Ok(references) => references,
+        Err(error) => return vec![error],
+    };
+
+    references
+        .iter()
+        .filter_map(|reference| resolve(reference, tables).err())
+        .collect()
+}
+
+/// Checks that an expression doesn't reference any columns at all, which is the case for
+/// default values.
+pub fn validate_no_column_references(expression: &str) -> Result<(), String> {
+    let references = extract_column_references(&wrap_expression(expression))?;
+
+    match references.first() {
+        Some(reference) => Err(format!(
+            "column references are not allowed here, found \"{}\"",
+            reference.fields.join(".")
+        )),
+        None => Ok(()),
+    }
 }
 
 const EXPRESSION_PREFIX: &str = "SELECT (";
@@ -136,18 +165,27 @@ struct Resolution<'a> {
     column: &'a Column,
 }
 
-/// Resolves a reference against a table. Returns `Ok(None)` for references which can't
-/// be checked, such as the `NEW` and `OLD` rows available in triggers.
+/// Resolves a reference against a set of tables. Returns `Ok(None)` for references which
+/// can't be checked, such as the `NEW` and `OLD` rows available in triggers.
 fn resolve<'a>(
     reference: &ColumnReference,
-    table: &'a Table,
+    tables: &[&'a Table],
 ) -> Result<Option<Resolution<'a>>, String> {
     let fields = &reference.fields;
 
     match fields.len() {
-        // Unqualified column, e.g. `name`
+        // Unqualified column, e.g. `name`. With more than one table in scope, the name
+        // could resolve to a different table depending on where the SQL runs, so it
+        // must be qualified.
         1 => {
-            let column = find_column(table, &fields[0])?;
+            if tables.len() > 1 {
+                return Err(format!(
+                    "column \"{}\" must be qualified with a table name",
+                    fields[0]
+                ));
+            }
+
+            let (table, column) = find_column(tables, &fields[0])?;
             Ok(Some(Resolution {
                 table_field: None,
                 table,
@@ -161,8 +199,8 @@ fn resolve<'a>(
             let column_field = fields.len() - 1;
             let qualifier = &fields[qualifier_field];
 
-            if *qualifier == table.name {
-                let column = find_column(table, &fields[column_field])?;
+            if let Some(table) = tables.iter().find(|table| table.name == *qualifier) {
+                let (table, column) = find_column(&[table], &fields[column_field])?;
                 return Ok(Some(Resolution {
                     table_field: Some(qualifier_field),
                     table,
@@ -177,8 +215,8 @@ fn resolve<'a>(
 
             // A two-part reference can also be a field of a composite-typed column, e.g.
             // `address.city`. In that case, the first part is the column reference.
-            if fields.len() == 2 {
-                if let Some(column) = table.get_column(qualifier) {
+            if fields.len() == 2 && tables.len() == 1 {
+                if let Ok((table, column)) = find_column(tables, qualifier) {
                     return Ok(Some(Resolution {
                         table_field: None,
                         table,
@@ -194,13 +232,23 @@ fn resolve<'a>(
     }
 }
 
-fn find_column<'a>(table: &'a Table, name: &str) -> Result<&'a Column, String> {
-    table.get_column(name).ok_or_else(|| {
-        format!(
-            "column \"{}\" does not exist on table \"{}\"",
-            name, table.name
-        )
-    })
+fn find_column<'a>(tables: &[&'a Table], name: &str) -> Result<(&'a Table, &'a Column), String> {
+    tables
+        .iter()
+        .find_map(|table| table.get_column(name).map(|column| (*table, column)))
+        .ok_or_else(|| {
+            let table_names: Vec<String> = tables
+                .iter()
+                .map(|table| format!("\"{}\"", table.name))
+                .collect();
+            let noun = if tables.len() == 1 { "table" } else { "tables" };
+            format!(
+                "column \"{}\" does not exist on {} {}",
+                name,
+                noun,
+                table_names.join(" or ")
+            )
+        })
 }
 
 /// Replaces the resolved table and column names in the SQL with their real names, leaving
@@ -426,6 +474,73 @@ mod tests {
     #[test]
     fn fails_for_invalid_sql() {
         assert!(rewrite_column_references("INVALID $$$", &table()).is_err());
+    }
+
+    fn other_table() -> Table {
+        Table {
+            name: "profiles".to_string(),
+            real_name: "profiles".to_string(),
+            columns: vec![column("user_id", "user_id"), column("email", "email")],
+        }
+    }
+
+    #[test]
+    fn validates_references_against_multiple_tables() {
+        let users = table();
+        let profiles = other_table();
+        let tables = [&users, &profiles];
+
+        // Every reference must be qualified when more than one table is in scope
+        assert!(validate_column_references("profiles.user_id = users.id", &tables).is_empty());
+        assert!(
+            validate_column_references("lower(profiles.email) = users.status", &tables).is_empty()
+        );
+
+        assert_eq!(
+            validate_column_references("user_id = users.id", &tables),
+            vec![r#"column "user_id" must be qualified with a table name"#]
+        );
+        assert_eq!(
+            validate_column_references("profiles.missing = users.id", &tables),
+            vec![r#"column "missing" does not exist on table "profiles""#]
+        );
+        assert_eq!(
+            validate_column_references("users.email = users.id", &tables),
+            vec![r#"column "email" does not exist on table "users""#]
+        );
+        assert_eq!(
+            validate_column_references("accounts.id = users.id", &tables),
+            vec![r#"unknown table "accounts""#]
+        );
+    }
+
+    #[test]
+    fn validation_reports_all_errors() {
+        assert_eq!(
+            validate_column_references("a + b", &[&table()]),
+            vec![
+                r#"column "a" does not exist on table "users""#,
+                r#"column "b" does not exist on table "users""#,
+            ]
+        );
+    }
+
+    #[test]
+    fn validation_reports_invalid_sql() {
+        assert_eq!(validate_column_references("$$$", &[&table()]).len(), 1);
+    }
+
+    #[test]
+    fn validates_absence_of_column_references() {
+        assert!(validate_no_column_references("now()").is_ok());
+        assert!(validate_no_column_references("'active'").is_ok());
+        assert!(validate_no_column_references("nextval('users_id_seq')").is_ok());
+        assert!(validate_no_column_references("CURRENT_TIMESTAMP").is_ok());
+        assert_eq!(
+            validate_no_column_references("lower(name)"),
+            Err(r#"column references are not allowed here, found "name""#.to_string())
+        );
+        assert!(validate_no_column_references("$$$").is_err());
     }
 
     #[test]

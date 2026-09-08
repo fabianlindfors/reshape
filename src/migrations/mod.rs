@@ -1,6 +1,6 @@
 use crate::{
     db::{Conn, Transaction},
-    schema::Schema,
+    schema::{Schema, Table},
 };
 use core::fmt::Debug;
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,73 @@ pub struct SqlField {
     pub name: String,
     pub sql: String,
     pub kind: SqlKind,
+    pub references: References,
+}
+
+/// The columns a piece of SQL may reference
+#[derive(Debug, Clone)]
+pub enum References {
+    /// Not checked
+    Unchecked,
+    /// The SQL may not reference any columns at all
+    Forbidden,
+    /// Columns of a table, referenced with or without the table name
+    Table(TableScope),
+    /// Columns of the two tables of a cross-table transformation. Every reference must
+    /// be qualified with the name of its table, as the SQL runs in triggers on both
+    /// tables where an unqualified name would resolve differently.
+    CrossTable(TableScope, TableScope),
+}
+
+impl References {
+    pub fn table(table: &str) -> Self {
+        References::Table(TableScope::schema(table))
+    }
+
+    fn scopes(&self) -> Vec<&TableScope> {
+        match self {
+            References::Unchecked | References::Forbidden => vec![],
+            References::Table(scope) => vec![scope],
+            References::CrossTable(first, second) => vec![first, second],
+        }
+    }
+}
+
+/// A table whose columns may be referenced
+#[derive(Debug, Clone)]
+pub enum TableScope {
+    /// A table in the schema, resolved right before the action runs
+    Schema {
+        table: String,
+        /// Columns which exist on the table but can't be referenced, such as a column
+        /// which is being removed
+        excluded_columns: Vec<String>,
+    },
+    /// A table which doesn't exist in the schema yet, with its columns known up front
+    Explicit(Table),
+}
+
+impl TableScope {
+    pub fn schema(table: &str) -> Self {
+        TableScope::Schema {
+            table: table.to_string(),
+            excluded_columns: Vec::new(),
+        }
+    }
+
+    pub fn excluding(mut self, column: &str) -> Self {
+        match &mut self {
+            TableScope::Schema {
+                excluded_columns, ..
+            } => excluded_columns.push(column.to_string()),
+            TableScope::Explicit(table) => table.columns.retain(|c| c.name != column),
+        }
+        self
+    }
+
+    fn is_explicit(&self) -> bool {
+        matches!(self, TableScope::Explicit(_))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,11 +89,16 @@ pub enum SqlKind {
 }
 
 impl SqlField {
-    pub fn expression(name: impl Into<String>, sql: impl Into<String>) -> Self {
+    pub fn expression(
+        name: impl Into<String>,
+        sql: impl Into<String>,
+        references: References,
+    ) -> Self {
         SqlField {
             name: name.into(),
             sql: sql.into(),
             kind: SqlKind::Expression,
+            references,
         }
     }
 
@@ -35,6 +107,7 @@ impl SqlField {
             name: name.into(),
             sql: sql.into(),
             kind: SqlKind::Statement,
+            references: References::Unchecked,
         }
     }
 }
@@ -47,23 +120,120 @@ pub struct SqlError {
     pub message: String,
 }
 
+/// Validates the SQL of an action as far as possible without a schema: the syntax of every
+/// field and the column references which don't depend on existing tables
 pub fn validate_sql(action: &dyn Action) -> Vec<SqlError> {
     action
         .sql_fields()
         .into_iter()
         .filter_map(|field| {
-            let result = match field.kind {
-                SqlKind::Expression => crate::sql::validate_sql_expression(&field.sql),
-                SqlKind::Statement => crate::sql::validate_sql_statement(&field.sql),
-            };
-
-            result.err().map(|message| SqlError {
+            validate_field(&field).err().map(|message| SqlError {
                 field: field.name,
                 sql: field.sql,
                 message,
             })
         })
         .collect()
+}
+
+/// Validates the SQL of an action, including column references against the tables of
+/// the schema as it looks right before the action runs
+pub fn validate_sql_against_schema(
+    action: &dyn Action,
+    db: &mut dyn Conn,
+    schema: &Schema,
+) -> anyhow::Result<Vec<SqlError>> {
+    let mut errors = Vec::new();
+
+    for field in action.sql_fields() {
+        let scopes = field.references.scopes();
+        let result = match validate_field(&field) {
+            Ok(()) if !scopes.iter().all(|scope| scope.is_explicit()) => {
+                validate_references_against_schema(&field.sql, &scopes, db, schema)?
+            }
+            result => result,
+        };
+
+        if let Err(message) = result {
+            errors.push(SqlError {
+                field: field.name,
+                sql: field.sql,
+                message,
+            });
+        }
+    }
+
+    Ok(errors)
+}
+
+fn validate_field(field: &SqlField) -> Result<(), String> {
+    match field.kind {
+        SqlKind::Expression => crate::sql::validate_sql_expression(&field.sql)?,
+        SqlKind::Statement => crate::sql::validate_sql_statement(&field.sql)?,
+    }
+
+    if let References::Forbidden = field.references {
+        return crate::sql::validate_no_column_references(&field.sql);
+    }
+
+    // Tables in the schema can only be checked once the schema is available
+    let scopes = field.references.scopes();
+    if scopes.is_empty() || !scopes.iter().all(|scope| scope.is_explicit()) {
+        return Ok(());
+    }
+
+    let tables: Vec<&Table> = scopes
+        .iter()
+        .filter_map(|scope| match scope {
+            TableScope::Explicit(table) => Some(table),
+            TableScope::Schema { .. } => None,
+        })
+        .collect();
+    join_errors(crate::sql::validate_column_references(&field.sql, &tables))
+}
+
+fn validate_references_against_schema(
+    sql: &str,
+    scopes: &[&TableScope],
+    db: &mut dyn Conn,
+    schema: &Schema,
+) -> anyhow::Result<Result<(), String>> {
+    let mut tables = Vec::new();
+    for scope in scopes {
+        let table = match scope {
+            TableScope::Explicit(table) => table.clone(),
+            TableScope::Schema {
+                table,
+                excluded_columns,
+            } => {
+                let mut resolved = schema.get_table(db, table)?;
+
+                // A table which doesn't exist comes back without any columns
+                if resolved.columns.is_empty() {
+                    return Ok(Err(format!("table \"{}\" does not exist", table)));
+                }
+
+                resolved
+                    .columns
+                    .retain(|column| !excluded_columns.contains(&column.name));
+                resolved
+            }
+        };
+        tables.push(table);
+    }
+
+    let tables: Vec<&Table> = tables.iter().collect();
+    Ok(join_errors(crate::sql::validate_column_references(
+        sql, &tables,
+    )))
+}
+
+fn join_errors(errors: Vec<String>) -> Result<(), String> {
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join(", "))
+    }
 }
 
 /// Quote a value so it can be used as an SQL string literal.
