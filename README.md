@@ -82,7 +82,7 @@ docker run -v $(pwd):/usr/share/app fabianlindfors/reshape reshape migration sta
 
 ### Creating your first migration
 
-Each migration should be stored as a separate file in a `migrations/` directory. The files can be in either JSON or TOML format and the name of the file will become the name of your migration. We recommend prefixing every migration with an incrementing number as migrations are sorted by file name.
+Each migration should be stored as a separate file in a `migrations/` directory. The files can be in either JSON or TOML format and the name of the file will become the name of your migration. We recommend prefixing every migration with an incrementing number as migrations are sorted by file name. Files with any other extension, and subdirectories, are ignored.
 
 Let's create a simple migration to set up a new table `users` with two fields, `id` and `name`. We'll create a file called `migrations/1_create_users_table.toml`:
 
