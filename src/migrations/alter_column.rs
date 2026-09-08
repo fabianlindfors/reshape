@@ -1,4 +1,5 @@
 use super::{Action, MigrationContext, References, SqlField};
+use crate::sql::rewrite_index_definition;
 use crate::{
     db::{Conn, Transaction},
     migrations::common,
@@ -149,34 +150,25 @@ impl Action for AlterColumn {
         common::batch_touch_rows(db, &table.real_name, Some(&column.real_name))
             .context("failed to batch update existing rows")?;
 
-        // Duplicate any indices to the temporary column
+        // Duplicate any indices which reference the column to the temporary column. The
+        // definition of each index is rewritten so that the column is replaced by the
+        // temporary one, keeping expressions, predicates and options intact.
+        let mut index_table = Schema::new().get_table(db, &table.real_name)?;
+        for index_column in &mut index_table.columns {
+            if index_column.name == column.real_name {
+                index_column.real_name = temporary_column_name.to_string();
+            }
+        }
+
         let indices = common::get_indices_for_column(db, &table.real_name, &column.real_name)?;
         for index in indices {
-            let index_columns: Vec<String> = common::get_index_columns(db, &index.name)?
-                .into_iter()
-                .map(|idx_column| {
-                    // Replace column with temporary column for new index
-                    if idx_column == column.real_name {
-                        temporary_column_name.to_string()
-                    } else {
-                        idx_column
-                    }
-                })
-                .collect();
+            let definition = common::get_index_definition(db, index.oid)?;
             let temp_index_name = self.temp_index_name(ctx, index.oid);
+            let query = rewrite_index_definition(&definition, &index_table, &temp_index_name)
+                .with_context(|| format!("failed to rewrite definition of index {}", index.name))?;
 
-            let unique_def = if index.unique { "UNIQUE" } else { "" };
-
-            db.query(&format!(
-                r#"
-                CREATE {unique_def} INDEX CONCURRENTLY IF NOT EXISTS "{new_index_name}" ON "{table}" USING {index_type} ({columns})
-                "#,
-                new_index_name = temp_index_name,
-                table = table.real_name,
-                columns = index_columns.join(", "),
-                index_type = index.index_type,
-            ))
-            .context("failed to create temporary index")?;
+            db.query(&query)
+                .context("failed to create temporary index")?;
         }
 
         // Add a temporary NOT NULL constraint if the column shouldn't be nullable.

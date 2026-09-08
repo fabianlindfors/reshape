@@ -261,10 +261,12 @@ fn get_primary_key_columns_for_table(
 pub struct Index {
     pub name: String,
     pub oid: u32,
-    pub unique: bool,
-    pub index_type: String,
 }
 
+// Finds all indices which reference a column, either as a key or included column or
+// within an expression or predicate. Postgres records a dependency from an index on
+// each column it references, except for indices backing a constraint which depend on
+// the constraint instead, so those are found through the key columns.
 pub fn get_indices_for_column(
     db: &mut dyn Conn,
     table: &str,
@@ -273,21 +275,31 @@ pub fn get_indices_for_column(
     let indices = db
         .query(&format!(
             "
-            SELECT
+            SELECT DISTINCT
                 i.relname AS name,
-                i.oid AS oid,
-                ix.indisunique AS unique,
-                am.amname AS type
+                i.oid AS oid
             FROM pg_index ix
             JOIN pg_class t ON t.oid = ix.indrelid
             JOIN pg_class i ON i.oid = ix.indexrelid
-            JOIN pg_am am ON i.relam = am.oid
             JOIN pg_attribute a ON
                 a.attrelid = t.oid AND
-                a.attnum = ANY(ix.indkey)
+                a.attname = '{column}'
             WHERE
                 t.relname = '{table}' AND
-                a.attname = '{column}'
+                (
+                    a.attnum = ANY(ix.indkey) OR
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_depend d
+                        WHERE
+                            d.classid = 'pg_class'::regclass AND
+                            d.objid = i.oid AND
+                            d.refclassid = 'pg_class'::regclass AND
+                            d.refobjid = t.oid AND
+                            d.refobjsubid = a.attnum
+                    )
+                )
+            ORDER BY i.relname
             ",
             table = table,
             column = column,
@@ -296,57 +308,18 @@ pub fn get_indices_for_column(
         .map(|row| Index {
             name: row.get("name"),
             oid: row.get("oid"),
-            unique: row.get("unique"),
-            index_type: row.get("type"),
         })
         .collect();
 
     Ok(indices)
 }
 
-pub fn get_index_columns(db: &mut dyn Conn, index_name: &str) -> anyhow::Result<Vec<String>> {
-    // Get all columns which are part of the index in order
-    let (table_oid, column_nums) = db
-        .query(&format!(
-            "
-            SELECT t.oid AS table_oid, ix.indkey::INTEGER[] AS columns
-            FROM pg_index ix
-            JOIN pg_class t ON t.oid = ix.indrelid
-            JOIN pg_class i ON i.oid = ix.indexrelid
-            WHERE
-	            i.relname = '{index_name}'
-            ",
-            index_name = index_name,
-        ))?
-        .first()
-        .map(|row| {
-            (
-                row.get::<'_, _, u32>("table_oid"),
-                row.get::<'_, _, Vec<i32>>("columns"),
-            )
-        })
-        .ok_or_else(|| anyhow!("failed to get columns for index"))?;
-
-    // Get the name of each of the columns, still in order
-    column_nums
-        .iter()
-        .map(|column_num| -> anyhow::Result<String> {
-            let name: String = db
-                .query(&format!(
-                    "
-                    SELECT attname AS name
-                    FROM pg_attribute
-                    WHERE attrelid = {table_oid}
-                        AND attnum = {column_num};
-                    ",
-                    table_oid = table_oid,
-                    column_num = column_num,
-                ))?
-                .first()
-                .map(|row| row.get("name"))
-                .ok_or_else(|| anyhow!("expected to find column"))?;
-
-            Ok(name)
-        })
-        .collect::<anyhow::Result<Vec<String>>>()
+// The CREATE INDEX statement which defines an index
+pub fn get_index_definition(db: &mut dyn Conn, index_oid: u32) -> anyhow::Result<String> {
+    db.query(&format!(
+        "SELECT pg_get_indexdef({index_oid}) AS definition"
+    ))?
+    .first()
+    .map(|row| row.get("definition"))
+    .ok_or_else(|| anyhow!("failed to get definition of index {}", index_oid))
 }

@@ -43,8 +43,90 @@ pub fn rewrite_column_references(expression: &str, table: &Table) -> anyhow::Res
         return Err(anyhow!(errors.join(", ")));
     }
 
-    let rewritten = splice(&wrapped, &resolutions).map_err(|e| anyhow!(e))?;
-    Ok(unwrap_expression(&rewritten))
+    let tokens = scan_tokens(&wrapped).map_err(|e| anyhow!(e))?;
+    let mut replacements = Vec::new();
+    for (reference, resolution) in &resolutions {
+        replacements.extend(
+            reference_replacements(reference, resolution, &tokens).map_err(|e| anyhow!(e))?,
+        );
+    }
+
+    Ok(unwrap_expression(&apply_replacements(
+        &wrapped,
+        replacements,
+    )))
+}
+
+/// Rewrites the definition of an existing index, as returned by `pg_get_indexdef`, into a
+/// statement creating an equivalent index under a new name with all column references
+/// pointing at the real columns of `table`. Used to duplicate an index onto a temporary
+/// column by mapping the current column to the temporary one.
+///
+/// The new index is created concurrently and only if it doesn't already exist.
+pub fn rewrite_index_definition(
+    definition: &str,
+    table: &Table,
+    new_name: &str,
+) -> anyhow::Result<String> {
+    let tree = parse_tree(definition).map_err(|e| anyhow!(e))?;
+    let statement = tree
+        .pointer("/stmts/0/stmt/node/IndexStmt")
+        .ok_or_else(|| anyhow!("expected a CREATE INDEX statement"))?;
+    let tokens = scan_tokens(definition).map_err(|e| anyhow!(e))?;
+
+    let mut replacements = Vec::new();
+
+    // Replace the index name and make the creation concurrent and idempotent
+    let name_token = tokens
+        .iter()
+        .position(|token| token_text(definition, token).eq_ignore_ascii_case("INDEX"))
+        .and_then(|position| tokens.get(position + 1))
+        .ok_or_else(|| anyhow!("failed to locate index name in definition"))?;
+    replacements.push(Replacement {
+        start: name_token.start as usize,
+        end: name_token.end as usize,
+        text: format!("CONCURRENTLY IF NOT EXISTS {}", quote_identifier(new_name)),
+    });
+
+    // Columns referenced by expressions and the predicate
+    for reference in column_references_in(&tree) {
+        if let Some(resolution) = resolve(&reference, &[table]).map_err(|e| anyhow!(e))? {
+            replacements.extend(
+                reference_replacements(&reference, &resolution, &tokens).map_err(|e| anyhow!(e))?,
+            );
+        }
+    }
+
+    // Plain column entries in the key and INCLUDE lists aren't expressions and carry no
+    // location, so they are found by their position in the list instead
+    for (keyword, params) in [
+        ("USING", "index_params"),
+        ("INCLUDE", "index_including_params"),
+    ] {
+        let names: Vec<Option<&str>> = statement[params]
+            .as_array()
+            .map(|elements| {
+                elements
+                    .iter()
+                    .map(|element| {
+                        element
+                            .pointer("/node/IndexElem/name")
+                            .and_then(Value::as_str)
+                            .filter(|name| !name.is_empty())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if names.iter().any(Option::is_some) {
+            replacements.extend(
+                index_element_replacements(definition, &tokens, keyword, &names, table)
+                    .map_err(|e| anyhow!(e))?,
+            );
+        }
+    }
+
+    Ok(apply_replacements(definition, replacements))
 }
 
 /// Checks that every column referenced by an expression exists in one of the given tables.
@@ -104,14 +186,20 @@ struct ColumnReference {
 /// parse tree, which is complete. References inside subqueries are skipped as they belong
 /// to the subquery's own scope.
 fn extract_column_references(sql: &str) -> Result<Vec<ColumnReference>, String> {
+    Ok(column_references_in(&parse_tree(sql)?))
+}
+
+/// Parses SQL into pg_query's parse tree, serialized so it can be walked generically
+fn parse_tree(sql: &str) -> Result<Value, String> {
     let parsed = pg_query::parse(sql).map_err(|e| e.to_string())?;
-    let tree = serde_json::to_value(&parsed.protobuf).map_err(|e| e.to_string())?;
+    serde_json::to_value(&parsed.protobuf).map_err(|e| e.to_string())
+}
 
+fn column_references_in(tree: &Value) -> Vec<ColumnReference> {
     let mut references = Vec::new();
-    collect_column_references(&tree, &mut references);
+    collect_column_references(tree, &mut references);
     references.sort_by_key(|reference| reference.location);
-
-    Ok(references)
+    references
 }
 
 fn collect_column_references(node: &Value, references: &mut Vec<ColumnReference>) {
@@ -251,63 +339,170 @@ fn find_column<'a>(tables: &[&'a Table], name: &str) -> Result<(&'a Table, &'a C
         })
 }
 
-/// Replaces the resolved table and column names in the SQL with their real names, leaving
-/// everything else untouched.
-fn splice(sql: &str, resolutions: &[(ColumnReference, Resolution)]) -> Result<String, String> {
+/// A piece of SQL text to be replaced
+struct Replacement {
+    start: usize,
+    end: usize,
+    text: String,
+}
+
+fn scan_tokens(sql: &str) -> Result<Vec<pg_query::protobuf::ScanToken>, String> {
     let scanned = pg_query::scan(sql).map_err(|e| e.to_string())?;
-    let tokens: Vec<_> = scanned
+    Ok(scanned
         .tokens
-        .iter()
+        .into_iter()
         .filter(|token| !matches!(token.token(), Token::SqlComment | Token::CComment))
-        .collect();
+        .collect())
+}
 
-    let mut replacements: Vec<(usize, usize, String)> = Vec::new();
+fn token_text<'a>(sql: &'a str, token: &pg_query::protobuf::ScanToken) -> &'a str {
+    &sql[token.start as usize..token.end as usize]
+}
 
-    for (reference, resolution) in resolutions {
-        let first = tokens
-            .iter()
-            .position(|token| token.start as usize == reference.location)
-            .ok_or_else(|| format!("failed to locate reference {}", reference.fields.join(".")))?;
+/// Replacements of the resolved table and column names of a reference with their real
+/// names. The fields of a reference are identifier tokens separated by dots, starting at
+/// the reference's location.
+fn reference_replacements(
+    reference: &ColumnReference,
+    resolution: &Resolution,
+    tokens: &[pg_query::protobuf::ScanToken],
+) -> Result<Vec<Replacement>, String> {
+    let not_found = || format!("failed to locate reference {}", reference.fields.join("."));
 
-        // The fields of a reference are identifier tokens separated by dots
-        let field_token = |field: usize| -> Result<(usize, usize), String> {
-            let index = first + field * 2;
-            if field > 0 {
-                let separator = tokens.get(index - 1).map(|token| token.token());
-                if separator != Some(Token::Ascii46) {
-                    return Err(format!(
-                        "failed to locate reference {}",
-                        reference.fields.join(".")
-                    ));
-                }
+    let first = tokens
+        .iter()
+        .position(|token| token.start as usize == reference.location)
+        .ok_or_else(not_found)?;
+
+    let field_token = |field: usize| -> Result<&pg_query::protobuf::ScanToken, String> {
+        let index = first + field * 2;
+        if field > 0 {
+            let separator = tokens.get(index - 1).map(|token| token.token());
+            if separator != Some(Token::Ascii46) {
+                return Err(not_found());
             }
-            tokens
-                .get(index)
-                .map(|token| (token.start as usize, token.end as usize))
-                .ok_or_else(|| format!("failed to locate reference {}", reference.fields.join(".")))
-        };
-
-        if let Some(table_field) = resolution.table_field {
-            let (start, end) = field_token(table_field)?;
-            replacements.push((start, end, quote_identifier(&resolution.table.real_name)));
         }
+        tokens.get(index).ok_or_else(not_found)
+    };
 
-        let (start, end) = field_token(resolution.column_field)?;
-        replacements.push((start, end, quote_identifier(&resolution.column.real_name)));
+    let mut replacements = Vec::new();
+
+    if let Some(table_field) = resolution.table_field {
+        let token = field_token(table_field)?;
+        replacements.push(Replacement {
+            start: token.start as usize,
+            end: token.end as usize,
+            text: quote_identifier(&resolution.table.real_name),
+        });
     }
 
-    replacements.sort_by_key(|(start, _, _)| *start);
+    let token = field_token(resolution.column_field)?;
+    replacements.push(Replacement {
+        start: token.start as usize,
+        end: token.end as usize,
+        text: quote_identifier(&resolution.column.real_name),
+    });
+
+    Ok(replacements)
+}
+
+/// Replacements for the plain column entries of an index column list, which starts with
+/// the first parenthesis after `keyword`. `names` holds the column name of each entry in
+/// the list, or `None` for entries which are expressions.
+fn index_element_replacements(
+    sql: &str,
+    tokens: &[pg_query::protobuf::ScanToken],
+    keyword: &str,
+    names: &[Option<&str>],
+    table: &Table,
+) -> Result<Vec<Replacement>, String> {
+    let keyword_position = tokens
+        .iter()
+        .position(|token| token_text(sql, token).eq_ignore_ascii_case(keyword))
+        .ok_or_else(|| format!("failed to locate {} in index definition", keyword))?;
+    let list_start = tokens[keyword_position..]
+        .iter()
+        .position(|token| token.token() == Token::Ascii40)
+        .map(|offset| keyword_position + offset)
+        .ok_or_else(|| format!("failed to locate {} list in index definition", keyword))?;
+
+    let mut replacements = Vec::new();
+    let mut depth = 0;
+    let mut element = 0;
+    let mut at_element_start = false;
+
+    for token in &tokens[list_start..] {
+        match token.token() {
+            Token::Ascii40 if depth == 0 => {
+                depth += 1;
+                at_element_start = true;
+                continue;
+            }
+            Token::Ascii40 => depth += 1,
+            Token::Ascii41 => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            Token::Ascii44 if depth == 1 => {
+                element += 1;
+                at_element_start = true;
+                continue;
+            }
+            _ => {}
+        }
+
+        if !at_element_start {
+            continue;
+        }
+        at_element_start = false;
+
+        if let Some(Some(name)) = names.get(element) {
+            let text = token_text(sql, token);
+            if !identifier_matches(text, name) {
+                return Err(format!(
+                    "expected column \"{}\" in index definition, found {}",
+                    name, text
+                ));
+            }
+
+            let (_, column) = find_column(&[table], name)?;
+            replacements.push(Replacement {
+                start: token.start as usize,
+                end: token.end as usize,
+                text: quote_identifier(&column.real_name),
+            });
+        }
+    }
+
+    Ok(replacements)
+}
+
+/// Whether an identifier token, quoted or not, names `name`
+fn identifier_matches(token: &str, name: &str) -> bool {
+    match token
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+    {
+        Some(quoted) => quoted.replace("\"\"", "\"") == name,
+        None => token == name || token.to_lowercase() == name,
+    }
+}
+
+fn apply_replacements(sql: &str, mut replacements: Vec<Replacement>) -> String {
+    replacements.sort_by_key(|replacement| replacement.start);
 
     let mut result = String::with_capacity(sql.len());
     let mut position = 0;
-    for (start, end, replacement) in replacements {
-        result.push_str(&sql[position..start]);
-        result.push_str(&replacement);
-        position = end;
+    for replacement in replacements {
+        result.push_str(&sql[position..replacement.start]);
+        result.push_str(&replacement.text);
+        position = replacement.end;
     }
     result.push_str(&sql[position..]);
 
-    Ok(result)
+    result
 }
 
 fn quote_identifier(name: &str) -> String {
@@ -541,6 +736,79 @@ mod tests {
             Err(r#"column references are not allowed here, found "name""#.to_string())
         );
         assert!(validate_no_column_references("$$$").is_err());
+    }
+
+    fn index_table() -> Table {
+        let mut table = table();
+        table.columns.push(column("name", "name"));
+        table.columns.push(column("Mixed Case", "Mixed Case"));
+        table
+    }
+
+    #[test]
+    fn rewrites_index_definitions() {
+        let table = index_table();
+        let cases = [
+            (
+                "CREATE INDEX users_active_idx ON public.users USING btree (id) WHERE (status = 'active'::text)",
+                r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS "tmp" ON public.users USING btree ("id") WHERE ("__reshape_0_0_status" = 'active'::text)"#,
+            ),
+            (
+                "CREATE INDEX users_lower_idx ON public.users USING btree (lower(status))",
+                r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS "tmp" ON public.users USING btree (lower("__reshape_0_0_status"))"#,
+            ),
+            (
+                "CREATE INDEX users_plain_idx ON public.users USING btree (status text_pattern_ops, name)",
+                r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS "tmp" ON public.users USING btree ("__reshape_0_0_status" text_pattern_ops, "name")"#,
+            ),
+            (
+                r#"CREATE INDEX users_quoted_idx ON public.users USING btree ("Mixed Case") WHERE ("Mixed Case" IS NOT NULL)"#,
+                r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS "tmp" ON public.users USING btree ("Mixed Case") WHERE ("Mixed Case" IS NOT NULL)"#,
+            ),
+            (
+                "CREATE UNIQUE INDEX users_mixed_idx ON public.users USING btree (id, lower(status) DESC NULLS LAST) INCLUDE (name) WITH (fillfactor='70')",
+                r#"CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "tmp" ON public.users USING btree ("id", lower("__reshape_0_0_status") DESC NULLS LAST) INCLUDE ("name") WITH (fillfactor='70')"#,
+            ),
+            (
+                "CREATE INDEX users_concat_idx ON public.users USING btree (((status || name)), id)",
+                r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS "tmp" ON public.users USING btree ((("__reshape_0_0_status" || "name")), "id")"#,
+            ),
+        ];
+
+        for (definition, expected) in cases {
+            assert_eq!(
+                rewrite_index_definition(definition, &table, "tmp").unwrap(),
+                expected,
+                "definition: {}",
+                definition
+            );
+        }
+    }
+
+    #[test]
+    fn index_definition_with_unknown_column_fails() {
+        let error = rewrite_index_definition(
+            "CREATE INDEX idx ON public.users USING btree (missing)",
+            &index_table(),
+            "tmp",
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(error, r#"column "missing" does not exist on table "users""#);
+
+        let error = rewrite_index_definition(
+            "CREATE INDEX idx ON public.users USING btree (id) WHERE (missing IS NULL)",
+            &index_table(),
+            "tmp",
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(error, r#"column "missing" does not exist on table "users""#);
+    }
+
+    #[test]
+    fn index_definition_must_be_create_index() {
+        assert!(rewrite_index_definition("SELECT 1", &index_table(), "tmp").is_err());
     }
 
     #[test]
