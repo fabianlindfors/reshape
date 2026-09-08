@@ -1,4 +1,4 @@
-use super::{Action, MigrationContext, SqlExpression};
+use super::{Action, MigrationContext, SqlField};
 use crate::{
     db::{Conn, Transaction},
     migrations::common,
@@ -436,7 +436,7 @@ impl Action for AlterColumn {
         Ok(())
     }
 
-    fn sql_expressions(&self) -> Vec<SqlExpression> {
+    fn sql_fields(&self) -> Vec<SqlField> {
         [
             ("up", &self.up),
             ("down", &self.down),
@@ -445,7 +445,7 @@ impl Action for AlterColumn {
         .into_iter()
         .filter_map(|(field, sql)| {
             sql.as_ref()
-                .map(|sql| SqlExpression::expression(field, sql))
+                .map(|sql| SqlField::expression(field, sql))
         })
         .collect()
     }

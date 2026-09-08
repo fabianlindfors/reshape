@@ -1,4 +1,4 @@
-use super::{common, Action, MigrationContext, SqlExpression};
+use super::{common, Action, MigrationContext, SqlField};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -452,12 +452,12 @@ impl Action for RemoveColumn {
         Ok(())
     }
 
-    fn sql_expressions(&self) -> Vec<SqlExpression> {
+    fn sql_fields(&self) -> Vec<SqlField> {
         match &self.down {
-            Some(Transformation::Simple(down)) => vec![SqlExpression::expression("down", down)],
+            Some(Transformation::Simple(down)) => vec![SqlField::expression("down", down)],
             Some(Transformation::Update { value, r#where, .. }) => vec![
-                SqlExpression::expression("down.value", value),
-                SqlExpression::expression("down.where", r#where),
+                SqlField::expression("down.value", value),
+                SqlField::expression("down.where", r#where),
             ],
             None => vec![],
         }

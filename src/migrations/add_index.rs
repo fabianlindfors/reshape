@@ -1,4 +1,4 @@
-use super::{Action, MigrationContext, SqlExpression};
+use super::{Action, MigrationContext, SqlField};
 use crate::{
     db::{Conn, Transaction},
     schema::{Schema, Table},
@@ -200,14 +200,14 @@ impl Action for AddIndex {
         Ok(())
     }
 
-    fn sql_expressions(&self) -> Vec<SqlExpression> {
-        let mut expressions: Vec<SqlExpression> = self
+    fn sql_fields(&self) -> Vec<SqlField> {
+        let mut fields: Vec<SqlField> = self
             .index
             .columns
             .iter()
             .enumerate()
             .filter_map(|(idx, column)| match column {
-                IndexColumn::Expression(spec) => Some(SqlExpression::expression(
+                IndexColumn::Expression(spec) => Some(SqlField::expression(
                     format!("index.columns[{}].expression", idx),
                     &spec.expression,
                 )),
@@ -216,9 +216,9 @@ impl Action for AddIndex {
             .collect();
 
         if let Some(predicate) = &self.index.r#where {
-            expressions.push(SqlExpression::expression("index.where", predicate));
+            fields.push(SqlField::expression("index.where", predicate));
         }
 
-        expressions
+        fields
     }
 }

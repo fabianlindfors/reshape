@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::{
     common::{Check, ForeignKey},
-    quote_string_literal, Action, Column, MigrationContext, SqlExpression,
+    quote_string_literal, Action, Column, MigrationContext, SqlField,
 };
 use crate::{
     db::{Conn, Transaction},
@@ -272,14 +272,14 @@ impl Action for CreateTable {
         Ok(())
     }
 
-    fn sql_expressions(&self) -> Vec<SqlExpression> {
-        let mut expressions = vec![];
+    fn sql_fields(&self) -> Vec<SqlField> {
+        let mut fields = vec![];
 
         // Note: `generated` is not included as it's a column generation clause
         // (e.g., "ALWAYS AS IDENTITY"), not a SQL expression
         for (idx, column) in self.columns.iter().enumerate() {
             if let Some(default) = &column.default {
-                expressions.push(SqlExpression::expression(
+                fields.push(SqlField::expression(
                     format!("columns[{}].default", idx),
                     default,
                 ));
@@ -287,7 +287,7 @@ impl Action for CreateTable {
         }
 
         for (idx, check) in self.checks.iter().enumerate() {
-            expressions.push(SqlExpression::expression(
+            fields.push(SqlField::expression(
                 format!("checks[{}].expression", idx),
                 &check.expression,
             ));
@@ -295,13 +295,13 @@ impl Action for CreateTable {
 
         if let Some(Transformation { values, .. }) = &self.up {
             for (column, value) in values {
-                expressions.push(SqlExpression::expression(
+                fields.push(SqlField::expression(
                     format!("up.values.{}", column),
                     value,
                 ));
             }
         }
 
-        expressions
+        fields
     }
 }

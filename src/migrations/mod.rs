@@ -5,12 +5,12 @@ use crate::{
 use core::fmt::Debug;
 use serde::{Deserialize, Serialize};
 
-/// A piece of user-provided SQL in an action, such as an `up` expression or a statement
-/// in a custom action
+/// A field of an action which holds user-provided SQL, such as the `up` of `add_column`
+/// or the `start` of a custom action
 #[derive(Debug, Clone)]
-pub struct SqlExpression {
-    /// The field the SQL was read from, used in error messages, e.g. "up" or "column.default"
-    pub field: String,
+pub struct SqlField {
+    /// The name of the field, used in error messages, e.g. "up" or "column.default"
+    pub name: String,
     pub sql: String,
     pub kind: SqlKind,
 }
@@ -23,18 +23,18 @@ pub enum SqlKind {
     Statement,
 }
 
-impl SqlExpression {
-    pub fn expression(field: impl Into<String>, sql: impl Into<String>) -> Self {
-        SqlExpression {
-            field: field.into(),
+impl SqlField {
+    pub fn expression(name: impl Into<String>, sql: impl Into<String>) -> Self {
+        SqlField {
+            name: name.into(),
             sql: sql.into(),
             kind: SqlKind::Expression,
         }
     }
 
-    pub fn statement(field: impl Into<String>, sql: impl Into<String>) -> Self {
-        SqlExpression {
-            field: field.into(),
+    pub fn statement(name: impl Into<String>, sql: impl Into<String>) -> Self {
+        SqlField {
+            name: name.into(),
             sql: sql.into(),
             kind: SqlKind::Statement,
         }
@@ -52,17 +52,17 @@ pub struct SqlError {
 /// Validates all user-provided SQL in an action
 pub fn validate_sql(action: &dyn Action) -> Vec<SqlError> {
     action
-        .sql_expressions()
+        .sql_fields()
         .into_iter()
-        .filter_map(|expression| {
-            let result = match expression.kind {
-                SqlKind::Expression => crate::sql::validate_sql_expression(&expression.sql),
-                SqlKind::Statement => crate::sql::validate_sql_statement(&expression.sql),
+        .filter_map(|field| {
+            let result = match field.kind {
+                SqlKind::Expression => crate::sql::validate_sql_expression(&field.sql),
+                SqlKind::Statement => crate::sql::validate_sql_statement(&field.sql),
             };
 
             result.err().map(|message| SqlError {
-                field: expression.field,
-                sql: expression.sql,
+                field: field.name,
+                sql: field.sql,
                 message,
             })
         })
@@ -205,7 +205,7 @@ pub trait Action: Debug {
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()>;
 
     /// User-provided SQL in the action, which is validated before the action runs
-    fn sql_expressions(&self) -> Vec<SqlExpression> {
+    fn sql_fields(&self) -> Vec<SqlField> {
         vec![]
     }
 }

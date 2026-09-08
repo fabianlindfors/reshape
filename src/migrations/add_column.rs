@@ -1,4 +1,4 @@
-use super::{common, quote_string_literal, Action, Column, MigrationContext, SqlExpression};
+use super::{common, quote_string_literal, Action, Column, MigrationContext, SqlField};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -443,24 +443,24 @@ impl Action for AddColumn {
         Ok(())
     }
 
-    fn sql_expressions(&self) -> Vec<SqlExpression> {
-        let mut expressions = vec![];
+    fn sql_fields(&self) -> Vec<SqlField> {
+        let mut fields = vec![];
 
         match &self.up {
             Some(Transformation::Simple(up)) => {
-                expressions.push(SqlExpression::expression("up", up));
+                fields.push(SqlField::expression("up", up));
             }
             Some(Transformation::Update { value, r#where, .. }) => {
-                expressions.push(SqlExpression::expression("up.value", value));
-                expressions.push(SqlExpression::expression("up.where", r#where));
+                fields.push(SqlField::expression("up.value", value));
+                fields.push(SqlField::expression("up.where", r#where));
             }
             None => {}
         }
 
         if let Some(default) = &self.column.default {
-            expressions.push(SqlExpression::expression("column.default", default));
+            fields.push(SqlField::expression("column.default", default));
         }
 
-        expressions
+        fields
     }
 }

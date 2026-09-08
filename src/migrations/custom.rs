@@ -1,4 +1,4 @@
-use super::{Action, MigrationContext, SqlExpression};
+use super::{Action, MigrationContext, SqlField};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -59,14 +59,14 @@ impl Action for Custom {
         Ok(())
     }
 
-    fn sql_expressions(&self) -> Vec<SqlExpression> {
+    fn sql_fields(&self) -> Vec<SqlField> {
         [
             ("start", &self.start),
             ("complete", &self.complete),
             ("abort", &self.abort),
         ]
         .into_iter()
-        .filter_map(|(field, sql)| sql.as_ref().map(|sql| SqlExpression::statement(field, sql)))
+        .filter_map(|(field, sql)| sql.as_ref().map(|sql| SqlField::statement(field, sql)))
         .collect()
     }
 }
