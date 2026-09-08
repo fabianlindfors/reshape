@@ -130,6 +130,116 @@ fn create_table_up_values_invalid_column_reference() {
 }
 
 #[test]
+fn create_table_then_change_it_in_same_migration() {
+    let mut test = Test::new("Create table and change it in the same migration");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+        "#,
+    );
+
+    // Every action after the first references columns of the table created by it, some
+    // of which are added or altered by the actions in between. All of them resolve
+    // through the schema as it looks right before each action.
+    test.second_migration(
+        r#"
+        name = "create_and_change_profiles"
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+            nullable = false
+
+            [[actions.checks]]
+            expression = "length(email) > 0"
+
+        [[actions]]
+        type = "add_column"
+        table = "profiles"
+        up = "lower(email)"
+
+            [actions.column]
+            name = "normalized_email"
+            type = "TEXT"
+
+        [[actions]]
+        type = "alter_column"
+        table = "profiles"
+        column = "email"
+        up = "email"
+        down = "email"
+
+            [actions.changes]
+            type = "VARCHAR(255)"
+
+        [[actions]]
+        type = "add_index"
+        table = "profiles"
+
+            [actions.index]
+            name = "profiles_email_idx"
+            columns = [{ expression = "lower(normalized_email)" }]
+            where = "email IS NOT NULL"
+        "#,
+    );
+
+    test.intermediate(|_old_db, new_db| {
+        // The old schema has no `profiles` table, so all writes come from the new schema
+        new_db
+            .simple_query(
+                "INSERT INTO profiles (id, email, normalized_email) VALUES (1, 'John@Example.com', 'john@example.com')",
+            )
+            .unwrap();
+        let normalized: Option<String> = new_db
+            .query_one("SELECT normalized_email FROM profiles WHERE id = 1", &[])
+            .unwrap()
+            .get("normalized_email");
+        assert_eq!(Some("john@example.com".to_string()), normalized);
+
+        // The check constraint from the create_table action is in place
+        assert!(new_db
+            .simple_query("INSERT INTO profiles (id, email) VALUES (2, '')")
+            .is_err());
+    });
+
+    test.after_completion(|db| {
+        let definition: String = db
+            .query_one(
+                "SELECT indexdef FROM pg_indexes WHERE indexname = 'profiles_email_idx'",
+                &[],
+            )
+            .unwrap()
+            .get("indexdef");
+        assert!(
+            definition.contains("lower(normalized_email)") && !definition.contains("__reshape"),
+            "got: {}",
+            definition
+        );
+    });
+
+    test.run();
+}
+
+#[test]
 fn create_table_invalid_up_values_sql() {
     assert_invalid_sql(
         r#"
