@@ -326,6 +326,237 @@ fn alter_column_keeps_indexes_referencing_column() {
     test.run();
 }
 
+#[test]
+fn alter_column_keeps_check_constraints_referencing_column() {
+    let mut test = Test::new("Alter column keeps check constraints referencing it");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "score"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "max_score"
+            type = "INTEGER"
+
+            # One check on the column alone and one spanning another column. Both must
+            # survive the column being replaced.
+            [[actions.checks]]
+            name = "users_score_positive"
+            expression = "score >= 0"
+
+            [[actions.checks]]
+            name = "users_score_within_max"
+            expression = "score <= max_score"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id, score, max_score) VALUES (1, 5, 10)")
+            .unwrap();
+    });
+
+    test.second_migration(
+        r#"
+        name = "alter_score"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "score"
+        up = "score"
+        down = "score"
+
+            [actions.changes]
+            name = "points"
+            type = "BIGINT"
+        "#,
+    );
+
+    test.intermediate(|old_db, new_db| {
+        // Each check has been copied onto the temporary column and validated
+        let temp_definitions = check_definitions(old_db, "__reshape%");
+        assert_eq!(2, temp_definitions.len(), "got: {:?}", temp_definitions);
+        for definition in &temp_definitions {
+            assert!(
+                definition.contains("__reshape"),
+                "expected temporary check to reference temporary column, got: {}",
+                definition
+            );
+        }
+        assert!(
+            check_validity(old_db, "__reshape%")
+                .iter()
+                .all(|valid| *valid),
+            "expected temporary checks to be validated"
+        );
+
+        // The original checks are untouched
+        assert_eq!(2, check_definitions(old_db, "users_score_%").len());
+
+        // Both schemas still reject invalid rows
+        assert!(old_db
+            .simple_query("INSERT INTO users (id, score, max_score) VALUES (2, -1, 10)")
+            .is_err());
+        assert!(new_db
+            .simple_query("INSERT INTO users (id, points, max_score) VALUES (2, 11, 10)")
+            .is_err());
+        new_db
+            .simple_query("INSERT INTO users (id, points, max_score) VALUES (2, 10, 10)")
+            .unwrap();
+    });
+
+    test.after_completion(|db| {
+        // The checks remain under their original names, now on the new column
+        let definitions = check_definitions(db, "users_score_%");
+        assert_eq!(2, definitions.len(), "got: {:?}", definitions);
+        for definition in &definitions {
+            assert!(
+                definition.contains("points") && !definition.contains("__reshape"),
+                "expected check to reference the final column, got: {}",
+                definition
+            );
+        }
+        assert!(check_definitions(db, "__reshape%").is_empty());
+
+        assert!(db
+            .simple_query("INSERT INTO users (id, points, max_score) VALUES (3, -1, 10)")
+            .is_err());
+        assert!(db
+            .simple_query("INSERT INTO users (id, points, max_score) VALUES (3, 11, 10)")
+            .is_err());
+        db.simple_query("INSERT INTO users (id, points, max_score) VALUES (3, 10, 10)")
+            .unwrap();
+    });
+
+    test.after_abort(|db| {
+        let definitions = check_definitions(db, "users_score_%");
+        assert_eq!(2, definitions.len(), "got: {:?}", definitions);
+        for definition in &definitions {
+            assert!(
+                definition.contains("score") && !definition.contains("__reshape"),
+                "expected check to reference the original column, got: {}",
+                definition
+            );
+        }
+        assert!(check_definitions(db, "__reshape%").is_empty());
+
+        assert!(db
+            .simple_query("INSERT INTO users (id, score, max_score) VALUES (3, -1, 10)")
+            .is_err());
+    });
+
+    test.run();
+}
+
+#[test]
+fn alter_column_fails_when_up_breaks_check_constraint() {
+    let mut test = Test::new("Alter column fails when up breaks a check constraint");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "score"
+            type = "INTEGER"
+
+            [[actions.checks]]
+            name = "users_score_positive"
+            expression = "score >= 0"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id, score) VALUES (1, 5)")
+            .unwrap();
+    });
+
+    // The transformed values violate the existing check, which must fail the migration
+    // rather than silently dropping the check on completion
+    test.second_migration(
+        r#"
+        name = "alter_score"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "score"
+        up = "score - 100"
+        down = "score + 100"
+
+            [actions.changes]
+            type = "BIGINT"
+        "#,
+    );
+
+    test.expect_failure();
+
+    test.after_abort(|db| {
+        assert_eq!(1, check_definitions(db, "users_score_%").len());
+        assert!(check_definitions(db, "__reshape%").is_empty());
+    });
+
+    test.run();
+}
+
+fn check_definitions(db: &mut postgres::Client, name_pattern: &str) -> Vec<String> {
+    db.query(
+        "
+        SELECT pg_get_constraintdef(c.oid) AS definition
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.contype = 'c' AND n.nspname = 'public' AND c.conname LIKE $1
+        ORDER BY c.conname
+        ",
+        &[&name_pattern],
+    )
+    .unwrap()
+    .iter()
+    .map(|row| row.get("definition"))
+    .collect()
+}
+
+fn check_validity(db: &mut postgres::Client, name_pattern: &str) -> Vec<bool> {
+    db.query(
+        "
+        SELECT c.convalidated AS valid
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.contype = 'c' AND n.nspname = 'public' AND c.conname LIKE $1
+        ORDER BY c.conname
+        ",
+        &[&name_pattern],
+    )
+    .unwrap()
+    .iter()
+    .map(|row| row.get("valid"))
+    .collect()
+}
+
 fn index_definitions(db: &mut postgres::Client, name_pattern: &str) -> Vec<String> {
     db.query(
         "

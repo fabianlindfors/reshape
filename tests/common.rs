@@ -352,4 +352,26 @@ pub fn assert_cleaned_up(db: &mut Client) {
         "expected no functions to exist, found: {}",
         functions.join(", ")
     );
+
+    // Make sure no temporary constraints remain
+    let constraints: Vec<String> = db
+        .query(
+            "
+            SELECT constraint_name
+            FROM information_schema.table_constraints
+            WHERE table_schema = 'public'
+            AND constraint_name LIKE '__reshape%'
+            ",
+            &[],
+        )
+        .unwrap()
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+
+    assert!(
+        constraints.is_empty(),
+        "expected no temporary constraints to exist, found: {}",
+        constraints.join(", ")
+    );
 }
