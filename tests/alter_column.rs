@@ -213,6 +213,136 @@ fn alter_column_rename_down_uses_old_name() {
 }
 
 #[test]
+fn alter_column_keeps_indexes_referencing_column() {
+    let mut test = Test::new("Alter column keeps indexes referencing it");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "status"
+            type = "TEXT"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+
+        # Indexes referencing the column as a key, in an expression, in a predicate and
+        # with sort options. All of these must survive the column being replaced.
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_active_idx"
+            columns = ["id"]
+            where = "status = 'active'"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_lower_status_idx"
+            columns = [{ expression = "lower(status)" }]
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_mixed_idx"
+            unique = true
+            columns = [
+                "id",
+                { expression = "lower(status)", direction = "DESC", nulls = "LAST" },
+            ]
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "alter_status_type"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "status"
+        up = "status"
+        down = "status"
+
+            [actions.changes]
+            type = "VARCHAR(50)"
+        "#,
+    );
+
+    test.intermediate(|db, _| {
+        // Each index has been duplicated onto the temporary column
+        let temp_definitions = index_definitions(db, "__reshape%");
+        assert_eq!(3, temp_definitions.len(), "got: {:?}", temp_definitions);
+        for definition in &temp_definitions {
+            assert!(
+                definition.contains("__reshape"),
+                "expected temporary index to reference temporary column, got: {}",
+                definition
+            );
+        }
+    });
+
+    test.after_completion(|db| {
+        // The original indexes remain under their names, now on the new column
+        let definitions = index_definitions(db, "users_%_idx");
+        assert_eq!(3, definitions.len(), "got: {:?}", definitions);
+        for definition in &definitions {
+            assert!(
+                definition.contains("status") && !definition.contains("__reshape"),
+                "expected index to reference the final column, got: {}",
+                definition
+            );
+        }
+
+        let mixed = index_definitions(db, "users_mixed_idx").remove(0);
+        assert!(mixed.starts_with("CREATE UNIQUE INDEX"), "got: {}", mixed);
+        assert!(mixed.contains("DESC NULLS LAST"), "got: {}", mixed);
+
+        assert!(index_definitions(db, "__reshape%").is_empty());
+    });
+
+    test.after_abort(|db| {
+        assert_eq!(3, index_definitions(db, "users_%_idx").len());
+        assert!(index_definitions(db, "__reshape%").is_empty());
+    });
+
+    test.run();
+}
+
+fn index_definitions(db: &mut postgres::Client, name_pattern: &str) -> Vec<String> {
+    db.query(
+        "
+        SELECT indexdef
+        FROM pg_indexes
+        WHERE schemaname = 'public' AND indexname LIKE $1
+        ORDER BY indexname
+        ",
+        &[&name_pattern],
+    )
+    .unwrap()
+    .iter()
+    .map(|row| row.get("indexdef"))
+    .collect()
+}
+
+#[test]
 fn alter_column_data() {
     let mut test = Test::new("Alter column");
 
