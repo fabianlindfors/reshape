@@ -210,6 +210,7 @@ impl Action for AlterColumn {
                     new_name = new_name,
                 );
                 db.run(&query).context("failed to rename column")?;
+                common::rename_not_null_constraint(db, &self.table, new_name)?;
             }
             return Ok(None);
         }
@@ -331,6 +332,7 @@ impl Action for AlterColumn {
         );
         db.run(&query)
             .context("failed to rename temporary column")?;
+        common::rename_not_null_constraint(db, &self.table, column_name)?;
 
         // Remove triggers and procedures
         let query = format!(

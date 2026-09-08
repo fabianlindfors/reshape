@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use postgres::types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 
@@ -322,6 +322,75 @@ pub fn get_index_definition(db: &mut dyn Conn, index_oid: u32) -> anyhow::Result
     .first()
     .map(|row| row.get("definition"))
     .ok_or_else(|| anyhow!("failed to get definition of index {}", index_oid))
+}
+
+// Renames the NOT NULL constraint on a column, if there is one, to the name Postgres
+// would have given it had the column been declared NOT NULL under its current name.
+//
+// Since Postgres 18, `SET NOT NULL` creates a catalogued constraint named after the
+// column at the time. Reshape sets columns NOT NULL while they still have their temporary
+// names and renames them afterwards, which would otherwise leave the constraint named
+// after the temporary column. Earlier versions don't catalogue NOT NULL constraints, in
+// which case this does nothing.
+pub fn rename_not_null_constraint(
+    db: &mut dyn Conn,
+    table: &str,
+    column: &str,
+) -> anyhow::Result<()> {
+    let target_name = format!("{table}_{column}_not_null");
+
+    let current_name: Option<String> = db
+        .query_with_params(
+            "
+            SELECT c.conname AS name
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+            WHERE
+                c.contype = 'n' AND
+                t.relname = $1 AND
+                a.attname = $2
+            ",
+            &[&table, &column],
+        )
+        .context("failed to get NOT NULL constraint")?
+        .first()
+        .map(|row| row.get("name"));
+
+    let Some(current_name) = current_name else {
+        return Ok(());
+    };
+    if current_name == target_name {
+        return Ok(());
+    }
+
+    // Leave the constraint alone if the name is already taken, as the constraint's
+    // name is cosmetic and shouldn't stop a migration from completing
+    let target_name_taken = !db
+        .query_with_params(
+            "
+            SELECT 1
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            WHERE t.relname = $1 AND c.conname = $2
+            ",
+            &[&table, &target_name],
+        )
+        .context("failed to check for existing constraint")?
+        .is_empty();
+    if target_name_taken {
+        return Ok(());
+    }
+
+    db.run(&format!(
+        r#"
+        ALTER TABLE "{table}"
+        RENAME CONSTRAINT "{current_name}" TO "{target_name}"
+        "#,
+    ))
+    .context("failed to rename NOT NULL constraint")?;
+
+    Ok(())
 }
 
 // The row being written by a trigger with the columns under their current names, for

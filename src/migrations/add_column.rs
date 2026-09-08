@@ -379,6 +379,10 @@ impl Action for AddColumn {
             ))
             .context("failed to rename column to final name")?;
 
+        if !self.column.nullable {
+            common::rename_not_null_constraint(&mut transaction, &self.table, &self.column.name)?;
+        }
+
         Ok(Some(transaction))
     }
 

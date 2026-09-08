@@ -509,6 +509,8 @@ fn alter_column_set_not_null() {
         // Ensure NULL can't be inserted
         let result = db.simple_query("INSERT INTO users (id, name) VALUES (5, NULL)");
         assert!(result.is_err(), "expected insert to fail");
+
+        common::assert_not_null_constraint_name(db, "users", "name");
     });
 
     test.after_abort(|db| {
@@ -624,6 +626,7 @@ fn alter_column_rename() {
             [[actions.columns]]
             name = "name"
             type = "TEXT"
+            nullable = false
         "#,
     );
 
@@ -662,6 +665,10 @@ fn alter_column_rename() {
             .iter()
             .map(|row| row.get::<_, String>("full_name"))
             .eq(expected));
+    });
+
+    test.after_completion(|db| {
+        common::assert_not_null_constraint_name(db, "users", "full_name");
     });
 
     test.run();
@@ -1126,6 +1133,8 @@ fn alter_column_rename_and_change_type() {
             .unwrap();
         assert_eq!("balance_amount", name);
         assert_eq!("numeric", data_type);
+
+        common::assert_not_null_constraint_name(db, "accounts", "balance_amount");
     });
 
     test.after_abort(|db| {

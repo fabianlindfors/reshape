@@ -45,6 +45,33 @@ pub fn get_column_comment(db: &mut Client, relation: &str, column: &str) -> Opti
     .and_then(|row| row.get("comment"))
 }
 
+// Asserts that a NOT NULL column's constraint, if the Postgres version catalogues them
+// (18+), is named after the column's final name rather than a temporary one
+#[allow(dead_code)]
+pub fn assert_not_null_constraint_name(db: &mut Client, table: &str, column: &str) {
+    let names: Vec<String> = db
+        .query(
+            "
+            SELECT c.conname AS name
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+            WHERE c.contype = 'n' AND t.relname = $1 AND a.attname = $2
+            ",
+            &[&table, &column],
+        )
+        .unwrap()
+        .iter()
+        .map(|row| row.get("name"))
+        .collect();
+
+    let expected = format!("{table}_{column}_not_null");
+    assert!(
+        names.iter().all(|name| name == &expected),
+        "expected NOT NULL constraint on {table}.{column} to be named {expected}, found {names:?}"
+    );
+}
+
 pub struct Test<'a> {
     name: &'a str,
     reshape: Reshape,
