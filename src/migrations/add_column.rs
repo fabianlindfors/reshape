@@ -214,7 +214,7 @@ impl Action for AddColumn {
                     RETURNS TRIGGER AS $$
                     #variable_conflict use_variable
                     BEGIN
-                        IF NOT reshape.is_new_schema() AND NOT current_setting('reshape.disable_triggers', TRUE) = 'TRUE' THEN
+                        IF NOT reshape.is_new_schema() AND current_setting('reshape.disable_triggers', TRUE) IS DISTINCT FROM 'TRUE' THEN
                             DECLARE
                                 {changed_table} record;
                                 __from_row record;
@@ -300,8 +300,16 @@ impl Action for AddColumn {
             .run(&query)
             .context("failed to drop up trigger")?;
 
-        // Update column to be NOT NULL if necessary
-        if !self.column.nullable {
+        // Update column to be NOT NULL if necessary. A later action removing the column
+        // drops the temporary constraint, in which case the column is about to be
+        // dropped as well and is left nullable.
+        let has_not_null_constraint = !self.column.nullable
+            && common::check_constraint_exists(
+                &mut transaction,
+                &self.table,
+                &self.not_null_constraint_name(ctx),
+            )?;
+        if has_not_null_constraint {
             // Validate the temporary constraint (should always be valid).
             // This performs a sequential scan but does not take an exclusive lock.
             let query = format!(
@@ -370,6 +378,14 @@ impl Action for AddColumn {
         schema.change_table(&self.table, |table_changes| {
             table_changes.change_column(&self.column.name, |column_changes| {
                 column_changes.set_column(&self.temp_column_name(ctx));
+
+                // The temporary column is nullable until the migration completes, so
+                // later actions must go by the declared column rather than the physical one
+                column_changes.set_data_type(&self.column.data_type);
+                column_changes.set_nullable(self.column.nullable);
+                if let Some(default) = &self.column.default {
+                    column_changes.set_default(default);
+                }
             })
         });
     }

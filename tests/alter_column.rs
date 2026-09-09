@@ -999,6 +999,24 @@ fn alter_column_multiple() {
         assert_eq!(48, result);
     });
 
+    test.after_completion(|db| {
+        // The column must stay NOT NULL. The second action must not inherit the
+        // nullability of the first action's temporary column, which is nullable
+        // until the migration completes.
+        let is_nullable: String = db
+            .query_one(
+                "
+                SELECT is_nullable
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'counter'
+                ",
+                &[],
+            )
+            .unwrap()
+            .get("is_nullable");
+        assert_eq!("NO", is_nullable);
+    });
+
     test.run();
 }
 
@@ -1525,5 +1543,177 @@ fn alter_column_with_index_at_max_name_length() {
         assert!(index_definitions(db, "__reshape%").is_empty());
     });
 
+    test.run();
+}
+
+#[test]
+fn alter_column_keeps_not_null_from_earlier_in_flight_alter() {
+    let mut test = Test::new("Alter column keeps NOT NULL set by earlier in-flight alter");
+
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "community_name_visible"
+            type = "BOOLEAN"
+        "#,
+    );
+
+    // The first action makes the column NOT NULL, the second only changes its default.
+    // The second action must not read the physical attributes of the first action's
+    // temporary column, which is nullable until the migration completes.
+    test.second_migration(
+        r#"
+        name = "make_visible_not_null_then_change_default"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "community_name_visible"
+        up = "COALESCE(community_name_visible, false)"
+
+            [actions.changes]
+            nullable = false
+            default = "false"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "community_name_visible"
+
+            [actions.changes]
+            default = "true"
+        "#,
+    );
+
+    test.after_completion(|db| {
+        let row = db
+            .query_one(
+                "
+                SELECT is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'community_name_visible'
+                ",
+                &[],
+            )
+            .unwrap();
+        assert_eq!("NO", row.get::<_, String>("is_nullable"));
+        assert_eq!("true", row.get::<_, String>("column_default"));
+    });
+
+    test.run();
+}
+
+#[test]
+fn alter_column_keeps_not_null_from_in_flight_add_column() {
+    let mut test = Test::new("Alter column keeps NOT NULL set by in-flight add_column");
+
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "add_visible_then_change_default"
+
+        [[actions]]
+        type = "add_column"
+        table = "users"
+
+            [actions.column]
+            name = "community_name_visible"
+            type = "BOOLEAN"
+            nullable = false
+            default = "false"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "community_name_visible"
+
+            [actions.changes]
+            default = "true"
+        "#,
+    );
+
+    test.after_completion(|db| {
+        let row = db
+            .query_one(
+                "
+                SELECT is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'community_name_visible'
+                ",
+                &[],
+            )
+            .unwrap();
+        assert_eq!("NO", row.get::<_, String>("is_nullable"));
+        assert_eq!("true", row.get::<_, String>("column_default"));
+    });
+
+    test.run();
+}
+
+#[test]
+fn alter_column_requires_primary_key() {
+    let mut test = Test::new("Alter column on table without primary key fails");
+
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+        "#,
+    );
+
+    // Backfilling identifies rows by their primary key, so a table without one can't be
+    // altered and should fail with a clear error rather than a crash
+    test.after_first(|db| {
+        db.simple_query("CREATE TABLE public.logs (id INTEGER, message TEXT)")
+            .unwrap();
+    });
+
+    test.second_migration(
+        r#"
+        name = "uppercase_log_messages"
+
+        [[actions]]
+        type = "alter_column"
+        table = "logs"
+        column = "message"
+        up = "UPPER(message)"
+        down = "LOWER(message)"
+        "#,
+    );
+
+    test.expect_failure();
     test.run();
 }

@@ -155,32 +155,16 @@ pub fn batch_touch_rows(
 
     let mut cursor: Option<PostgresRawValue> = None;
 
+    let primary_key = get_primary_key_columns_for_table(db, table)?;
+
+    // If no column to touch is passed, we default to the first primary key column (just to make some "update")
+    let touched_column = column.unwrap_or(primary_key[0].as_str());
+
+    let primary_key_columns = primary_key.join(", ");
+    let primary_key_where = primary_key_match(table, &primary_key, "rows");
+
     loop {
         let mut params: Vec<&(dyn ToSql + Sync)> = Vec::new();
-
-        let primary_key = get_primary_key_columns_for_table(db, table)?;
-
-        // If no column to touch is passed, we default to the first primary key column (just to make some "update")
-        let touched_column = match column {
-            Some(column) => column,
-            None => primary_key.first().unwrap(),
-        };
-
-        let primary_key_columns = primary_key.join(", ");
-
-        let primary_key_where = primary_key
-            .iter()
-            .map(|column| {
-                format!(
-                    r#"
-                    "{table}"."{column}" = rows."{column}"
-                    "#,
-                    table = table,
-                    column = column,
-                )
-            })
-            .collect::<Vec<String>>()
-            .join(" AND ");
 
         let returning_columns = primary_key
             .iter()
@@ -235,7 +219,10 @@ pub fn batch_touch_rows(
     Ok(())
 }
 
-fn get_primary_key_columns_for_table(
+/// The columns of a table's primary key, in key order. Fails if the table has no primary
+/// key, which is needed to identify individual rows when backfilling and when checking
+/// rows at the end of a transaction.
+pub fn get_primary_key_columns_for_table(
     db: &mut dyn Conn,
     table: &str,
 ) -> anyhow::Result<Vec<String>> {
@@ -246,16 +233,35 @@ fn get_primary_key_columns_for_table(
             SELECT a.attname AS column_name
             FROM   pg_index i
             JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-            WHERE  i.indrelid = '{table}'::regclass
-            AND    i.indisprimary;
+            WHERE  i.indrelid = 'public.\"{table}\"'::regclass
+            AND    i.indisprimary
+            ORDER BY array_position(i.indkey::int2[], a.attnum);
             ",
             table = table
-        ))?
+        ))
+        .context("failed to get primary key columns")?
         .iter()
         .map(|row| row.get("column_name"))
         .collect();
 
+    if primary_key_columns.is_empty() {
+        return Err(anyhow!(
+            "table \"{}\" has no primary key, which is required to identify its rows",
+            table
+        ));
+    }
+
     Ok(primary_key_columns)
+}
+
+/// A condition matching a row of `table` against the row `other`, such as a CTE or a
+/// trigger's `NEW`, on every primary key column
+pub fn primary_key_match(table: &str, primary_key: &[String], other: &str) -> String {
+    primary_key
+        .iter()
+        .map(|column| format!("\"{table}\".\"{column}\" = {other}.\"{column}\""))
+        .collect::<Vec<String>>()
+        .join(" AND ")
 }
 
 pub struct Index {

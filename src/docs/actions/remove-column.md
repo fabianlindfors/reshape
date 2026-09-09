@@ -79,6 +79,8 @@ column = "customer_name"
    - Old schema can still read/write the column
    - New schema doesn't see the column
    - `down` transformation populates values for old schema writes
+   - With a cross-table `down`, writes to `down.table` in the new schema populate the
+     column for the matching rows
 
 3. **Complete phase**:
    - Drops the column

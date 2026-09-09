@@ -1,5 +1,6 @@
 mod common;
 use common::{assert_invalid, Test};
+use postgres::{error::SqlState, Client};
 
 #[test]
 fn remove_column_invalid_down_sql() {
@@ -528,9 +529,11 @@ fn remove_column_with_long_names() {
             .iter()
             .map(|row| row.get(0))
             .collect();
-        assert_eq!(3, trigger_names.len());
-        assert_ne!(trigger_names[0], trigger_names[1]);
-        assert_ne!(trigger_names[1], trigger_names[2]);
+        // Forward, reverse, immediate NOT NULL and deferred NOT NULL triggers
+        assert_eq!(4, trigger_names.len());
+        let mut unique_names = trigger_names.clone();
+        unique_names.dedup();
+        assert_eq!(trigger_names.len(), unique_names.len());
         assert!(trigger_names.iter().all(|name| name.len() <= 63));
 
         new_db
@@ -561,4 +564,324 @@ fn remove_column_with_long_names() {
     });
 
     test.run();
+}
+
+#[test]
+fn remove_column_not_null_with_complex_down() {
+    let mut test = Test::new("Remove NOT NULL column with complex down");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+            nullable = false
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["user_id"]
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "remove_users_email_column"
+
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "email"
+
+            [actions.down]
+            table = "profiles"
+            value = "profiles.email"
+            where = "users.id = profiles.user_id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+        db.simple_query("INSERT INTO profiles (user_id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+    });
+
+    test.intermediate(check_not_null_column_with_complex_down);
+    test.after_abort(assert_email_not_null);
+
+    test.run();
+}
+
+#[test]
+fn remove_column_not_null_from_earlier_in_flight_alter_with_complex_down() {
+    let mut test = Test::new("Remove NOT NULL column altered earlier in the batch, complex down");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+            nullable = false
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["user_id"]
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+        "#,
+    );
+
+    // The column is altered first, so remove_column sees it backed by the nullable
+    // temporary column rather than the NOT NULL real one
+    test.second_migration(
+        r#"
+        name = "change_default_then_remove_users_email_column"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "email"
+
+            [actions.changes]
+            default = "'unknown@example.com'"
+
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "email"
+
+            [actions.down]
+            table = "profiles"
+            value = "profiles.email"
+            where = "users.id = profiles.user_id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+        db.simple_query("INSERT INTO profiles (user_id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+    });
+
+    test.intermediate(check_not_null_column_with_complex_down);
+    test.after_abort(assert_email_not_null);
+
+    test.run();
+}
+
+#[test]
+fn remove_column_not_null_from_in_flight_add_column_with_complex_down() {
+    let mut test = Test::new("Remove NOT NULL column added earlier in the batch, complex down");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["user_id"]
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+        "#,
+    );
+
+    // The column only exists as the temporary column of add_column, so there is no
+    // real column for remove_column to lift NOT NULL from or to reinstate it on
+    test.second_migration(
+        r#"
+        name = "add_then_remove_users_email_column"
+
+        [[actions]]
+        type = "add_column"
+        table = "users"
+        up = "'added@example.com'"
+
+            [actions.column]
+            name = "email"
+            type = "TEXT"
+            nullable = false
+
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "email"
+
+            [actions.down]
+            table = "profiles"
+            value = "profiles.email"
+            where = "users.id = profiles.user_id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id) VALUES (1)")
+            .unwrap();
+        db.simple_query("INSERT INTO profiles (user_id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        // The old schema doesn't have the column and `up` fills it in
+        old_db
+            .simple_query("INSERT INTO users (id) VALUES (2)")
+            .unwrap();
+
+        // The new schema doesn't have the column either, and must insert a profile to take
+        // the value from before the transaction commits
+        let error = new_db
+            .simple_query("INSERT INTO users (id) VALUES (3)")
+            .unwrap_err();
+        assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
+
+        new_db
+            .batch_execute(
+                "
+                BEGIN;
+                INSERT INTO users (id) VALUES (4);
+                INSERT INTO profiles (user_id, email) VALUES (4, 'four@example.com');
+                COMMIT;
+                ",
+            )
+            .unwrap();
+    });
+
+    test.run();
+}
+
+// Checks for a NOT NULL column removed with a cross-table down, for tests where the
+// column exists in the old schema
+fn check_not_null_column_with_complex_down(old_db: &mut Client, new_db: &mut Client) {
+    // The old schema must still reject NULL in the removed column, immediately
+    let error = old_db
+        .simple_query("INSERT INTO users (id, email) VALUES (2, NULL)")
+        .unwrap_err();
+    assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
+
+    // The new schema doesn't have the column. A user without a profile can't be
+    // committed as the column would be left empty for the old schema
+    let error = new_db
+        .simple_query("INSERT INTO users (id) VALUES (3)")
+        .unwrap_err();
+    assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
+    let count: i64 = old_db
+        .query_one("SELECT COUNT(*) FROM users WHERE id = 3", &[])
+        .unwrap()
+        .get(0);
+    assert_eq!(0, count);
+
+    // Within a transaction, the user can be inserted before the profile it takes its
+    // email from, as the check is made when the transaction commits
+    new_db
+        .batch_execute(
+            "
+            BEGIN;
+            INSERT INTO users (id) VALUES (4);
+            INSERT INTO profiles (user_id, email) VALUES (4, 'four@example.com');
+            COMMIT;
+            ",
+        )
+        .unwrap();
+    let email: String = old_db
+        .query_one("SELECT email FROM users WHERE id = 4", &[])
+        .unwrap()
+        .get("email");
+    assert_eq!("four@example.com", email);
+
+    // A transaction which leaves the column empty fails when committing
+    let error = new_db
+        .batch_execute(
+            "
+            BEGIN;
+            INSERT INTO users (id) VALUES (5);
+            COMMIT;
+            ",
+        )
+        .unwrap_err();
+    assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
+    let count: i64 = old_db
+        .query_one("SELECT COUNT(*) FROM users WHERE id = 5", &[])
+        .unwrap()
+        .get(0);
+    assert_eq!(0, count);
+
+    // Writes to the source table in the new schema fill in the removed column
+    new_db
+        .simple_query("UPDATE profiles SET email = 'test2@example.com' WHERE user_id = 1")
+        .unwrap();
+    let email: String = old_db
+        .query_one("SELECT email FROM users WHERE id = 1", &[])
+        .unwrap()
+        .get("email");
+    assert_eq!("test2@example.com", email);
+}
+
+// Asserts that NOT NULL is back on users.email once the migration has been aborted
+fn assert_email_not_null(db: &mut Client) {
+    let is_nullable: String = db
+        .query_one(
+            "
+            SELECT is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'email'
+            ",
+            &[],
+        )
+        .unwrap()
+        .get("is_nullable");
+    assert_eq!("NO", is_nullable);
 }

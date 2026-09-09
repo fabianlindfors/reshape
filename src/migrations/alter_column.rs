@@ -448,6 +448,19 @@ impl Action for AlterColumn {
             table_changes.change_column(&self.column, |column_changes| {
                 column_changes.set_column(&self.temporary_column_name(ctx));
 
+                // Record what the action declares about the column. The temporary column
+                // is nullable until the migration completes regardless of the declared
+                // nullability, so later actions can't go by its physical attributes.
+                if let Some(data_type) = &self.changes.data_type {
+                    column_changes.set_data_type(data_type);
+                }
+                if let Some(nullable) = self.changes.nullable {
+                    column_changes.set_nullable(nullable);
+                }
+                if let Some(default) = &self.changes.default {
+                    column_changes.set_default(default);
+                }
+
                 // The new schema should expose the column under its new name, if renamed.
                 // Note that `up` and `down` still reference the column by its old name as
                 // they operate on the actual columns, not the schema representation.
