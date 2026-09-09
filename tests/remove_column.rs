@@ -1,5 +1,6 @@
 mod common;
 use common::{assert_invalid, Test};
+use postgres::{error::SqlState, Client};
 
 #[test]
 fn remove_column_invalid_down_sql() {
@@ -528,9 +529,11 @@ fn remove_column_with_long_names() {
             .iter()
             .map(|row| row.get(0))
             .collect();
-        assert_eq!(3, trigger_names.len());
-        assert_ne!(trigger_names[0], trigger_names[1]);
-        assert_ne!(trigger_names[1], trigger_names[2]);
+        // Forward, reverse, immediate NOT NULL and deferred NOT NULL triggers
+        assert_eq!(4, trigger_names.len());
+        let mut unique_names = trigger_names.clone();
+        unique_names.dedup();
+        assert_eq!(trigger_names.len(), unique_names.len());
         assert!(trigger_names.iter().all(|name| name.len() <= 63));
 
         new_db
@@ -561,6 +564,89 @@ fn remove_column_with_long_names() {
     });
 
     test.run();
+}
+
+// Checks for a NOT NULL column removed with a cross-table down, for tests where the
+// column exists in the old schema
+fn check_not_null_column_with_complex_down(old_db: &mut Client, new_db: &mut Client) {
+    // The old schema must still reject NULL in the removed column, immediately
+    let error = old_db
+        .simple_query("INSERT INTO users (id, email) VALUES (2, NULL)")
+        .unwrap_err();
+    assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
+
+    // The new schema doesn't have the column. A user without a profile can't be
+    // committed as the column would be left empty for the old schema
+    let error = new_db
+        .simple_query("INSERT INTO users (id) VALUES (3)")
+        .unwrap_err();
+    assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
+    let count: i64 = old_db
+        .query_one("SELECT COUNT(*) FROM users WHERE id = 3", &[])
+        .unwrap()
+        .get(0);
+    assert_eq!(0, count);
+
+    // Within a transaction, the user can be inserted before the profile it takes its
+    // email from, as the check is made when the transaction commits
+    new_db
+        .batch_execute(
+            "
+            BEGIN;
+            INSERT INTO users (id) VALUES (4);
+            INSERT INTO profiles (user_id, email) VALUES (4, 'four@example.com');
+            COMMIT;
+            ",
+        )
+        .unwrap();
+    let email: String = old_db
+        .query_one("SELECT email FROM users WHERE id = 4", &[])
+        .unwrap()
+        .get("email");
+    assert_eq!("four@example.com", email);
+
+    // A transaction which leaves the column empty fails when committing
+    let error = new_db
+        .batch_execute(
+            "
+            BEGIN;
+            INSERT INTO users (id) VALUES (5);
+            COMMIT;
+            ",
+        )
+        .unwrap_err();
+    assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
+    let count: i64 = old_db
+        .query_one("SELECT COUNT(*) FROM users WHERE id = 5", &[])
+        .unwrap()
+        .get(0);
+    assert_eq!(0, count);
+
+    // Writes to the source table in the new schema fill in the removed column
+    new_db
+        .simple_query("UPDATE profiles SET email = 'test2@example.com' WHERE user_id = 1")
+        .unwrap();
+    let email: String = old_db
+        .query_one("SELECT email FROM users WHERE id = 1", &[])
+        .unwrap()
+        .get("email");
+    assert_eq!("test2@example.com", email);
+}
+
+// Asserts that NOT NULL is back on users.email once the migration has been aborted
+fn assert_email_not_null(db: &mut Client) {
+    let is_nullable: String = db
+        .query_one(
+            "
+            SELECT is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'email'
+            ",
+            &[],
+        )
+        .unwrap()
+        .get("is_nullable");
+    assert_eq!("NO", is_nullable);
 }
 
 #[test]
@@ -623,36 +709,8 @@ fn remove_column_not_null_with_complex_down() {
             .unwrap();
     });
 
-    test.intermediate(|old_db, new_db| {
-        // The old schema must still reject NULL in the removed column
-        let result = old_db.simple_query("INSERT INTO users (id, email) VALUES (2, NULL)");
-        assert!(
-            result.is_err(),
-            "expected NULL email to be rejected in old schema"
-        );
-
-        // The new schema doesn't have the column and must be able to insert a user
-        // without a matching profile, which leaves the removed column NULL
-        new_db
-            .simple_query("INSERT INTO users (id) VALUES (3)")
-            .unwrap();
-
-        // Remove the row again as an abort reinstates NOT NULL, which the NULL email
-        // left behind by the insert would otherwise block
-        new_db
-            .simple_query("DELETE FROM users WHERE id = 3")
-            .unwrap();
-
-        // Writes to the source table in the new schema fill in the removed column
-        new_db
-            .simple_query("UPDATE profiles SET email = 'test2@example.com' WHERE user_id = 1")
-            .unwrap();
-        let email: String = old_db
-            .query_one("SELECT email FROM users WHERE id = 1", &[])
-            .unwrap()
-            .get("email");
-        assert_eq!("test2@example.com", email);
-    });
+    test.intermediate(check_not_null_column_with_complex_down);
+    test.after_abort(assert_email_not_null);
 
     test.run();
 }
@@ -727,36 +785,8 @@ fn remove_column_not_null_from_earlier_in_flight_alter_with_complex_down() {
             .unwrap();
     });
 
-    test.intermediate(|old_db, new_db| {
-        // The old schema must still reject NULL in the removed column
-        let result = old_db.simple_query("INSERT INTO users (id, email) VALUES (2, NULL)");
-        assert!(
-            result.is_err(),
-            "expected NULL email to be rejected in old schema"
-        );
-
-        // The new schema doesn't have the column and must be able to insert a user
-        // without a matching profile, which leaves the removed column NULL
-        new_db
-            .simple_query("INSERT INTO users (id) VALUES (3)")
-            .unwrap();
-
-        // Remove the row again as an abort reinstates NOT NULL, which the NULL email
-        // left behind by the insert would otherwise block
-        new_db
-            .simple_query("DELETE FROM users WHERE id = 3")
-            .unwrap();
-
-        // Writes to the source table in the new schema fill in the removed column
-        new_db
-            .simple_query("UPDATE profiles SET email = 'test2@example.com' WHERE user_id = 1")
-            .unwrap();
-        let email: String = old_db
-            .query_one("SELECT email FROM users WHERE id = 1", &[])
-            .unwrap()
-            .get("email");
-        assert_eq!("test2@example.com", email);
-    });
+    test.intermediate(check_not_null_column_with_complex_down);
+    test.after_abort(assert_email_not_null);
 
     test.run();
 }
@@ -829,15 +859,27 @@ fn remove_column_not_null_from_in_flight_add_column_with_complex_down() {
     });
 
     test.intermediate(|old_db, new_db| {
-        // Neither schema has the column, so both must be able to insert users
+        // The old schema doesn't have the column and `up` fills it in
         old_db
             .simple_query("INSERT INTO users (id) VALUES (2)")
             .unwrap();
-        new_db
+
+        // The new schema doesn't have the column either, and must insert a profile to take
+        // the value from before the transaction commits
+        let error = new_db
             .simple_query("INSERT INTO users (id) VALUES (3)")
-            .unwrap();
+            .unwrap_err();
+        assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
+
         new_db
-            .simple_query("DELETE FROM users WHERE id IN (2, 3)")
+            .batch_execute(
+                "
+                BEGIN;
+                INSERT INTO users (id) VALUES (4);
+                INSERT INTO profiles (user_id, email) VALUES (4, 'four@example.com');
+                COMMIT;
+                ",
+            )
             .unwrap();
     });
 

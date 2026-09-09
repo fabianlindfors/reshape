@@ -1674,3 +1674,46 @@ fn alter_column_keeps_not_null_from_in_flight_add_column() {
 
     test.run();
 }
+
+#[test]
+fn alter_column_requires_primary_key() {
+    let mut test = Test::new("Alter column on table without primary key fails");
+
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+        "#,
+    );
+
+    // Backfilling identifies rows by their primary key, so a table without one can't be
+    // altered and should fail with a clear error rather than a crash
+    test.after_first(|db| {
+        db.simple_query("CREATE TABLE public.logs (id INTEGER, message TEXT)")
+            .unwrap();
+    });
+
+    test.second_migration(
+        r#"
+        name = "uppercase_log_messages"
+
+        [[actions]]
+        type = "alter_column"
+        table = "logs"
+        column = "message"
+        up = "UPPER(message)"
+        down = "LOWER(message)"
+        "#,
+    );
+
+    test.expect_failure();
+    test.run();
+}

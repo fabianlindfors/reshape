@@ -214,7 +214,7 @@ impl Action for AddColumn {
                     RETURNS TRIGGER AS $$
                     #variable_conflict use_variable
                     BEGIN
-                        IF NOT reshape.is_new_schema() AND NOT current_setting('reshape.disable_triggers', TRUE) = 'TRUE' THEN
+                        IF NOT reshape.is_new_schema() AND current_setting('reshape.disable_triggers', TRUE) IS DISTINCT FROM 'TRUE' THEN
                             DECLARE
                                 {changed_table} record;
                                 __from_row record;

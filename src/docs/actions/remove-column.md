@@ -79,6 +79,8 @@ column = "customer_name"
    - Old schema can still read/write the column
    - New schema doesn't see the column
    - `down` transformation populates values for old schema writes
+   - With a cross-table `down`, writes to `down.table` in the new schema populate the
+     column for the matching rows
 
 3. **Complete phase**:
    - Drops the column
@@ -89,7 +91,11 @@ column = "customer_name"
 
 - The column is only removed during the complete phase
 - If the column is NOT NULL and you need backward compatibility, provide a `down` expression
-- For non-nullable columns with complex `down`, the NOT NULL constraint is temporarily converted to a trigger
+- For non-nullable columns with a cross-table `down`, the NOT NULL constraint is temporarily
+  replaced by triggers. Writes in the old schema are still rejected immediately. In the new
+  schema, the column may be left empty within a transaction, so that a row can be inserted
+  before the row in `down.table` it takes its value from, but the transaction fails at
+  commit if it is still empty. This requires the table to have a primary key
 - In a cross-table `down`, every column in `value` and `where` must be qualified with its
   table name, as the expressions run in triggers on both tables
 - Data in the column is permanently lost after completion

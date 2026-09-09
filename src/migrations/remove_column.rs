@@ -38,6 +38,10 @@ impl RemoveColumn {
         ctx.name("remove_column", &[&self.table, &self.column], "_nn")
     }
 
+    fn not_null_deferred_trigger_name(&self, ctx: &MigrationContext) -> String {
+        ctx.name("remove_column", &[&self.table, &self.column], "_nnd")
+    }
+
     fn not_null_constraint_name(&self, ctx: &MigrationContext) -> String {
         ctx.name("add_column_not_null", &[&self.table, &self.column], "")
     }
@@ -172,38 +176,69 @@ impl Action for RemoveColumn {
                         .first()
                         .ok_or_else(|| anyhow!("no column backing {} exists", self.column))?;
 
-                    // Replace NOT NULL constraint with a constraint trigger that only triggers on the old schema.
-                    // We will add a null check to the down function on the new schema below as well to cover both cases.
-                    // As we are using a complex down function, we must remove the NOT NULL check for the new schema.
-                    // NOT NULL is not checked at the end of a transaction, but immediately upon update.
+                    // NOT NULL is replaced by two triggers, as NOT NULL itself can't be deferred
+                    // and the new schema must be allowed to leave the column empty within a
+                    // transaction, for example when a row is inserted before the row it takes
+                    // its value from. Writes in the old schema keep failing immediately. Writes
+                    // in the new schema are checked when the transaction commits, so no NULL
+                    // can ever be committed and NOT NULL can always be reinstated on abort.
+                    //
+                    // Both triggers use WHEN conditions so that no event is queued for rows
+                    // which don't need checking. A deferred trigger is handed the row as it
+                    // was when the event was queued, so the deferred check looks the row up
+                    // again by primary key to see its value at commit.
+                    let primary_key =
+                        common::get_primary_key_columns_for_table(db, &table.real_name)?;
                     let query = format!(
                         r#"
-                        CREATE OR REPLACE FUNCTION {trigger_name}()
+                        CREATE OR REPLACE FUNCTION {immediate_trigger}()
                         RETURNS TRIGGER AS $$
                         BEGIN
-                            IF NOT reshape.is_new_schema() THEN
-                                IF NEW.{column} IS NULL THEN
-                                    RAISE EXCEPTION '{column} can not be null';
-                                END IF;
-                            END IF;
-                            RETURN NEW;
+                            RAISE EXCEPTION '{column} can not be null' USING ERRCODE = 'not_null_violation';
+                            RETURN NULL;
                         END
                         $$ language 'plpgsql';
 
-                        DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table}";
-
-                        CREATE CONSTRAINT TRIGGER "{trigger_name}"
+                        DROP TRIGGER IF EXISTS "{immediate_trigger}" ON "{table}";
+                        CREATE CONSTRAINT TRIGGER "{immediate_trigger}"
                             AFTER INSERT OR UPDATE
                             ON "{table}"
                             FOR EACH ROW
-                            EXECUTE PROCEDURE {trigger_name}();
+                            WHEN (NOT reshape.is_new_schema() AND NEW."{column}" IS NULL)
+                            EXECUTE PROCEDURE {immediate_trigger}();
+
+                        CREATE OR REPLACE FUNCTION {deferred_trigger}()
+                        RETURNS TRIGGER AS $$
+                        BEGIN
+                            PERFORM 1
+                            FROM public."{table}"
+                            WHERE {primary_key_match} AND "{table}"."{column}" IS NULL;
+
+                            IF FOUND THEN
+                                RAISE EXCEPTION '{column} can not be null' USING ERRCODE = 'not_null_violation';
+                            END IF;
+                            RETURN NULL;
+                        END
+                        $$ language 'plpgsql';
+
+                        DROP TRIGGER IF EXISTS "{deferred_trigger}" ON "{table}";
+                        CREATE CONSTRAINT TRIGGER "{deferred_trigger}"
+                            AFTER INSERT OR UPDATE
+                            ON "{table}"
+                            DEFERRABLE INITIALLY DEFERRED
+                            FOR EACH ROW
+                            WHEN (reshape.is_new_schema() AND NEW."{column}" IS NULL)
+                            EXECUTE PROCEDURE {deferred_trigger}();
                         "#,
                         table = table.real_name,
-                        trigger_name = self.not_null_constraint_trigger_name(ctx),
+                        immediate_trigger = self.not_null_constraint_trigger_name(ctx),
+                        deferred_trigger = self.not_null_deferred_trigger_name(ctx),
                         column = old_schema_column,
+                        primary_key_match =
+                            common::primary_key_match(&table.real_name, &primary_key, "NEW"),
                     );
                     db.run(&query)
-                        .context("failed to create null constraint trigger")?;
+                        .context("failed to create NOT NULL triggers")?;
 
                     for backing_column in &backing_columns {
                         db.run(&format!(
@@ -241,7 +276,7 @@ impl Action for RemoveColumn {
                     format!(
                         r#"
                         IF {value} IS NULL THEN
-                            RAISE EXCEPTION '{column_name} can not be null';
+                            RAISE EXCEPTION '{column_name} can not be null' USING ERRCODE = 'not_null_violation';
                         END IF;
                         "#,
                         column_name = self.column,
@@ -307,7 +342,7 @@ impl Action for RemoveColumn {
                     RETURNS TRIGGER AS $$
                     #variable_conflict use_variable
                     BEGIN
-                        IF reshape.is_new_schema() AND NOT current_setting('reshape.disable_triggers', TRUE) = 'TRUE' THEN
+                        IF reshape.is_new_schema() AND current_setting('reshape.disable_triggers', TRUE) IS DISTINCT FROM 'TRUE' THEN
                             DECLARE
                                 {changed_table} record;
                                 __from_row record;
@@ -368,21 +403,25 @@ impl Action for RemoveColumn {
             .context("failed to drop index")?;
         }
 
-        // Remove column, function and trigger
+        // Remove triggers, functions and column. The triggers go first as the NOT NULL
+        // triggers reference the column in their WHEN conditions, which prevents it
+        // from being dropped while they exist.
         let query = format!(
             r#"
-            ALTER TABLE "{table}"
-            DROP COLUMN IF EXISTS "{column}";
-
             DROP FUNCTION IF EXISTS "{trigger_name}" CASCADE;
             DROP FUNCTION IF EXISTS "{reverse_trigger_name}" CASCADE;
             DROP FUNCTION IF EXISTS "{null_trigger_name}" CASCADE;
+            DROP FUNCTION IF EXISTS "{deferred_null_trigger_name}" CASCADE;
+
+            ALTER TABLE "{table}"
+            DROP COLUMN IF EXISTS "{column}";
             "#,
             table = self.table,
             column = self.column,
             trigger_name = self.trigger_name(ctx),
             reverse_trigger_name = self.reverse_trigger_name(ctx),
             null_trigger_name = self.not_null_constraint_trigger_name(ctx),
+            deferred_null_trigger_name = self.not_null_deferred_trigger_name(ctx),
         );
         db.run(&query)
             .context("failed to drop column and down trigger")?;
@@ -416,19 +455,26 @@ impl Action for RemoveColumn {
         // The column doesn't exist if it was added earlier in the same migration. Aborting
         // that action removes its temporary column, so there is nothing to reinstate.
         if has_not_null_function && self.column_exists(db)? {
-            // Make column NOT NULL again without taking any long lived locks with a temporary constraint
-            let query = format!(
-                r#"
-                 ALTER TABLE "{table}"
-                 ADD CONSTRAINT "{constraint_name}"
-                 CHECK ("{column}" IS NOT NULL) NOT VALID
-                 "#,
-                table = self.table,
-                constraint_name = self.not_null_constraint_name(ctx),
-                column = self.column,
-            );
-            db.run(&query)
-                .context("failed to add NOT NULL constraint")?;
+            // Make column NOT NULL again without taking any long lived locks with a temporary
+            // constraint. The constraint already exists if an earlier abort was interrupted.
+            if !common::check_constraint_exists(
+                db,
+                &self.table,
+                &self.not_null_constraint_name(ctx),
+            )? {
+                let query = format!(
+                    r#"
+                    ALTER TABLE "{table}"
+                    ADD CONSTRAINT "{constraint_name}"
+                    CHECK ("{column}" IS NOT NULL) NOT VALID
+                    "#,
+                    table = self.table,
+                    constraint_name = self.not_null_constraint_name(ctx),
+                    column = self.column,
+                );
+                db.run(&query)
+                    .context("failed to add NOT NULL constraint")?;
+            }
 
             let query = format!(
                 r#"
@@ -457,7 +503,7 @@ impl Action for RemoveColumn {
             let query = format!(
                 r#"
                 ALTER TABLE "{table}"
-                DROP CONSTRAINT "{constraint_name}"
+                DROP CONSTRAINT IF EXISTS "{constraint_name}"
                 "#,
                 table = self.table,
                 constraint_name = self.not_null_constraint_name(ctx),
@@ -472,10 +518,12 @@ impl Action for RemoveColumn {
             DROP FUNCTION IF EXISTS "{trigger_name}" CASCADE;
             DROP FUNCTION IF EXISTS "{reverse_trigger_name}" CASCADE;
             DROP FUNCTION IF EXISTS "{null_trigger_name}" CASCADE;
+            DROP FUNCTION IF EXISTS "{deferred_null_trigger_name}" CASCADE;
             "#,
             trigger_name = self.trigger_name(ctx),
             reverse_trigger_name = self.reverse_trigger_name(ctx),
             null_trigger_name = self.not_null_constraint_trigger_name(ctx),
+            deferred_null_trigger_name = self.not_null_deferred_trigger_name(ctx),
         ))
         .context("failed to drop down trigger")?;
 
