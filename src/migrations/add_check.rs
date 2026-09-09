@@ -59,23 +59,9 @@ impl Action for AddCheck {
 
         let temp_constraint_name = self.temp_constraint_name(ctx);
 
+        // Skipped when a previous attempt at applying the migration already created the
+        // constraint, as ADD CONSTRAINT has no IF NOT EXISTS form
         if !common::check_constraint_exists(db, &table.real_name, &temp_constraint_name)? {
-            // Look for existing rows which violate the check before adding it. Once added,
-            // the check is enforced on every write, including those of the old schema, so
-            // a check which the existing data doesn't satisfy should fail before that
-            // point. This is only an early exit: the scan doesn't block the application
-            // but rows written after it are only covered by the validation below.
-            let violations = common::find_check_violations(
-                db,
-                &table.real_name,
-                &expression,
-                VIOLATION_EXAMPLES,
-            )
-            .context("failed to check existing rows against check")?;
-            if !violations.is_empty() {
-                return Err(self.violation_error(&violations));
-            }
-
             // Create the check but set it as NOT VALID. This means the check is enforced
             // for inserts and updates but the existing data isn't checked, which would
             // require a long-lived lock.
@@ -95,7 +81,8 @@ impl Action for AddCheck {
 
         // Validating scans the table but doesn't block reads or writes. Together with the
         // NOT VALID constraint, which covers every row written since it was added, this
-        // proves that every row satisfies the check.
+        // proves that every row satisfies the check. Validating is also what catches a
+        // check which the existing data doesn't satisfy.
         let validation = db.run(&format!(
             r#"
             ALTER TABLE "{table}"
@@ -110,6 +97,8 @@ impl Action for AddCheck {
             // until the migration is aborted
             self.drop_temp_constraint(ctx, db, &table.real_name)?;
 
+            // Postgres doesn't say which rows failed validation, so look some up for
+            // the error
             let violations = common::find_check_violations(
                 db,
                 &table.real_name,

@@ -141,7 +141,8 @@ fn add_check_with_violating_rows() {
     test.expect_failure();
 
     test.intermediate(|old_db, _| {
-        // The failed check was never left behind, so the old schema is unaffected
+        // The check is dropped again when validation fails, so the old schema is
+        // unaffected
         old_db
             .simple_query("INSERT INTO users (id, age) VALUES (3, -1)")
             .unwrap();

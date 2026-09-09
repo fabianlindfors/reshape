@@ -374,8 +374,9 @@ pub fn is_temporary_not_null_constraint(name: &str) -> bool {
 // the real columns of the table. A NULL result satisfies a check, so only rows where
 // the expression is false are returned.
 //
-// This is a plain read which doesn't block the application, but it isn't authoritative:
-// rows written after it has run are not covered.
+// This is a plain read for describing violations in errors. It isn't authoritative, as
+// rows written after it has run are not covered, so it doesn't replace validating a
+// constraint.
 pub fn find_check_violations(
     db: &mut dyn Conn,
     table: &str,

@@ -70,9 +70,8 @@ table = "users"
 ## Behavior
 
 1. **Start phase**:
-   - Scans the table for rows which violate the check and fails, listing some of them, if any are found. This happens before the check exists, so a bad check never affects the application.
    - Creates the check with `NOT VALID` (doesn't lock for validation)
-   - Validates the constraint (scans table but doesn't block writes). If validation fails the check is dropped again before the error is reported.
+   - Validates the constraint (scans table but doesn't block writes). If existing rows violate the check, the check is dropped again and the migration fails with an error listing some of the rows.
 
 2. **Complete phase**:
    - Renames constraint to its final name
@@ -80,6 +79,6 @@ table = "users"
 ## Notes
 
 - The check is enforced immediately for new inserts and updates, from both the old and the new schema. Reshape assumes the existing application already writes rows which satisfy it.
-- The initial scan is a plain read which doesn't block the application. It exists to fail early; validation of the constraint is what guarantees every row satisfies the check.
+- Existing data is validated after creation, as for foreign keys
 - The check fails if a constraint with the same name already exists, unless the same migration removes it first.
 - A `NULL` result satisfies a check, following Postgres semantics.
