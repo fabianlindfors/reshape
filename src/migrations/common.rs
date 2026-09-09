@@ -418,7 +418,7 @@ pub fn rename_not_null_constraint(
     table: &str,
     column: &str,
 ) -> anyhow::Result<()> {
-    let target_name = format!("{table}_{column}_not_null");
+    let target_name = bounded_identifier("", &format!("{table}_{column}"), "_not_null");
 
     let current_name: Option<String> = db
         .query_with_params(
@@ -504,4 +504,95 @@ pub fn table_with_current_columns(table: &Table) -> String {
         real_name = table.real_name,
         name = table.name,
     )
+}
+
+/// The longest identifier Postgres accepts. Longer names are silently cut down to this
+/// length, which makes generated names which only differ at the end collide.
+pub const MAX_IDENTIFIER_LENGTH: usize = 63;
+
+/// Builds the identifier `{head}{body}{tail}`, shortened to fit within Postgres' limit on
+/// identifier length. Names which already fit are returned unchanged. Longer names keep
+/// `head` and `tail` intact, as those are the parts which tell related objects apart, and
+/// have their `body` cut down with a hash of the complete name in its place so that
+/// distinct names stay distinct.
+pub fn bounded_identifier(head: &str, body: &str, tail: &str) -> String {
+    let full = format!("{head}{body}{tail}");
+    if full.len() <= MAX_IDENTIFIER_LENGTH {
+        return full;
+    }
+
+    let hash = format!("{:08x}", fnv1a_hash(&full) as u32);
+    let budget = MAX_IDENTIFIER_LENGTH
+        .saturating_sub(head.len() + tail.len() + hash.len() + 1)
+        .min(body.len());
+    let mut cut = budget;
+    while !body.is_char_boundary(cut) {
+        cut -= 1;
+    }
+
+    format!("{head}{}_{hash}{tail}", &body[..cut])
+}
+
+// 64-bit FNV-1a. Names are recomputed on every run, so the hash has to be stable
+// across processes and versions, which rules out the standard library's hasher.
+fn fnv1a_hash(input: &str) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in input.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounded_identifier_keeps_short_names() {
+        assert_eq!(
+            "__reshape_0000_0000_add_column_users_email_rev",
+            bounded_identifier("__reshape_0000_0000_add_column_", "users_email", "_rev")
+        );
+    }
+
+    #[test]
+    fn bounded_identifier_shortens_long_names() {
+        let head = "__reshape_0000_0000_add_column_";
+        let body = "organization_membership_profiles_primary_contact_email_address";
+
+        let name = bounded_identifier(head, body, "");
+        let reverse = bounded_identifier(head, body, "_rev");
+
+        assert_eq!(MAX_IDENTIFIER_LENGTH, name.len());
+        assert_eq!(MAX_IDENTIFIER_LENGTH, reverse.len());
+        assert!(name.starts_with(head));
+        assert!(reverse.starts_with(head));
+        assert!(reverse.ends_with("_rev"));
+        assert_ne!(name, reverse);
+        assert_eq!(name, bounded_identifier(head, body, ""));
+    }
+
+    #[test]
+    fn bounded_identifier_tells_apart_names_with_the_same_start() {
+        let head = "__reshape_0000_0000_temp_column_";
+        let first = bounded_identifier(
+            head,
+            "organization_membership_profiles_primary_contact_email",
+            "",
+        );
+        let second = bounded_identifier(
+            head,
+            "organization_membership_profiles_primary_contact_email_address",
+            "",
+        );
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn bounded_identifier_respects_char_boundaries() {
+        let name = bounded_identifier("__reshape_0000_0000_add_column_", &"ä".repeat(40), "_rev");
+        assert!(name.len() <= MAX_IDENTIFIER_LENGTH);
+        assert!(name.ends_with("_rev"));
+    }
 }

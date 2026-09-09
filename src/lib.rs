@@ -203,8 +203,8 @@ pub fn schema_query_for_migration(migration_name: &str) -> String {
     format!("SET search_path TO {}", schema_name)
 }
 
-fn schema_name_for_migration(migration_name: &str) -> String {
-    format!("migration_{}", migration_name)
+pub(crate) fn schema_name_for_migration(migration_name: &str) -> String {
+    migrations::common::bounded_identifier("migration_", migration_name, "")
 }
 
 fn migrate(

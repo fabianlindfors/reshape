@@ -350,7 +350,7 @@ pub fn quote_string_literal(value: &str) -> String {
 }
 
 // Re-export migration types
-mod common;
+pub(crate) mod common;
 pub use common::Column;
 
 mod create_table;
@@ -460,6 +460,18 @@ impl MigrationContext {
             "__reshape_{:0>4}_{:0>4}",
             1000 - self.migration_index,
             1000 - self.action_index
+        )
+    }
+
+    /// Builds the name `{prefix}_{kind}_{parts joined by _}{suffix}` for an object created
+    /// by an action, shortened to fit within Postgres' identifier limit when needed. The
+    /// prefix, kind and suffix are always kept intact so that related objects, like a
+    /// trigger and its reverse, never end up with the same name.
+    fn name(&self, kind: &str, parts: &[&str], suffix: &str) -> String {
+        common::bounded_identifier(
+            &format!("{}_{}_", self.prefix(), kind),
+            &parts.join("_"),
+            suffix,
         )
     }
 }

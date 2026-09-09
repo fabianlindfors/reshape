@@ -8,6 +8,10 @@ use crate::{
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 
+// Prefix given to an index which has been replaced by its temporary counterpart and is
+// about to be dropped
+const OLD_INDEX_PREFIX: &str = "__reshape_old_";
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AlterColumn {
     pub table: String,
@@ -317,44 +321,34 @@ impl Action for AlterColumn {
                 .context("failed to drop NOT NULL constraint")?;
         }
 
-        // Replace old indices with the new temporary ones created for the temporary column
+        // Replace old indices with the new temporary ones created for the temporary column.
+        // The old index is moved out of the way and the temporary one takes over its name
+        // in a single transaction, and the old index is then dropped concurrently. An index
+        // which already carries the prefix belongs to an earlier, interrupted completion
+        // which got as far as the swap, so only the drop remains for it.
         let indices = common::get_indices_for_column(db, &self.table, &self.column)?;
         for current_index in indices {
-            // To keep the index handling idempotent, we need to do the following:
-            // 1. Add a prefix to the existing index
-            // 2. Rename temporary index to its final name
-            // 3. Drop existing index concurrently
+            let old_index_name = if current_index.name.starts_with(OLD_INDEX_PREFIX) {
+                current_index.name.clone()
+            } else {
+                let old_index_name =
+                    common::bounded_identifier(OLD_INDEX_PREFIX, &current_index.name, "");
+                let temp_index_name = self.temp_index_name(ctx, current_index.oid);
+                db.run(&format!(
+                    r#"
+                    ALTER INDEX IF EXISTS "{current_name}" RENAME TO "{old_index_name}";
+                    ALTER INDEX IF EXISTS "{temp_index_name}" RENAME TO "{current_name}";
+                    "#,
+                    current_name = current_index.name,
+                ))
+                .context("failed to swap old index for temporary index")?;
+                old_index_name
+            };
 
-            // Add prefix (if not already added) to existing index
-            let prefix = "__reshape_old";
-            let target_index_name = current_index.name.trim_start_matches(prefix);
-            let old_index_name = format!("{}_{}", prefix, target_index_name);
-            db.query(&format!(
-                r#"
-                ALTER INDEX IF EXISTS "{current_name}" RENAME TO "{new_name}"
-                "#,
-                current_name = target_index_name,
-                new_name = old_index_name,
-            ))
-            .context("failed to rename old index")?;
-
-            // Rename temporary index to real name
-            let temp_index_name = self.temp_index_name(ctx, current_index.oid);
-            db.query(&format!(
-                r#"
-                ALTER INDEX IF EXISTS "{temp_index_name}" RENAME TO "{target_index_name}"
-                "#,
-                temp_index_name = temp_index_name,
-                target_index_name = target_index_name,
-            ))
-            .context("failed to rename temporary index")?;
-
-            // Drop old index concurrently
             db.query(&format!(
                 r#"
                 DROP INDEX CONCURRENTLY IF EXISTS "{old_index_name}"
                 "#,
-                old_index_name = old_index_name,
             ))
             .context("failed to drop old index")?;
         }
@@ -558,7 +552,7 @@ impl Action for AlterColumn {
 
 impl AlterColumn {
     fn temporary_column_name(&self, ctx: &MigrationContext) -> String {
-        format!("{}_new_{}", ctx.prefix(), self.column)
+        ctx.name("new", &[&self.column], "")
     }
 
     fn up_trigger_name(&self, ctx: &MigrationContext) -> String {
