@@ -566,89 +566,6 @@ fn remove_column_with_long_names() {
     test.run();
 }
 
-// Checks for a NOT NULL column removed with a cross-table down, for tests where the
-// column exists in the old schema
-fn check_not_null_column_with_complex_down(old_db: &mut Client, new_db: &mut Client) {
-    // The old schema must still reject NULL in the removed column, immediately
-    let error = old_db
-        .simple_query("INSERT INTO users (id, email) VALUES (2, NULL)")
-        .unwrap_err();
-    assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
-
-    // The new schema doesn't have the column. A user without a profile can't be
-    // committed as the column would be left empty for the old schema
-    let error = new_db
-        .simple_query("INSERT INTO users (id) VALUES (3)")
-        .unwrap_err();
-    assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
-    let count: i64 = old_db
-        .query_one("SELECT COUNT(*) FROM users WHERE id = 3", &[])
-        .unwrap()
-        .get(0);
-    assert_eq!(0, count);
-
-    // Within a transaction, the user can be inserted before the profile it takes its
-    // email from, as the check is made when the transaction commits
-    new_db
-        .batch_execute(
-            "
-            BEGIN;
-            INSERT INTO users (id) VALUES (4);
-            INSERT INTO profiles (user_id, email) VALUES (4, 'four@example.com');
-            COMMIT;
-            ",
-        )
-        .unwrap();
-    let email: String = old_db
-        .query_one("SELECT email FROM users WHERE id = 4", &[])
-        .unwrap()
-        .get("email");
-    assert_eq!("four@example.com", email);
-
-    // A transaction which leaves the column empty fails when committing
-    let error = new_db
-        .batch_execute(
-            "
-            BEGIN;
-            INSERT INTO users (id) VALUES (5);
-            COMMIT;
-            ",
-        )
-        .unwrap_err();
-    assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
-    let count: i64 = old_db
-        .query_one("SELECT COUNT(*) FROM users WHERE id = 5", &[])
-        .unwrap()
-        .get(0);
-    assert_eq!(0, count);
-
-    // Writes to the source table in the new schema fill in the removed column
-    new_db
-        .simple_query("UPDATE profiles SET email = 'test2@example.com' WHERE user_id = 1")
-        .unwrap();
-    let email: String = old_db
-        .query_one("SELECT email FROM users WHERE id = 1", &[])
-        .unwrap()
-        .get("email");
-    assert_eq!("test2@example.com", email);
-}
-
-// Asserts that NOT NULL is back on users.email once the migration has been aborted
-fn assert_email_not_null(db: &mut Client) {
-    let is_nullable: String = db
-        .query_one(
-            "
-            SELECT is_nullable
-            FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'email'
-            ",
-            &[],
-        )
-        .unwrap()
-        .get("is_nullable");
-    assert_eq!("NO", is_nullable);
-}
-
 #[test]
 fn remove_column_not_null_with_complex_down() {
     let mut test = Test::new("Remove NOT NULL column with complex down");
@@ -884,4 +801,87 @@ fn remove_column_not_null_from_in_flight_add_column_with_complex_down() {
     });
 
     test.run();
+}
+
+// Checks for a NOT NULL column removed with a cross-table down, for tests where the
+// column exists in the old schema
+fn check_not_null_column_with_complex_down(old_db: &mut Client, new_db: &mut Client) {
+    // The old schema must still reject NULL in the removed column, immediately
+    let error = old_db
+        .simple_query("INSERT INTO users (id, email) VALUES (2, NULL)")
+        .unwrap_err();
+    assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
+
+    // The new schema doesn't have the column. A user without a profile can't be
+    // committed as the column would be left empty for the old schema
+    let error = new_db
+        .simple_query("INSERT INTO users (id) VALUES (3)")
+        .unwrap_err();
+    assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
+    let count: i64 = old_db
+        .query_one("SELECT COUNT(*) FROM users WHERE id = 3", &[])
+        .unwrap()
+        .get(0);
+    assert_eq!(0, count);
+
+    // Within a transaction, the user can be inserted before the profile it takes its
+    // email from, as the check is made when the transaction commits
+    new_db
+        .batch_execute(
+            "
+            BEGIN;
+            INSERT INTO users (id) VALUES (4);
+            INSERT INTO profiles (user_id, email) VALUES (4, 'four@example.com');
+            COMMIT;
+            ",
+        )
+        .unwrap();
+    let email: String = old_db
+        .query_one("SELECT email FROM users WHERE id = 4", &[])
+        .unwrap()
+        .get("email");
+    assert_eq!("four@example.com", email);
+
+    // A transaction which leaves the column empty fails when committing
+    let error = new_db
+        .batch_execute(
+            "
+            BEGIN;
+            INSERT INTO users (id) VALUES (5);
+            COMMIT;
+            ",
+        )
+        .unwrap_err();
+    assert_eq!(Some(&SqlState::NOT_NULL_VIOLATION), error.code());
+    let count: i64 = old_db
+        .query_one("SELECT COUNT(*) FROM users WHERE id = 5", &[])
+        .unwrap()
+        .get(0);
+    assert_eq!(0, count);
+
+    // Writes to the source table in the new schema fill in the removed column
+    new_db
+        .simple_query("UPDATE profiles SET email = 'test2@example.com' WHERE user_id = 1")
+        .unwrap();
+    let email: String = old_db
+        .query_one("SELECT email FROM users WHERE id = 1", &[])
+        .unwrap()
+        .get("email");
+    assert_eq!("test2@example.com", email);
+}
+
+// Asserts that NOT NULL is back on users.email once the migration has been aborted
+fn assert_email_not_null(db: &mut Client) {
+    let is_nullable: String = db
+        .query_one(
+            "
+            SELECT is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'email'
+            ",
+            &[],
+        )
+        .unwrap()
+        .get("is_nullable");
+    assert_eq!("NO", is_nullable);
 }
