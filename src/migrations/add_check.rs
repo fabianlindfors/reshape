@@ -19,9 +19,6 @@ pub struct CheckDefinition {
     pub expression: String,
 }
 
-// The number of violating rows to include in an error
-const VIOLATION_EXAMPLES: usize = 5;
-
 #[typetag::serde(name = "add_check")]
 impl Action for AddCheck {
     fn describe(&self) -> String {
@@ -97,16 +94,10 @@ impl Action for AddCheck {
             // until the migration is aborted
             self.drop_temp_constraint(ctx, db, &table.real_name)?;
 
-            // Postgres doesn't say which rows failed validation, so look some up for
-            // the error
-            let violations = common::find_check_violations(
-                db,
-                &table.real_name,
-                &expression,
-                VIOLATION_EXAMPLES,
-            )
-            .unwrap_or_default();
-            return Err(error.context(self.violation_error(&violations)));
+            return Err(error.context(format!(
+                "existing rows in table \"{}\" violate check \"{}\"",
+                self.table, self.check.name
+            )));
         }
 
         Ok(())
@@ -180,22 +171,5 @@ impl AddCheck {
             constraint_name = self.temp_constraint_name(ctx),
         ))
         .context("failed to drop temporary check constraint")
-    }
-
-    fn violation_error(&self, violations: &[String]) -> anyhow::Error {
-        if violations.is_empty() {
-            anyhow!(
-                "existing rows in table \"{}\" violate check \"{}\"",
-                self.table,
-                self.check.name
-            )
-        } else {
-            anyhow!(
-                "existing rows in table \"{}\" violate check \"{}\", for example rows with {}",
-                self.table,
-                self.check.name,
-                violations.join("; ")
-            )
-        }
     }
 }

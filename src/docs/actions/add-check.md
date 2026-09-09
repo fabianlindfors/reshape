@@ -71,7 +71,7 @@ table = "users"
 
 1. **Start phase**:
    - Creates the check with `NOT VALID` (doesn't lock for validation)
-   - Validates the constraint (scans table but doesn't block writes). If existing rows violate the check, the check is dropped again and the migration fails with an error listing some of the rows.
+   - Validates the constraint (scans table but doesn't block writes). If existing rows violate the check, the check is dropped again and the migration fails.
 
 2. **Complete phase**:
    - Renames constraint to its final name
