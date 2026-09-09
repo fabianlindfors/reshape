@@ -15,6 +15,7 @@ table = "table_name"          # Required: table to index
     unique = false            # Optional: default false
     type = "btree"            # Optional: index type
     where = "col1 IS NOT NULL"  # Optional: predicate for a partial index
+    comment = "description"   # Optional: comment on the index
 ```
 
 ## Fields
@@ -27,6 +28,7 @@ table = "table_name"          # Required: table to index
 | `index.unique` | boolean | No | Create unique index (default: false) |
 | `index.type` | string | No | Index type (btree, hash, gist, etc.) |
 | `index.where` | string | No | Predicate for a partial index, without the `WHERE` keyword |
+| `index.comment` | string | No | Comment stored on the index |
 
 ## Index Columns
 

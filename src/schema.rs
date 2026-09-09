@@ -21,6 +21,8 @@ use std::collections::{HashMap, HashSet};
 //   - Declaring the type, nullability or default, which are recorded so that they
 //     take precedence over the physical attributes of the backing column. This
 //     matters as temporary columns are nullable until the migration completes.
+//   - Declaring a comment, which isn't applied to the column until the migration
+//     completes but should be visible through this migration's views.
 //   - Removing which sets the `removed` flag.
 //
 // Schema provides some schema introspection methods, `get_tables` and `get_table`,
@@ -154,6 +156,7 @@ pub struct ColumnChanges {
     data_type: Option<String>,
     nullable: Option<bool>,
     default: Option<String>,
+    comment: Option<String>,
 }
 
 impl ColumnChanges {
@@ -165,6 +168,7 @@ impl ColumnChanges {
             data_type: None,
             nullable: None,
             default: None,
+            comment: None,
         }
     }
 
@@ -186,6 +190,10 @@ impl ColumnChanges {
 
     pub fn set_default(&mut self, default: &str) {
         self.default = Some(default.to_string());
+    }
+
+    pub fn set_comment(&mut self, comment: &str) {
+        self.comment = Some(comment.to_string());
     }
 
     pub fn set_removed(&mut self) {
@@ -226,6 +234,7 @@ impl ColumnChanges {
                 .unwrap_or_else(|| original.data_type.clone()),
             nullable: self.nullable.unwrap_or(original.nullable),
             default: self.default.clone().or_else(|| original.default.clone()),
+            comment: self.comment.clone(),
         }
     }
 }
@@ -253,6 +262,11 @@ pub struct Column {
     pub data_type: String,
     pub nullable: bool,
     pub default: Option<String>,
+
+    /// A comment declared by an action of this migration, which takes precedence over
+    /// the comment on the backing column as the change isn't applied to the column until
+    /// the migration completes. An empty comment removes the column's comment.
+    pub comment: Option<String>,
 }
 
 impl Schema {
@@ -409,6 +423,7 @@ impl Schema {
                     data_type: column.data_type.clone(),
                     nullable: column.nullable,
                     default: column.default.clone(),
+                    comment: None,
                 },
             };
 

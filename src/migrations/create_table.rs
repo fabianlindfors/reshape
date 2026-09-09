@@ -10,7 +10,7 @@ use crate::{
     migrations::common,
     schema::{self, Schema, Table},
 };
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -56,6 +56,10 @@ impl CreateTable {
                     data_type: column.data_type.clone(),
                     nullable: column.nullable,
                     default: column.default.clone(),
+
+                    // The comments are set on the table when it's created, so the views
+                    // pick them up from there
+                    comment: None,
                 })
                 .collect(),
         }
@@ -171,6 +175,30 @@ impl Action for CreateTable {
                 ))
                 .context("failed to set column comment")?;
             }
+        }
+
+        for check in &self.checks {
+            let Some(comment) = &check.comment else {
+                continue;
+            };
+
+            // Postgres generates a name for an unnamed check, which the migration doesn't
+            // know, leaving no way to point out the constraint the comment belongs to
+            let Some(check_name) = &check.name else {
+                return Err(anyhow!(
+                    "check constraints need a name for a comment to be set on them"
+                ));
+            };
+
+            db.run(&format!(
+                r#"
+                COMMENT ON CONSTRAINT "{check}" ON "{table}" IS {comment}
+                "#,
+                table = self.name,
+                check = check_name,
+                comment = quote_string_literal(comment),
+            ))
+            .context("failed to set check constraint comment")?;
         }
 
         if let Some(Transformation {

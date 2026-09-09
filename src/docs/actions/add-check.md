@@ -12,6 +12,7 @@ table = "table_name"
     [actions.check]
     name = "constraint_name"
     expression = "col > 0"
+    comment = "description"   # Optional: comment on the constraint
 ```
 
 ## Fields
@@ -21,6 +22,7 @@ table = "table_name"
 | `table` | string | Yes | Table to add the check to |
 | `check.name` | string | Yes | Name of the constraint |
 | `check.expression` | string | Yes | SQL expression which every row must satisfy. May reference any column of the table by its current name. |
+| `check.comment` | string | No | Comment stored on the constraint |
 
 ## Examples
 

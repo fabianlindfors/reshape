@@ -1,5 +1,5 @@
 mod common;
-use common::{assert_invalid, Test};
+use common::{assert_invalid, get_comment, Test};
 
 #[test]
 fn add_index_invalid_expression_sql() {
@@ -109,6 +109,66 @@ fn add_index() {
 
         assert!(is_ready, "expected index to be ready");
         assert!(is_valid, "expected index to be valid");
+    });
+
+    test.run();
+}
+
+#[test]
+fn add_index_with_comment() {
+    let mut test = Test::new("Add index with comment");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "add_users_name_index"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "name_idx"
+            columns = ["name"]
+            comment = "Lookups by name"
+        "#,
+    );
+
+    test.intermediate(|db, _| {
+        assert_eq!(
+            Some("Lookups by name".to_string()),
+            get_comment(db, "public.name_idx")
+        );
+    });
+
+    test.after_completion(|db| {
+        assert_eq!(
+            Some("Lookups by name".to_string()),
+            get_comment(db, "public.name_idx")
+        );
+    });
+
+    test.after_abort(|db| {
+        // The index, and with it the comment, was removed
+        assert!(db.query("SELECT 'public.name_idx'::regclass", &[]).is_err());
     });
 
     test.run();

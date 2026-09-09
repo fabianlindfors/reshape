@@ -1,5 +1,5 @@
 mod common;
-use common::{assert_invalid, get_column_comment, get_comment, Test};
+use common::{assert_invalid, get_column_comment, get_comment, get_constraint_comment, Test};
 use reshape::migrations::Migration;
 
 #[test]
@@ -837,6 +837,11 @@ fn create_table_with_comments() {
             name = "email"
             type = "TEXT"
             comment = "Primary contact address. Don't share it"
+
+            [[actions.checks]]
+            name = "users_email_not_empty"
+            expression = "email <> ''"
+            comment = "Addresses can't be blank"
         "#,
     );
 
@@ -865,7 +870,57 @@ fn create_table_with_comments() {
 
         // Ensure a column without a comment doesn't get one
         assert_eq!(None, get_column_comment(db, "users", "id"));
+
+        // Ensure the comment was set on the check constraint
+        assert_eq!(
+            Some("Addresses can't be blank".to_string()),
+            get_constraint_comment(db, "users", "users_email_not_empty")
+        );
     });
 
+    test.run();
+}
+
+#[test]
+fn create_table_with_comment_on_unnamed_check() {
+    let mut test = Test::new("Create table with comment on unnamed check");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+        "#,
+    );
+
+    // A comment can only be set on a check which the migration names, as Postgres
+    // generates a name for an unnamed one
+    test.second_migration(
+        r#"
+        name = "create_items_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "items"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.checks]]
+            expression = "id > 0"
+            comment = "Ids are positive"
+        "#,
+    );
+
+    test.expect_failure();
     test.run();
 }

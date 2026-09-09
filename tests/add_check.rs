@@ -1,5 +1,5 @@
 mod common;
-use common::{assert_invalid, check_constraint_definitions, Test};
+use common::{assert_invalid, check_constraint_definitions, get_constraint_comment, Test};
 
 #[test]
 fn add_check() {
@@ -91,6 +91,60 @@ fn add_check() {
             .unwrap();
         assert!(check_constraint_definitions(db, "users_age_check").is_empty());
         assert!(check_constraint_definitions(db, "__reshape%").is_empty());
+    });
+
+    test.run()
+}
+
+#[test]
+fn add_check_with_comment() {
+    let mut test = Test::new("Add check with comment");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "age"
+            type = "INTEGER"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "add_age_check"
+
+        [[actions]]
+        type = "add_check"
+        table = "users"
+
+            [actions.check]
+            name = "users_age_check"
+            expression = "age >= 0"
+            comment = "Ages can't be negative"
+        "#,
+    );
+
+    test.after_completion(|db| {
+        // The comment follows the constraint when it's renamed to its final name
+        assert_eq!(
+            Some("Ages can't be negative".to_string()),
+            get_constraint_comment(db, "users", "users_age_check")
+        );
+    });
+
+    test.after_abort(|db| {
+        // The constraint, and with it the comment, was removed
+        assert!(check_constraint_definitions(db, "users_age_check").is_empty());
     });
 
     test.run()

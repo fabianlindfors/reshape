@@ -1,4 +1,6 @@
-use super::{Action, MigrationContext, NameField, References, SqlField, TableScope};
+use super::{
+    quote_string_literal, Action, MigrationContext, NameField, References, SqlField, TableScope,
+};
 use crate::{
     db::{Conn, Transaction},
     schema::{Schema, Table},
@@ -24,6 +26,8 @@ pub struct Index {
 
     // Predicate for a partial index, without the WHERE keyword
     pub r#where: Option<String>,
+
+    pub comment: Option<String>,
 }
 
 // A single entry in an index. Can either be a plain column name, a column with an
@@ -173,6 +177,18 @@ impl Action for AddIndex {
             columns = self.index.column_definitions(&table)?.join(", "),
         ))
         .context("failed to create index")?;
+
+        if let Some(comment) = &self.index.comment {
+            db.run(&format!(
+                r#"
+                COMMENT ON INDEX "{name}" IS {comment}
+                "#,
+                name = self.index.name,
+                comment = quote_string_literal(comment),
+            ))
+            .context("failed to set index comment")?;
+        }
+
         Ok(())
     }
 

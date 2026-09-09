@@ -46,6 +46,23 @@ pub fn get_column_comment(db: &mut Client, relation: &str, column: &str) -> Opti
     .and_then(|row| row.get("comment"))
 }
 
+// Looks up the comment on a constraint of a table
+#[allow(dead_code)]
+pub fn get_constraint_comment(db: &mut Client, table: &str, constraint: &str) -> Option<String> {
+    db.query(
+        "
+        SELECT obj_description(c.oid, 'pg_constraint') AS comment
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = $1 AND c.conname = $2
+        ",
+        &[&table, &constraint],
+    )
+    .unwrap()
+    .first()
+    .and_then(|row| row.get("comment"))
+}
+
 // Asserts that a NOT NULL column's constraint, if the Postgres version catalogues them
 // (18+), is named after the column's final name rather than a temporary one
 #[allow(dead_code)]
