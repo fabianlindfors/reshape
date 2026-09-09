@@ -1088,3 +1088,120 @@ fn add_column_with_comment() {
 
     test.run();
 }
+
+#[test]
+fn add_column_with_long_names() {
+    let mut test = Test::new("Add column with long names");
+
+    // The table and column names are long enough that the generated names would exceed
+    // Postgres' limit of 63 characters on identifiers, which used to make the forward
+    // and reverse triggers collapse into the same name
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+
+        [[actions]]
+        type = "create_table"
+        name = "organization_membership_profiles"
+        primary_key = ["user_id"]
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "add_organization_membership_profiles_primary_contact_email_address"
+
+        [[actions]]
+        type = "add_column"
+        table = "organization_membership_profiles"
+
+            [actions.column]
+            name = "primary_contact_email_address"
+            type = "TEXT"
+            nullable = false
+
+            [actions.up]
+            table = "users"
+            value = "users.email"
+            where = "organization_membership_profiles.user_id = users.id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+        db.simple_query("INSERT INTO organization_membership_profiles (user_id) VALUES (1)")
+            .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        // Every generated name should fit within the limit and be distinct
+        let trigger_names: Vec<String> = old_db
+            .query(
+                "SELECT tgname::text FROM pg_trigger WHERE tgname LIKE '__reshape%' ORDER BY 1",
+                &[],
+            )
+            .unwrap()
+            .iter()
+            .map(|row| row.get(0))
+            .collect();
+        assert_eq!(2, trigger_names.len());
+        assert_ne!(trigger_names[0], trigger_names[1]);
+        assert!(trigger_names.iter().all(|name| name.len() <= 63));
+
+        // Ensure email change in old schema is propagated to the new column
+        old_db
+            .simple_query("UPDATE users SET email = 'test2@example.com' WHERE id = 1")
+            .unwrap();
+        let email: String = new_db
+            .query(
+                "
+                SELECT primary_contact_email_address
+                FROM organization_membership_profiles
+                WHERE user_id = 1
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| row.get(0))
+            .unwrap();
+        assert_eq!("test2@example.com", email);
+    });
+
+    test.after_completion(|db| {
+        let email: String = db
+            .query(
+                "
+                SELECT primary_contact_email_address
+                FROM organization_membership_profiles
+                WHERE user_id = 1
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| row.get(0))
+            .unwrap();
+        assert_eq!("test2@example.com", email);
+    });
+
+    test.run();
+}

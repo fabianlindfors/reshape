@@ -451,3 +451,114 @@ fn remove_column_with_complex_down() {
 
     test.run();
 }
+
+#[test]
+fn remove_column_with_long_names() {
+    let mut test = Test::new("Remove column with long names");
+
+    // The table and column names are long enough that the generated names would exceed
+    // Postgres' limit of 63 characters on identifiers, which used to make the forward,
+    // reverse and NOT NULL triggers collapse into the same name
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "organization_membership_profiles"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "primary_contact_email_address"
+            type = "TEXT"
+            nullable = false
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["user_id"]
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "remove_email"
+
+        [[actions]]
+        type = "remove_column"
+        table = "organization_membership_profiles"
+        column = "primary_contact_email_address"
+
+            [actions.down]
+            table = "profiles"
+            value = "profiles.email"
+            where = "organization_membership_profiles.id = profiles.user_id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query(
+            "INSERT INTO organization_membership_profiles (id, primary_contact_email_address) VALUES (1, 'test@example.com')",
+        )
+        .unwrap();
+        db.simple_query("INSERT INTO profiles (user_id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        // Every generated name should fit within the limit and be distinct
+        let trigger_names: Vec<String> = old_db
+            .query(
+                "SELECT tgname::text FROM pg_trigger WHERE tgname LIKE '__reshape%' ORDER BY 1",
+                &[],
+            )
+            .unwrap()
+            .iter()
+            .map(|row| row.get(0))
+            .collect();
+        assert_eq!(3, trigger_names.len());
+        assert_ne!(trigger_names[0], trigger_names[1]);
+        assert_ne!(trigger_names[1], trigger_names[2]);
+        assert!(trigger_names.iter().all(|name| name.len() <= 63));
+
+        new_db
+            .simple_query("UPDATE profiles SET email = 'test2@example.com' WHERE user_id = 1")
+            .unwrap();
+
+        // Ensure new email was propagated to the old schema
+        let email: String = old_db
+            .query(
+                "
+                SELECT primary_contact_email_address
+                FROM organization_membership_profiles
+                WHERE id = 1
+                ",
+                &[],
+            )
+            .unwrap()
+            .first()
+            .map(|row| row.get(0))
+            .unwrap();
+        assert_eq!("test2@example.com", email);
+
+        // The NOT NULL check should still be enforced for the old schema
+        let result = old_db.simple_query(
+            "INSERT INTO organization_membership_profiles (id, primary_contact_email_address) VALUES (2, NULL)",
+        );
+        assert!(result.is_err(), "expected NULL insert to be rejected");
+    });
+
+    test.run();
+}

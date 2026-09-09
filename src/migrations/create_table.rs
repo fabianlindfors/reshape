@@ -39,7 +39,7 @@ pub struct Transformation {
 
 impl CreateTable {
     fn trigger_name(&self, ctx: &MigrationContext) -> String {
-        format!("{}_create_table_{}", ctx.prefix(), self.name)
+        ctx.name("create_table", &[&self.name], "")
     }
 
     // The table as it will look once created

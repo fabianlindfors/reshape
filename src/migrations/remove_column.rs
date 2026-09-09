@@ -26,39 +26,19 @@ pub enum Transformation {
 
 impl RemoveColumn {
     fn trigger_name(&self, ctx: &MigrationContext) -> String {
-        format!(
-            "{}_remove_column_{}_{}",
-            ctx.prefix(),
-            self.table,
-            self.column
-        )
+        ctx.name("remove_column", &[&self.table, &self.column], "")
     }
 
     fn reverse_trigger_name(&self, ctx: &MigrationContext) -> String {
-        format!(
-            "{}_remove_column_{}_{}_rev",
-            ctx.prefix(),
-            self.table,
-            self.column
-        )
+        ctx.name("remove_column", &[&self.table, &self.column], "_rev")
     }
 
     fn not_null_constraint_trigger_name(&self, ctx: &MigrationContext) -> String {
-        format!(
-            "{}_remove_column_{}_{}_nn",
-            ctx.prefix(),
-            self.table,
-            self.column
-        )
+        ctx.name("remove_column", &[&self.table, &self.column], "_nn")
     }
 
     fn not_null_constraint_name(&self, ctx: &MigrationContext) -> String {
-        format!(
-            "{}_add_column_not_null_{}_{}",
-            ctx.prefix(),
-            self.table,
-            self.column
-        )
+        ctx.name("add_column_not_null", &[&self.table, &self.column], "")
     }
 }
 

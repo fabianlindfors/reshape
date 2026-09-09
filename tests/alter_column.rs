@@ -1456,3 +1456,74 @@ fn alter_column_with_hash_index() {
 
     test.run();
 }
+
+#[test]
+fn alter_column_with_index_at_max_name_length() {
+    let mut test = Test::new("Alter column with long index name");
+
+    // The index names are as long as Postgres allows and only differ at the very end,
+    // so prefixing them while they are swapped for the temporary indices would push
+    // them past the limit and make them collide
+    test.first_migration(
+        r#"
+        name = "create_user_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "first_name"
+            type = "TEXT"
+
+            [[actions.columns]]
+            name = "last_name"
+            type = "TEXT"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_first_name_last_name_covering_index_with_a_long_name_idx1"
+            columns = ["first_name", "last_name"]
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_first_name_last_name_covering_index_with_a_long_name_idx2"
+            columns = ["last_name"]
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "uppercase_last_name"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "last_name"
+        up = "UPPER(last_name)"
+        down = "LOWER(last_name)"
+        "#,
+    );
+
+    test.after_completion(|db| {
+        let definitions = index_definitions(
+            db,
+            "users_first_name_last_name_covering_index_with_a_long_name_idx_",
+        );
+        assert_eq!(2, definitions.len(), "expected both indices to still exist");
+        assert!(index_definitions(db, "__reshape%").is_empty());
+    });
+
+    test.run();
+}

@@ -11,11 +11,11 @@ pub fn set_up_helpers(db: &mut dyn Conn, target_migration: &str) -> anyhow::Resu
                 setting TEXT := current_setting('reshape.is_new_schema', TRUE);
                 setting_bool BOOLEAN := setting IS NOT NULL AND setting = 'YES';
 			BEGIN
-				RETURN current_setting('search_path') = 'migration_{}' OR setting_bool;
+				RETURN current_setting('search_path') = '{}' OR setting_bool;
 			END
 			$$ language 'plpgsql';
         ",
-        target_migration,
+        crate::schema_name_for_migration(target_migration),
     );
     db.query(&query)
         .context("failed creating helper function reshape.is_new_schema()")?;
