@@ -760,3 +760,86 @@ fn remove_column_not_null_from_earlier_in_flight_alter_with_complex_down() {
 
     test.run();
 }
+
+#[test]
+fn remove_column_not_null_from_in_flight_add_column_with_complex_down() {
+    let mut test = Test::new("Remove NOT NULL column added earlier in the batch, complex down");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["user_id"]
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+        "#,
+    );
+
+    // The column only exists as the temporary column of add_column, so there is no
+    // real column for remove_column to lift NOT NULL from or to reinstate it on
+    test.second_migration(
+        r#"
+        name = "add_then_remove_users_email_column"
+
+        [[actions]]
+        type = "add_column"
+        table = "users"
+        up = "'added@example.com'"
+
+            [actions.column]
+            name = "email"
+            type = "TEXT"
+            nullable = false
+
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "email"
+
+            [actions.down]
+            table = "profiles"
+            value = "profiles.email"
+            where = "users.id = profiles.user_id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id) VALUES (1)")
+            .unwrap();
+        db.simple_query("INSERT INTO profiles (user_id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        // Neither schema has the column, so both must be able to insert users
+        old_db
+            .simple_query("INSERT INTO users (id) VALUES (2)")
+            .unwrap();
+        new_db
+            .simple_query("INSERT INTO users (id) VALUES (3)")
+            .unwrap();
+        new_db
+            .simple_query("DELETE FROM users WHERE id IN (2, 3)")
+            .unwrap();
+    });
+
+    test.run();
+}

@@ -16,8 +16,11 @@ use std::collections::{HashMap, HashSet};
 // the corresponding `TableChanges`. The possible changes are:
 //   - Changing the name which updates `current_name`.
 //   - Changing the backing column which will add the new column to the end of
-//     `intermediate_columns`. This is used when temporary columns are
+//     `backing_columns`. This is used when temporary columns are
 //     introduced which will eventually replace the current column.
+//   - Declaring the type, nullability or default, which are recorded so that they
+//     take precedence over the physical attributes of the backing column. This
+//     matters as temporary columns are nullable until the migration completes.
 //   - Removing which sets the `removed` flag.
 //
 // Schema provides some schema introspection methods, `get_tables` and `get_table`,
@@ -50,6 +53,24 @@ impl Schema {
 
         let table_changes = &mut self.table_changes[table_change_index];
         f(table_changes)
+    }
+
+    /// The real columns which back a column, oldest first. The last one is the column
+    /// currently backing it. The earlier ones have been replaced by temporary columns
+    /// but remain in the table, and continue to be written, until the migration
+    /// completes.
+    pub fn backing_columns(&self, table_name: &str, column_name: &str) -> Vec<String> {
+        self.table_changes
+            .iter()
+            .find(|changes| changes.current_name == table_name)
+            .and_then(|changes| {
+                changes
+                    .column_changes
+                    .iter()
+                    .find(|column| column.current_name == column_name)
+            })
+            .map(|column| column.backing_columns.clone())
+            .unwrap_or_else(|| vec![column_name.to_string()])
     }
 
     /// Whether a check constraint on a table is removed by an earlier action of the
@@ -130,6 +151,9 @@ pub struct ColumnChanges {
     current_name: String,
     backing_columns: Vec<String>,
     removed: bool,
+    data_type: Option<String>,
+    nullable: Option<bool>,
+    default: Option<String>,
 }
 
 impl ColumnChanges {
@@ -138,6 +162,9 @@ impl ColumnChanges {
             current_name: name.to_string(),
             backing_columns: vec![name],
             removed: false,
+            data_type: None,
+            nullable: None,
+            default: None,
         }
     }
 
@@ -149,6 +176,18 @@ impl ColumnChanges {
         self.backing_columns.push(column_name.to_string())
     }
 
+    pub fn set_data_type(&mut self, data_type: &str) {
+        self.data_type = Some(data_type.to_string());
+    }
+
+    pub fn set_nullable(&mut self, nullable: bool) {
+        self.nullable = Some(nullable);
+    }
+
+    pub fn set_default(&mut self, default: &str) {
+        self.default = Some(default.to_string());
+    }
+
     pub fn set_removed(&mut self) {
         self.removed = true;
     }
@@ -158,6 +197,46 @@ impl ColumnChanges {
             .last()
             .expect("backing_columns should never be empty")
     }
+
+    /// The column as the schema sees it, given the physical column currently backing it.
+    ///
+    /// Attributes declared by an action take precedence. Anything not declared is
+    /// inherited from the column the chain of backing columns started from, as a
+    /// temporary column is nullable until the migration completes no matter what the
+    /// column is declared as. A column added in this migration has no such original
+    /// column and its temporary column is used instead.
+    fn resolve(
+        &self,
+        current: &PhysicalColumn,
+        physical: &HashMap<&str, &PhysicalColumn>,
+    ) -> Column {
+        let original = self
+            .backing_columns
+            .first()
+            .and_then(|name| physical.get(name.as_str()))
+            .copied()
+            .unwrap_or(current);
+
+        Column {
+            name: self.current_name.clone(),
+            real_name: current.name.clone(),
+            data_type: self
+                .data_type
+                .clone()
+                .unwrap_or_else(|| original.data_type.clone()),
+            nullable: self.nullable.unwrap_or(original.nullable),
+            default: self.default.clone().or_else(|| original.default.clone()),
+        }
+    }
+}
+
+/// A column as it exists in the database
+#[derive(Debug)]
+struct PhysicalColumn {
+    name: String,
+    data_type: String,
+    nullable: bool,
+    default: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -267,10 +346,10 @@ impl Schema {
             .iter()
             .find(|changes| changes.real_name == real_table_name);
 
-        let real_columns: Vec<(String, String, bool, Option<String>)> = db
+        let real_columns: Vec<PhysicalColumn> = db
             .query(&format!(
                 "
-                SELECT column_name, CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END, is_nullable, column_default
+                SELECT column_name, CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END AS data_type, is_nullable, column_default
                 FROM information_schema.columns
                 WHERE table_name = '{table}' AND table_schema = 'public'
                 ORDER BY ordinal_position
@@ -278,28 +357,30 @@ impl Schema {
                 table = real_table_name,
             ))?
             .iter()
-            .map(|row| {
-                (
-                    row.get("column_name"),
-                    row.get("data_type"),
-                    row.get::<'_, _, String>("is_nullable") == "YES",
-                    row.get("column_default"),
-                )
+            .map(|row| PhysicalColumn {
+                name: row.get("column_name"),
+                data_type: row.get("data_type"),
+                nullable: row.get::<'_, _, String>("is_nullable") == "YES",
+                default: row.get("column_default"),
             })
             .collect();
 
+        // Changed columns inherit attributes from the column they originally replaced,
+        // which is looked up by name
+        let physical: HashMap<&str, &PhysicalColumn> = real_columns
+            .iter()
+            .map(|column| (column.name.as_str(), column))
+            .collect();
+
         let mut ignore_columns: HashSet<String> = HashSet::new();
-        let mut aliases: HashMap<String, &str> = HashMap::new();
+        let mut changed_columns: HashMap<String, &ColumnChanges> = HashMap::new();
 
         if let Some(changes) = table_changes {
             for column_changes in &changes.column_changes {
                 if column_changes.removed {
                     ignore_columns.insert(column_changes.real_name().to_string());
                 } else {
-                    aliases.insert(
-                        column_changes.real_name().to_string(),
-                        &column_changes.current_name,
-                    );
+                    changed_columns.insert(column_changes.real_name().to_string(), column_changes);
                 }
 
                 let (_, rest) = column_changes
@@ -315,23 +396,23 @@ impl Schema {
 
         let mut columns: Vec<Column> = Vec::new();
 
-        for (real_name, data_type, nullable, default) in real_columns {
-            if ignore_columns.contains(&*real_name) {
+        for column in &real_columns {
+            if ignore_columns.contains(&column.name) {
                 continue;
             }
 
-            let name = aliases
-                .get(&real_name)
-                .map(|alias| alias.to_string())
-                .unwrap_or_else(|| real_name.to_string());
+            let column = match changed_columns.get(&column.name) {
+                Some(changes) => changes.resolve(column, &physical),
+                None => Column {
+                    name: column.name.clone(),
+                    real_name: column.name.clone(),
+                    data_type: column.data_type.clone(),
+                    nullable: column.nullable,
+                    default: column.default.clone(),
+                },
+            };
 
-            columns.push(Column {
-                name,
-                real_name,
-                data_type,
-                nullable,
-                default,
-            });
+            columns.push(column);
         }
 
         let current_table_name = table_changes

@@ -5,6 +5,7 @@ use crate::{
 };
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RemoveColumn {
@@ -39,6 +40,50 @@ impl RemoveColumn {
 
     fn not_null_constraint_name(&self, ctx: &MigrationContext) -> String {
         ctx.name("add_column_not_null", &[&self.table, &self.column], "")
+    }
+
+    /// The real columns backing the column which exist in the database, oldest first.
+    /// A column added earlier in the migration only exists as its temporary column.
+    fn existing_backing_columns(
+        &self,
+        db: &mut dyn Conn,
+        schema: &Schema,
+        real_table: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        let existing: HashSet<String> = db
+            .query_with_params(
+                "
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = $1
+                ",
+                &[&real_table],
+            )
+            .context("failed to get columns")?
+            .iter()
+            .map(|row| row.get("column_name"))
+            .collect();
+
+        Ok(schema
+            .backing_columns(&self.table, &self.column)
+            .into_iter()
+            .filter(|column| existing.contains(column))
+            .collect())
+    }
+
+    fn column_exists(&self, db: &mut dyn Conn) -> anyhow::Result<bool> {
+        let rows = db
+            .query_with_params(
+                "
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2
+                ",
+                &[&self.table, &self.column],
+            )
+            .context("failed to check whether column exists")?;
+
+        Ok(!rows.is_empty())
     }
 }
 
@@ -115,6 +160,18 @@ impl Action for RemoveColumn {
                 let from_table = schema.get_table(db, from_table)?;
 
                 let maybe_null_check = if !column.nullable {
+                    // The column may be backed by temporary columns introduced by earlier
+                    // actions in the migration, in which case writes propagate through the
+                    // whole chain of columns. Each of them enforces NOT NULL, either directly
+                    // or through a temporary check constraint, so all of them have to be
+                    // lifted for the new schema to be able to leave the removed column empty.
+                    // The oldest column is the one the old schema writes.
+                    let backing_columns =
+                        self.existing_backing_columns(db, schema, &table.real_name)?;
+                    let old_schema_column = backing_columns
+                        .first()
+                        .ok_or_else(|| anyhow!("no column backing {} exists", self.column))?;
+
                     // Replace NOT NULL constraint with a constraint trigger that only triggers on the old schema.
                     // We will add a null check to the down function on the new schema below as well to cover both cases.
                     // As we are using a complex down function, we must remove the NOT NULL check for the new schema.
@@ -141,23 +198,45 @@ impl Action for RemoveColumn {
                             FOR EACH ROW
                             EXECUTE PROCEDURE {trigger_name}();
                         "#,
-                        table = self.table,
+                        table = table.real_name,
                         trigger_name = self.not_null_constraint_trigger_name(ctx),
-                        column = self.column,
+                        column = old_schema_column,
                     );
                     db.run(&query)
                         .context("failed to create null constraint trigger")?;
 
-                    db.run(&format!(
-                        r#"
-                        ALTER TABLE {table}
-                        ALTER COLUMN {column}
-                        DROP NOT NULL
-                        "#,
-                        table = self.table,
-                        column = self.column
-                    ))
-                    .context("failed to remove column not null constraint")?;
+                    for backing_column in &backing_columns {
+                        db.run(&format!(
+                            r#"
+                            ALTER TABLE "{table}"
+                            ALTER COLUMN "{column}"
+                            DROP NOT NULL
+                            "#,
+                            table = table.real_name,
+                            column = backing_column,
+                        ))
+                        .context("failed to remove column not null constraint")?;
+
+                        let checks = common::get_check_constraints_for_column(
+                            db,
+                            &table.real_name,
+                            backing_column,
+                        )?;
+                        for check in checks
+                            .iter()
+                            .filter(|check| common::is_temporary_not_null_constraint(&check.name))
+                        {
+                            db.run(&format!(
+                                r#"
+                                ALTER TABLE "{table}"
+                                DROP CONSTRAINT IF EXISTS "{constraint_name}"
+                                "#,
+                                table = table.real_name,
+                                constraint_name = check.name,
+                            ))
+                            .context("failed to remove temporary NOT NULL constraint")?;
+                        }
+                    }
 
                     format!(
                         r#"
@@ -334,7 +413,9 @@ impl Action for RemoveColumn {
             .context("failed to get any NOT NULL function")?
             .is_empty();
 
-        if has_not_null_function {
+        // The column doesn't exist if it was added earlier in the same migration. Aborting
+        // that action removes its temporary column, so there is nothing to reinstate.
+        if has_not_null_function && self.column_exists(db)? {
             // Make column NOT NULL again without taking any long lived locks with a temporary constraint
             let query = format!(
                 r#"
