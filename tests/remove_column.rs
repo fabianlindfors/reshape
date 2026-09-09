@@ -562,3 +562,201 @@ fn remove_column_with_long_names() {
 
     test.run();
 }
+
+#[test]
+fn remove_column_not_null_with_complex_down() {
+    let mut test = Test::new("Remove NOT NULL column with complex down");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+            nullable = false
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["user_id"]
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "remove_users_email_column"
+
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "email"
+
+            [actions.down]
+            table = "profiles"
+            value = "profiles.email"
+            where = "users.id = profiles.user_id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+        db.simple_query("INSERT INTO profiles (user_id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        // The old schema must still reject NULL in the removed column
+        let result = old_db.simple_query("INSERT INTO users (id, email) VALUES (2, NULL)");
+        assert!(
+            result.is_err(),
+            "expected NULL email to be rejected in old schema"
+        );
+
+        // The new schema doesn't have the column and must be able to insert a user
+        // without a matching profile, which leaves the removed column NULL
+        new_db
+            .simple_query("INSERT INTO users (id) VALUES (3)")
+            .unwrap();
+
+        // Remove the row again as an abort reinstates NOT NULL, which the NULL email
+        // left behind by the insert would otherwise block
+        new_db
+            .simple_query("DELETE FROM users WHERE id = 3")
+            .unwrap();
+
+        // Writes to the source table in the new schema fill in the removed column
+        new_db
+            .simple_query("UPDATE profiles SET email = 'test2@example.com' WHERE user_id = 1")
+            .unwrap();
+        let email: String = old_db
+            .query_one("SELECT email FROM users WHERE id = 1", &[])
+            .unwrap()
+            .get("email");
+        assert_eq!("test2@example.com", email);
+    });
+
+    test.run();
+}
+
+#[test]
+fn remove_column_not_null_from_earlier_in_flight_alter_with_complex_down() {
+    let mut test = Test::new("Remove NOT NULL column altered earlier in the batch, complex down");
+
+    test.first_migration(
+        r#"
+        name = "create_tables"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+            nullable = false
+
+        [[actions]]
+        type = "create_table"
+        name = "profiles"
+        primary_key = ["user_id"]
+
+            [[actions.columns]]
+            name = "user_id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "email"
+            type = "TEXT"
+        "#,
+    );
+
+    // The column is altered first, so remove_column sees it backed by the nullable
+    // temporary column rather than the NOT NULL real one
+    test.second_migration(
+        r#"
+        name = "change_default_then_remove_users_email_column"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "email"
+
+            [actions.changes]
+            default = "'unknown@example.com'"
+
+        [[actions]]
+        type = "remove_column"
+        table = "users"
+        column = "email"
+
+            [actions.down]
+            table = "profiles"
+            value = "profiles.email"
+            where = "users.id = profiles.user_id"
+        "#,
+    );
+
+    test.after_first(|db| {
+        db.simple_query("INSERT INTO users (id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+        db.simple_query("INSERT INTO profiles (user_id, email) VALUES (1, 'test@example.com')")
+            .unwrap();
+    });
+
+    test.intermediate(|old_db, new_db| {
+        // The old schema must still reject NULL in the removed column
+        let result = old_db.simple_query("INSERT INTO users (id, email) VALUES (2, NULL)");
+        assert!(
+            result.is_err(),
+            "expected NULL email to be rejected in old schema"
+        );
+
+        // The new schema doesn't have the column and must be able to insert a user
+        // without a matching profile, which leaves the removed column NULL
+        new_db
+            .simple_query("INSERT INTO users (id) VALUES (3)")
+            .unwrap();
+
+        // Remove the row again as an abort reinstates NOT NULL, which the NULL email
+        // left behind by the insert would otherwise block
+        new_db
+            .simple_query("DELETE FROM users WHERE id = 3")
+            .unwrap();
+
+        // Writes to the source table in the new schema fill in the removed column
+        new_db
+            .simple_query("UPDATE profiles SET email = 'test2@example.com' WHERE user_id = 1")
+            .unwrap();
+        let email: String = old_db
+            .query_one("SELECT email FROM users WHERE id = 1", &[])
+            .unwrap()
+            .get("email");
+        assert_eq!("test2@example.com", email);
+    });
+
+    test.run();
+}
