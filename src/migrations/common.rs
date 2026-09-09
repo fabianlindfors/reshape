@@ -88,6 +88,7 @@ impl ReferentialAction {
 pub struct Check {
     pub name: Option<String>,
     pub expression: String,
+    pub comment: Option<String>,
 }
 
 impl Check {

@@ -1,5 +1,5 @@
 mod common;
-use common::{assert_invalid, get_column_comment, Test};
+use common::{assert_invalid, get_column_comment, get_comment, get_constraint_comment, Test};
 
 #[test]
 fn alter_column_invalid_up_sql() {
@@ -461,31 +461,6 @@ fn alter_column_keeps_check_constraints_referencing_column() {
     test.run();
 }
 
-fn index_comment(db: &mut postgres::Client, index: &str) -> Option<String> {
-    db.query(
-        "SELECT obj_description($1::text::regclass, 'pg_class') AS comment",
-        &[&index],
-    )
-    .unwrap()
-    .first()
-    .and_then(|row| row.get("comment"))
-}
-
-fn constraint_comment(db: &mut postgres::Client, table: &str, constraint: &str) -> Option<String> {
-    db.query(
-        "
-        SELECT obj_description(c.oid, 'pg_constraint') AS comment
-        FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
-        WHERE t.relname = $1 AND c.conname = $2
-        ",
-        &[&table, &constraint],
-    )
-    .unwrap()
-    .first()
-    .and_then(|row| row.get("comment"))
-}
-
 #[test]
 fn alter_column_keeps_comments() {
     let mut test = Test::new("Alter column keeps comments");
@@ -511,6 +486,7 @@ fn alter_column_keeps_comments() {
             [[actions.checks]]
             name = "users_name_not_empty"
             expression = "name <> ''"
+            comment = "Names can't be blank"
 
         [[actions]]
         type = "add_index"
@@ -519,19 +495,9 @@ fn alter_column_keeps_comments() {
             [actions.index]
             name = "users_name_idx"
             columns = ["name"]
+            comment = "Lookups by name"
         "#,
     );
-
-    test.after_first(|db| {
-        // Neither add_index nor add_check can set a comment, so they are set directly
-        db.simple_query(
-            "
-            COMMENT ON INDEX public.users_name_idx IS 'Lookups by name';
-            COMMENT ON CONSTRAINT users_name_not_empty ON public.users IS 'Names can''t be blank';
-            ",
-        )
-        .unwrap();
-    });
 
     test.second_migration(
         r#"
@@ -572,11 +538,11 @@ fn alter_column_keeps_comments() {
         );
         assert_eq!(
             Some("Lookups by name".to_string()),
-            index_comment(db, "public.users_name_idx")
+            get_comment(db, "public.users_name_idx")
         );
         assert_eq!(
             Some("Names can't be blank".to_string()),
-            constraint_comment(db, "users", "users_name_not_empty")
+            get_constraint_comment(db, "users", "users_name_not_empty")
         );
     });
 
@@ -588,11 +554,11 @@ fn alter_column_keeps_comments() {
         );
         assert_eq!(
             Some("Lookups by name".to_string()),
-            index_comment(db, "public.users_name_idx")
+            get_comment(db, "public.users_name_idx")
         );
         assert_eq!(
             Some("Names can't be blank".to_string()),
-            constraint_comment(db, "users", "users_name_not_empty")
+            get_constraint_comment(db, "users", "users_name_not_empty")
         );
     });
 

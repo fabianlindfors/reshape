@@ -1,6 +1,6 @@
 # alter_column
 
-Modify an existing column's type, name, nullability, default value or comment.
+Modify an existing column's type, name, nullability, or default value.
 
 ## Schema
 
@@ -86,18 +86,6 @@ column = "status"
 
     [actions.changes]
     default = "'draft'"
-```
-
-### Change Comment
-
-```toml
-[[actions]]
-type = "alter_column"
-table = "users"
-column = "name"
-
-    [actions.changes]
-    comment = "The name shown to other users"
 ```
 
 ### Multiple Changes

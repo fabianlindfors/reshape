@@ -1,4 +1,6 @@
-use super::{common, Action, MigrationContext, NameField, References, SqlField};
+use super::{
+    common, quote_string_literal, Action, MigrationContext, NameField, References, SqlField,
+};
 use crate::{
     db::{Conn, Transaction},
     schema::Schema,
@@ -17,6 +19,7 @@ pub struct AddCheck {
 pub struct CheckDefinition {
     pub name: String,
     pub expression: String,
+    pub comment: Option<String>,
 }
 
 #[typetag::serde(name = "add_check")]
@@ -74,6 +77,19 @@ impl Action for AddCheck {
                 expression = expression,
             ))
             .context("failed to create check constraint")?;
+        }
+
+        // The comment follows the constraint when it's renamed on completion
+        if let Some(comment) = &self.check.comment {
+            db.run(&format!(
+                r#"
+                COMMENT ON CONSTRAINT "{constraint_name}" ON "{table}" IS {comment}
+                "#,
+                table = table.real_name,
+                constraint_name = temp_constraint_name,
+                comment = quote_string_literal(comment),
+            ))
+            .context("failed to set check constraint comment")?;
         }
 
         // Validating scans the table but doesn't block reads or writes. Together with the
