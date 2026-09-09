@@ -1205,3 +1205,74 @@ fn add_column_with_long_names() {
 
     test.run();
 }
+
+#[test]
+fn add_column_in_migration_with_long_name() {
+    let mut test = Test::new("Add column in migration with long name");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+        "#,
+    );
+
+    // The migration name pushes the schema name past Postgres' limit of 63 characters
+    test.second_migration(
+        r#"
+        name = "add_a_display_name_column_to_users_with_a_migration_name_that_is_too_long"
+
+        [[actions]]
+        type = "add_column"
+        table = "users"
+        up = "name"
+
+            [actions.column]
+            name = "display_name"
+            type = "TEXT"
+        "#,
+    );
+
+    test.intermediate(|_old_db, new_db| {
+        // The schema name reshape uses should be the one Postgres ended up with
+        let schema: String = new_db
+            .query("SELECT current_schema()::text", &[])
+            .unwrap()
+            .first()
+            .map(|row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            "migration_add_a_display_name_column_to_users_with_a_migration_n",
+            schema
+        );
+
+        // Writes through the new schema must be recognized as such, otherwise the
+        // trigger would overwrite the explicitly set value
+        new_db
+            .simple_query(
+                "INSERT INTO users (id, name, display_name) VALUES (1, 'test', 'explicit')",
+            )
+            .unwrap();
+        let display_name: String = new_db
+            .query("SELECT display_name FROM users WHERE id = 1", &[])
+            .unwrap()
+            .first()
+            .map(|row| row.get(0))
+            .unwrap();
+        assert_eq!("explicit", display_name);
+    });
+
+    test.run();
+}
