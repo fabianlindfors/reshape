@@ -1,6 +1,6 @@
 # alter_column
 
-Modify an existing column's type, name, nullability, or default value.
+Modify an existing column's type, name, nullability, default value or comment.
 
 ## Schema
 
@@ -17,6 +17,7 @@ down = "expression"           # Optional: SQL expression for old value
     type = "NEW_TYPE"         # Optional: change data type
     nullable = true           # Optional: change nullability
     default = "expression"    # Optional: change default value
+    comment = "description"   # Optional: change comment, empty removes it
 ```
 
 ## Fields
@@ -31,6 +32,7 @@ down = "expression"           # Optional: SQL expression for old value
 | `changes.type` | string | No | New data type |
 | `changes.nullable` | boolean | No | New nullability |
 | `changes.default` | string | No | New default value expression |
+| `changes.comment` | string | No | New comment on the column, an empty string removes it |
 
 ## Examples
 
@@ -86,6 +88,18 @@ column = "status"
     default = "'draft'"
 ```
 
+### Change Comment
+
+```toml
+[[actions]]
+type = "alter_column"
+table = "users"
+column = "name"
+
+    [actions.changes]
+    comment = "The name shown to other users"
+```
+
 ### Multiple Changes
 
 ```toml
@@ -120,8 +134,10 @@ down = "price / 100"
 
 ## Notes
 
-- If only renaming (no type/nullable/default changes), the column is renamed directly without a temporary column
+- If only renaming or changing the comment (no type/nullable/default changes), the column is changed directly without a temporary column
 - `up` and `down` reference the altered column by its existing name from `column`, even when `changes.name` renames it
 - The `up` expression can reference any column in the table
 - The `down` expression enables backward compatibility during rollout
 - Indices on the column are automatically duplicated to the new column
+- Comments on the column, its indices and its check constraints are carried over to the new column, unless `changes.comment` declares a new one
+- A new comment is visible through this migration's schema right away and only replaces the column's own comment once the migration completes, so aborting leaves the original comment

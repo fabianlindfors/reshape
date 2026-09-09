@@ -1,4 +1,6 @@
-use super::{Action, MigrationContext, NameField, References, SqlField, TableScope};
+use super::{
+    quote_string_literal, Action, MigrationContext, NameField, References, SqlField, TableScope,
+};
 use crate::sql::{rewrite_column_references, rewrite_index_definition};
 use crate::{
     db::{Conn, Transaction},
@@ -29,6 +31,7 @@ pub struct ColumnChanges {
     pub data_type: Option<String>,
     pub nullable: Option<bool>,
     pub default: Option<String>,
+    pub comment: Option<String>,
 }
 
 #[typetag::serde(name = "alter_column")]
@@ -43,9 +46,9 @@ impl Action for AlterColumn {
         db: &mut dyn Conn,
         schema: &Schema,
     ) -> anyhow::Result<()> {
-        // If we are only changing the name of a column, we don't have to do anything at this stage
-        // We'll set the new schema to point to the old column. When the migration is completed,
-        // we rename the actual column.
+        // If we are only changing the name or comment of a column, we don't have to do anything
+        // at this stage. We'll set the new schema to point to the old column. When the migration
+        // is completed, we rename the actual column and set its comment.
         if self.can_short_circuit() {
             return Ok(());
         }
@@ -79,6 +82,18 @@ impl Action for AlterColumn {
             temp_column_definition = temp_column_definition_parts.join(" "),
         );
         db.run(&query).context("failed to add temporary column")?;
+
+        // The comment on the column carries over to the temporary column which replaces
+        // it, unless the action declares a new one. Comments follow the column, so it will
+        // still be there once the temporary column is renamed to the final name.
+        let comment = match &self.changes.comment {
+            Some(comment) => Some(comment.to_string()),
+            None => common::get_column_comment(db, &table.real_name, &column.real_name)?,
+        };
+        if let Some(comment) = comment {
+            set_column_comment(db, &table.real_name, &temporary_column_name, &comment)
+                .context("failed to set column comment")?;
+        }
 
         // If up or down wasn't provided, we default to simply moving the value over.
         // This is the correct behaviour for example when only changing the default value.
@@ -173,6 +188,18 @@ impl Action for AlterColumn {
 
             db.query(&query)
                 .context("failed to create temporary index")?;
+
+            // The comment belongs to the index, so the copy needs its own
+            if let Some(comment) = &index.comment {
+                db.run(&format!(
+                    r#"
+                    COMMENT ON INDEX "{index_name}" IS {comment}
+                    "#,
+                    index_name = temp_index_name,
+                    comment = quote_string_literal(comment),
+                ))
+                .with_context(|| format!("failed to copy comment of index {}", index.name))?;
+            }
         }
 
         // Duplicate any check constraints which reference the column onto the temporary
@@ -210,6 +237,21 @@ impl Action for AlterColumn {
                     expression = expression,
                 ))
                 .with_context(|| format!("failed to copy check constraint {}", check.name))?;
+            }
+
+            // The comment belongs to the constraint, so the copy needs its own
+            if let Some(comment) = &check.comment {
+                db.run(&format!(
+                    r#"
+                    COMMENT ON CONSTRAINT "{constraint_name}" ON "{table}" IS {comment}
+                    "#,
+                    table = table.real_name,
+                    constraint_name = temp_check_name,
+                    comment = quote_string_literal(comment),
+                ))
+                .with_context(|| {
+                    format!("failed to copy comment of check constraint {}", check.name)
+                })?;
             }
 
             // Validating scans the table but doesn't block reads or writes
@@ -265,6 +307,15 @@ impl Action for AlterColumn {
                 db.run(&query).context("failed to rename column")?;
                 common::rename_not_null_constraint(db, &self.table, new_name)?;
             }
+
+            // No temporary column has been created to put the comment on, so the column
+            // itself is changed. This is left until now as it can't be undone by an abort.
+            if let Some(comment) = &self.changes.comment {
+                let column_name = self.changes.name.as_deref().unwrap_or(&self.column);
+                set_column_comment(db, &self.table, column_name, comment)
+                    .context("failed to set column comment")?;
+            }
+
             return Ok(None);
         }
 
@@ -430,16 +481,22 @@ impl Action for AlterColumn {
     }
 
     fn update_schema(&self, ctx: &MigrationContext, schema: &mut Schema) {
-        // If we are only changing the name of a column, we haven't created a temporary column
-        // Instead, we rename the schema column but point it to the old column
+        // If we are only changing the name or comment of a column, we haven't created a
+        // temporary column. Instead, we change the schema column but point it to the old column
         if self.can_short_circuit() {
-            if let Some(new_name) = &self.changes.name {
-                schema.change_table(&self.table, |table_changes| {
-                    table_changes.change_column(&self.column, |column_changes| {
+            schema.change_table(&self.table, |table_changes| {
+                table_changes.change_column(&self.column, |column_changes| {
+                    if let Some(new_name) = &self.changes.name {
                         column_changes.set_name(new_name);
-                    });
+                    }
+
+                    // The comment isn't set on the column until the migration completes,
+                    // so the new schema has to declare it to expose it
+                    if let Some(comment) = &self.changes.comment {
+                        column_changes.set_comment(comment);
+                    }
                 });
-            }
+            });
 
             return;
         }
@@ -459,6 +516,9 @@ impl Action for AlterColumn {
                 }
                 if let Some(default) = &self.changes.default {
                     column_changes.set_default(default);
+                }
+                if let Some(comment) = &self.changes.comment {
+                    column_changes.set_comment(comment);
                 }
 
                 // The new schema should expose the column under its new name, if renamed.
@@ -592,10 +652,36 @@ impl AlterColumn {
         )
     }
 
+    // Whether the change can be made without a temporary column. Renaming a column and
+    // changing its comment leave the values alone, so the new schema can point at the
+    // existing column and the change be made when the migration completes.
     fn can_short_circuit(&self) -> bool {
-        self.changes.name.is_some()
+        (self.changes.name.is_some() || self.changes.comment.is_some())
             && self.changes.data_type.is_none()
             && self.changes.nullable.is_none()
             && self.changes.default.is_none()
     }
+}
+
+// Sets the comment on a column, or removes it if the comment is empty. An empty comment
+// is how a migration asks for the comment to be removed, as TOML has no null value.
+fn set_column_comment(
+    db: &mut dyn Conn,
+    table: &str,
+    column: &str,
+    comment: &str,
+) -> anyhow::Result<()> {
+    let value = if comment.is_empty() {
+        "NULL".to_string()
+    } else {
+        quote_string_literal(comment)
+    };
+
+    db.run(&format!(
+        r#"
+        COMMENT ON COLUMN "{table}"."{column}" IS {value}
+        "#,
+    ))?;
+
+    Ok(())
 }

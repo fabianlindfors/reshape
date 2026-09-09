@@ -658,7 +658,15 @@ fn copy_comments_to_view(db: &mut impl Conn, table: &Table, schema: &str) -> any
         .collect();
 
     for column in &table.columns {
-        if let Some(comment) = column_comments.get(&column.real_name) {
+        // A comment declared by an action of this migration takes precedence over the one
+        // on the backing column, as the change isn't applied until the migration completes
+        let comment = column
+            .comment
+            .as_ref()
+            .or_else(|| column_comments.get(&column.real_name))
+            .filter(|comment| !comment.is_empty());
+
+        if let Some(comment) = comment {
             db.run(&format!(
                 r#"
                 COMMENT ON COLUMN {schema}."{view_name}"."{column_name}" IS {comment}

@@ -1,5 +1,5 @@
 mod common;
-use common::{assert_invalid, Test};
+use common::{assert_invalid, get_column_comment, Test};
 
 #[test]
 fn alter_column_invalid_up_sql() {
@@ -456,6 +456,367 @@ fn alter_column_keeps_check_constraints_referencing_column() {
         assert!(db
             .simple_query("INSERT INTO users (id, score, max_score) VALUES (3, -1, 10)")
             .is_err());
+    });
+
+    test.run();
+}
+
+fn index_comment(db: &mut postgres::Client, index: &str) -> Option<String> {
+    db.query(
+        "SELECT obj_description($1::text::regclass, 'pg_class') AS comment",
+        &[&index],
+    )
+    .unwrap()
+    .first()
+    .and_then(|row| row.get("comment"))
+}
+
+fn constraint_comment(db: &mut postgres::Client, table: &str, constraint: &str) -> Option<String> {
+    db.query(
+        "
+        SELECT obj_description(c.oid, 'pg_constraint') AS comment
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = $1 AND c.conname = $2
+        ",
+        &[&table, &constraint],
+    )
+    .unwrap()
+    .first()
+    .and_then(|row| row.get("comment"))
+}
+
+#[test]
+fn alter_column_keeps_comments() {
+    let mut test = Test::new("Alter column keeps comments");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+            comment = "The user's display name"
+
+            [[actions.checks]]
+            name = "users_name_not_empty"
+            expression = "name <> ''"
+
+        [[actions]]
+        type = "add_index"
+        table = "users"
+
+            [actions.index]
+            name = "users_name_idx"
+            columns = ["name"]
+        "#,
+    );
+
+    test.after_first(|db| {
+        // Neither add_index nor add_check can set a comment, so they are set directly
+        db.simple_query(
+            "
+            COMMENT ON INDEX public.users_name_idx IS 'Lookups by name';
+            COMMENT ON CONSTRAINT users_name_not_empty ON public.users IS 'Names can''t be blank';
+            ",
+        )
+        .unwrap();
+    });
+
+    test.second_migration(
+        r#"
+        name = "alter_users_name"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        up = "name"
+        down = "name"
+
+            [actions.changes]
+            name = "full_name"
+            type = "VARCHAR(255)"
+        "#,
+    );
+
+    test.intermediate(|old_db, new_db| {
+        // The comment is visible through both schemas, even though the new schema is
+        // backed by the temporary column
+        assert_eq!(
+            Some("The user's display name".to_string()),
+            get_column_comment(old_db, "users", "name")
+        );
+        assert_eq!(
+            Some("The user's display name".to_string()),
+            get_column_comment(new_db, "users", "full_name")
+        );
+    });
+
+    test.after_completion(|db| {
+        // The comments follow the column, index and check constraint which replace the
+        // originals on completion
+        assert_eq!(
+            Some("The user's display name".to_string()),
+            get_column_comment(db, "public.users", "full_name")
+        );
+        assert_eq!(
+            Some("Lookups by name".to_string()),
+            index_comment(db, "public.users_name_idx")
+        );
+        assert_eq!(
+            Some("Names can't be blank".to_string()),
+            constraint_comment(db, "users", "users_name_not_empty")
+        );
+    });
+
+    test.after_abort(|db| {
+        // The originals, and their comments, are left as they were
+        assert_eq!(
+            Some("The user's display name".to_string()),
+            get_column_comment(db, "public.users", "name")
+        );
+        assert_eq!(
+            Some("Lookups by name".to_string()),
+            index_comment(db, "public.users_name_idx")
+        );
+        assert_eq!(
+            Some("Names can't be blank".to_string()),
+            constraint_comment(db, "users", "users_name_not_empty")
+        );
+    });
+
+    test.run();
+}
+
+fn column_names(db: &mut postgres::Client, table: &str) -> Vec<String> {
+    db.query(
+        "
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = $1
+        ORDER BY ordinal_position
+        ",
+        &[&table],
+    )
+    .unwrap()
+    .iter()
+    .map(|row| row.get("column_name"))
+    .collect()
+}
+
+#[test]
+fn alter_column_sets_comment() {
+    let mut test = Test::new("Alter column sets comment");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+            comment = "The user's display name"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "alter_users_name"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        up = "name"
+        down = "name"
+
+            [actions.changes]
+            type = "VARCHAR(255)"
+            comment = "The name shown to other users"
+        "#,
+    );
+
+    test.intermediate(|old_db, new_db| {
+        // The new comment applies to the new schema whereas the old schema keeps the
+        // comment it was migrated with
+        assert_eq!(
+            Some("The user's display name".to_string()),
+            get_column_comment(old_db, "users", "name")
+        );
+        assert_eq!(
+            Some("The name shown to other users".to_string()),
+            get_column_comment(new_db, "users", "name")
+        );
+    });
+
+    test.after_completion(|db| {
+        assert_eq!(
+            Some("The name shown to other users".to_string()),
+            get_column_comment(db, "public.users", "name")
+        );
+    });
+
+    test.after_abort(|db| {
+        // The original comment is left as it was
+        assert_eq!(
+            Some("The user's display name".to_string()),
+            get_column_comment(db, "public.users", "name")
+        );
+    });
+
+    test.run();
+}
+
+#[test]
+fn alter_column_sets_comment_without_other_changes() {
+    let mut test = Test::new("Alter column sets comment without other changes");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+            comment = "The user's display name"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "alter_users_name"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+
+            [actions.changes]
+            comment = "The name shown to other users"
+        "#,
+    );
+
+    test.intermediate(|old_db, new_db| {
+        // Changing nothing but the comment doesn't require a temporary column
+        assert_eq!(vec!["id", "name"], column_names(old_db, "users"));
+
+        // The comment isn't set on the column until the migration completes, but the
+        // new schema exposes it right away
+        assert_eq!(
+            Some("The user's display name".to_string()),
+            get_column_comment(old_db, "public.users", "name")
+        );
+        assert_eq!(
+            Some("The name shown to other users".to_string()),
+            get_column_comment(new_db, "users", "name")
+        );
+    });
+
+    test.after_completion(|db| {
+        assert_eq!(
+            Some("The name shown to other users".to_string()),
+            get_column_comment(db, "public.users", "name")
+        );
+    });
+
+    test.after_abort(|db| {
+        assert_eq!(
+            Some("The user's display name".to_string()),
+            get_column_comment(db, "public.users", "name")
+        );
+    });
+
+    test.run();
+}
+
+#[test]
+fn alter_column_removes_comment() {
+    let mut test = Test::new("Alter column removes comment");
+
+    test.first_migration(
+        r#"
+        name = "create_users_table"
+
+        [[actions]]
+        type = "create_table"
+        name = "users"
+        primary_key = ["id"]
+
+            [[actions.columns]]
+            name = "id"
+            type = "INTEGER"
+
+            [[actions.columns]]
+            name = "name"
+            type = "TEXT"
+            comment = "The user's display name"
+        "#,
+    );
+
+    test.second_migration(
+        r#"
+        name = "alter_users_name"
+
+        [[actions]]
+        type = "alter_column"
+        table = "users"
+        column = "name"
+        up = "name"
+        down = "name"
+
+            # An empty comment removes the comment from the column
+            [actions.changes]
+            type = "VARCHAR(255)"
+            comment = ""
+        "#,
+    );
+
+    test.intermediate(|old_db, new_db| {
+        assert_eq!(
+            Some("The user's display name".to_string()),
+            get_column_comment(old_db, "users", "name")
+        );
+        assert_eq!(None, get_column_comment(new_db, "users", "name"));
+    });
+
+    test.after_completion(|db| {
+        assert_eq!(None, get_column_comment(db, "public.users", "name"));
+    });
+
+    test.after_abort(|db| {
+        assert_eq!(
+            Some("The user's display name".to_string()),
+            get_column_comment(db, "public.users", "name")
+        );
     });
 
     test.run();

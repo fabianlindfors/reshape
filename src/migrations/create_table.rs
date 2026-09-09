@@ -56,6 +56,10 @@ impl CreateTable {
                     data_type: column.data_type.clone(),
                     nullable: column.nullable,
                     default: column.default.clone(),
+
+                    // The comments are set on the table when it's created, so the views
+                    // pick them up from there
+                    comment: None,
                 })
                 .collect(),
         }

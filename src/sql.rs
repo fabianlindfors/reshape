@@ -520,6 +520,7 @@ mod tests {
             data_type: "TEXT".to_string(),
             nullable: true,
             default: None,
+            comment: None,
         }
     }
 

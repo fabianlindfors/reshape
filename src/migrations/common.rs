@@ -267,6 +267,7 @@ pub fn primary_key_match(table: &str, primary_key: &[String], other: &str) -> St
 pub struct Index {
     pub name: String,
     pub oid: u32,
+    pub comment: Option<String>,
 }
 
 // Finds all indices which reference a column, either as a key or included column or
@@ -283,7 +284,8 @@ pub fn get_indices_for_column(
             "
             SELECT DISTINCT
                 i.relname AS name,
-                i.oid AS oid
+                i.oid AS oid,
+                obj_description(i.oid, 'pg_class') AS comment
             FROM pg_index ix
             JOIN pg_class t ON t.oid = ix.indrelid
             JOIN pg_class i ON i.oid = ix.indexrelid
@@ -314,6 +316,7 @@ pub fn get_indices_for_column(
         .map(|row| Index {
             name: row.get("name"),
             oid: row.get("oid"),
+            comment: row.get("comment"),
         })
         .collect();
 
@@ -324,6 +327,7 @@ pub struct CheckConstraint {
     pub name: String,
     pub oid: u32,
     pub expression: String,
+    pub comment: Option<String>,
 }
 
 // Finds all CHECK constraints which reference a column, including ones which span
@@ -339,7 +343,8 @@ pub fn get_check_constraints_for_column(
             SELECT
                 c.conname AS name,
                 c.oid AS oid,
-                pg_get_expr(c.conbin, c.conrelid) AS expression
+                pg_get_expr(c.conbin, c.conrelid) AS expression,
+                obj_description(c.oid, 'pg_constraint') AS comment
             FROM pg_constraint c
             JOIN pg_class t ON t.oid = c.conrelid
             JOIN pg_namespace n ON n.oid = t.relnamespace
@@ -361,6 +366,7 @@ pub fn get_check_constraints_for_column(
             name: row.get("name"),
             oid: row.get("oid"),
             expression: row.get("expression"),
+            comment: row.get("comment"),
         })
         .collect();
 
@@ -399,6 +405,33 @@ pub fn check_constraint_exists(
         .is_empty();
 
     Ok(exists)
+}
+
+// The comment on a column, if it has one
+pub fn get_column_comment(
+    db: &mut dyn Conn,
+    table: &str,
+    column: &str,
+) -> anyhow::Result<Option<String>> {
+    let comment = db
+        .query_with_params(
+            "
+            SELECT col_description(a.attrelid, a.attnum) AS comment
+            FROM pg_attribute a
+            JOIN pg_class t ON t.oid = a.attrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE
+                n.nspname = 'public' AND
+                t.relname = $1 AND
+                a.attname = $2
+            ",
+            &[&table, &column],
+        )
+        .context("failed to get column comment")?
+        .first()
+        .and_then(|row| row.get::<'_, _, Option<String>>("comment"));
+
+    Ok(comment)
 }
 
 // The CREATE INDEX statement which defines an index
