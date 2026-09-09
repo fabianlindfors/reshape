@@ -533,6 +533,16 @@ pub fn bounded_identifier(head: &str, body: &str, tail: &str) -> String {
     format!("{head}{}_{hash}{tail}", &body[..cut])
 }
 
+/// Cuts an identifier down to Postgres' limit the same way Postgres does, so that a name
+/// built by reshape matches what Postgres reports back, for example in `search_path`.
+pub fn truncate_identifier(name: &str) -> String {
+    let mut cut = MAX_IDENTIFIER_LENGTH.min(name.len());
+    while !name.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    name[..cut].to_string()
+}
+
 // 64-bit FNV-1a. Names are recomputed on every run, so the hash has to be stable
 // across processes and versions, which rules out the standard library's hasher.
 fn fnv1a_hash(input: &str) -> u64 {
@@ -587,6 +597,19 @@ mod tests {
             "",
         );
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn truncate_identifier_cuts_at_the_limit() {
+        assert_eq!("migration_short", truncate_identifier("migration_short"));
+
+        let long = format!("migration_{}", "a".repeat(60));
+        assert_eq!(&long[..63], truncate_identifier(&long));
+
+        let multibyte = format!("migration_{}", "ä".repeat(30));
+        let truncated = truncate_identifier(&multibyte);
+        assert_eq!(62, truncated.len());
+        assert!(multibyte.starts_with(&truncated));
     }
 
     #[test]
