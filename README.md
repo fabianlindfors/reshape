@@ -24,6 +24,8 @@ Designed for Postgres 12 and later.
     - [Remove table](#remove-table)
     - [Add foreign key](#add-foreign-key)
     - [Remove foreign key](#remove-foreign-key)
+    - [Add check](#add-check)
+    - [Remove check](#remove-check)
   - [Columns](#columns)
     - [Add column](#add-column)
     - [Alter column](#alter-column)
@@ -358,6 +360,49 @@ type = "remove_foreign_key"
 table = "items"
 foreign_key = "items_user_id_fkey"
 ```
+
+#### Add check
+
+The `add_check` action will add a check constraint to an existing table. The migration will fail if any existing rows don't satisfy the check. Once added, the check is enforced for both the old and the new schema, so your existing application must already write rows which satisfy it.
+
+_Example: add check that `age` on `users` table is not negative_
+
+```toml
+[[actions]]
+type = "add_check"
+table = "users"
+
+	[actions.check]
+	name = "users_age_check"
+	expression = "age >= 0"
+```
+
+_Example: add check spanning multiple columns_
+
+```toml
+[[actions]]
+type = "add_check"
+table = "bookings"
+
+	[actions.check]
+	name = "bookings_period_check"
+	expression = "ends_at > starts_at"
+```
+
+#### Remove check
+
+The `remove_check` action will remove an existing check constraint. The check will only be removed once the migration is completed, which means that your new application must continue to adhere to the check.
+
+_Example: remove check `users_age_check` from `users` table_
+
+```toml
+[[actions]]
+type = "remove_check"
+table = "users"
+check = "users_age_check"
+```
+
+To replace a check, remove it and add a new one with the same name in the same migration. Both checks are enforced until the migration is completed.
 
 ### Columns
 

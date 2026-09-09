@@ -176,13 +176,14 @@ impl Action for AlterColumn {
         // Dropping the old column on completion also drops every check constraint involving
         // it, so these copies are what remain afterwards. Each copy is validated right away
         // so that an `up` transformation which breaks a check fails the migration while it
-        // can still be aborted.
+        // can still be aborted. Checks which the migration removes aren't copied, as they
+        // are dropped on completion anyway.
         let checks =
             common::get_check_constraints_for_column(db, &table.real_name, &column.real_name)?;
-        for check in checks
-            .into_iter()
-            .filter(|check| !common::is_temporary_not_null_constraint(&check.name))
-        {
+        for check in checks.into_iter().filter(|check| {
+            !common::is_temporary_not_null_constraint(&check.name)
+                && !schema.is_check_removed(&self.table, &check.name)
+        }) {
             let temp_check_name = self.temp_check_name(ctx, check.oid);
 
             if !common::check_constraint_exists(db, &table.real_name, &temp_check_name)? {

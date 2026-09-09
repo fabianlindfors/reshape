@@ -97,6 +97,8 @@ After having written new migrations, ALWAYS run `specific check` to ensure the m
 | -------------------- | ---------------------------- | ----------------------------- |
 | `add_foreign_key`    | Add a foreign key constraint | `/actions/add-foreign-key`    |
 | `remove_foreign_key` | Remove a foreign key         | `/actions/remove-foreign-key` |
+| `add_check`          | Add a check constraint       | `/actions/add-check`          |
+| `remove_check`       | Remove a check constraint    | `/actions/remove-check`       |
 
 ## Custom Operations
 

@@ -392,6 +392,12 @@ pub use add_foreign_key::AddForeignKey;
 mod remove_foreign_key;
 pub use remove_foreign_key::RemoveForeignKey;
 
+mod add_check;
+pub use add_check::AddCheck;
+
+mod remove_check;
+pub use remove_check::RemoveCheck;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Migration {
     pub name: String,
