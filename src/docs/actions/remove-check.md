@@ -42,4 +42,3 @@ check = "users_age_check"
 - This ensures data consistency for the old schema
 - The constraint is only removed during completion
 - To replace a check, remove it and add a new one with the same name in the same migration (see `add_check`)
-- Find constraint names using: `\d table_name` in psql

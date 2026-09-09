@@ -27,12 +27,6 @@ impl Action for RemoveCheck {
         db: &mut dyn Conn,
         schema: &Schema,
     ) -> anyhow::Result<()> {
-        // The check is only removed once the migration is completed, for the same
-        // reasons as a foreign key: removing it earlier would let the new schema write
-        // rows which the old schema still expects to satisfy the check, and if the
-        // migration was aborted the check would have to be recreated with the risk that
-        // the data no longer satisfies it.
-
         // Ensure check exists
         let table = schema.get_table(db, &self.table)?;
         if !common::check_constraint_exists(db, &table.real_name, &self.check)? {

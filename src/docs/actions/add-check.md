@@ -7,11 +7,11 @@ Add a check constraint to a table.
 ```toml
 [[actions]]
 type = "add_check"
-table = "table_name"          # Required: table to add the check to
+table = "table_name"
 
-    [actions.check]           # Required: check definition
-    name = "constraint_name"  # Required: name of the constraint
-    expression = "col > 0"    # Required: SQL expression every row must satisfy
+    [actions.check]
+    name = "constraint_name"
+    expression = "col > 0"
 ```
 
 ## Fields
@@ -80,5 +80,3 @@ table = "users"
 
 - The check is enforced immediately for new inserts and updates, from both the old and the new schema. Reshape assumes the existing application already writes rows which satisfy it.
 - Existing data is validated after creation, as for foreign keys
-- The check fails if a constraint with the same name already exists, unless the same migration removes it first.
-- A `NULL` result satisfies a check, following Postgres semantics.

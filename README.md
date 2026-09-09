@@ -404,23 +404,6 @@ check = "users_age_check"
 
 To replace a check, remove it and add a new one with the same name in the same migration. Both checks are enforced until the migration is completed.
 
-_Example: allow negative ages down to -10_
-
-```toml
-[[actions]]
-type = "remove_check"
-table = "users"
-check = "users_age_check"
-
-[[actions]]
-type = "add_check"
-table = "users"
-
-	[actions.check]
-	name = "users_age_check"
-	expression = "age >= -10"
-```
-
 ### Columns
 
 #### Add column
