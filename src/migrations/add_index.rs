@@ -172,46 +172,20 @@ impl Action for AddIndex {
             .map(|kind| format!("USING {kind}"))
             .unwrap_or_default();
 
-        let mut owned = match OwnedIndex::load(db, ctx)? {
-            Some(owned) => owned,
-            None => {
-                // Check before reserving ownership: abort must never touch a conflicting index.
-                if relation_oid(db, &self.index.name)?.is_some() {
-                    bail!(
-                        "index name conflict: public.{} already exists",
-                        self.index.name
-                    );
-                }
-                let table_oid = relation_oid(db, &table.real_name)?
-                    .ok_or_else(|| anyhow!("index table disappeared"))?;
-                let temporary_name = format!("__reshape_idx_{:032x}", rand::random::<u128>());
-                if relation_oid(db, &temporary_name)?.is_some() {
-                    bail!("temporary index name conflict: {temporary_name}");
-                }
-                let owned = OwnedIndex {
-                    temporary_name,
-                    table_oid,
-                    index_oid: None,
-                    published: false,
-                };
-                // Commit the random name before CREATE, which can commit even on failure.
-                owned.save(db, ctx)?;
-                owned
-            }
-        };
-
-        // Reconcile a previous interrupted attempt before issuing any new DDL.
-        match owned.inspect(db, ctx)? {
-            Some(index) if index.valid => return self.publish(db, ctx, &mut owned, &index),
-            Some(_) => owned.drop_index(db, ctx)?,
-            None if owned.index_oid.is_some() => owned.drop_index(db, ctx)?,
-            None => {}
-        }
+        // Like check constraints, keep the action's reserved temporary name until
+        // completion. Abort never needs to infer ownership of the requested name.
         if relation_oid(db, &self.index.name)?.is_some() {
             bail!(
                 "index name conflict: public.{} already exists",
                 self.index.name
             );
+        }
+        let table_oid = relation_oid(db, &table.real_name)?
+            .ok_or_else(|| anyhow!("index table disappeared"))?;
+        match self.inspect(db, ctx, Some(table_oid))? {
+            Some(true) => return self.set_comment(db, ctx),
+            Some(false) => self.drop_temporary_index(db, ctx)?,
+            None => {}
         }
 
         const MAX_ATTEMPTS: u32 = 10;
@@ -219,16 +193,11 @@ impl Action for AddIndex {
         for attempt in 0..MAX_ATTEMPTS {
             let create = format!(
                 "CREATE {unique} INDEX CONCURRENTLY {name} ON public.{table} {index_type_def} ({columns}) {where_def}",
-                name = quote_identifier(&owned.temporary_name),
+                name = quote_identifier(&self.temporary_name(ctx)),
                 table = quote_identifier(&table.real_name),
             );
             match db.run_once(&create) {
-                Ok(()) => {
-                    let index = owned
-                        .inspect(db, ctx)?
-                        .ok_or_else(|| anyhow!("created index disappeared"))?;
-                    return self.publish(db, ctx, &mut owned, &index);
-                }
+                Ok(()) => return self.set_comment(db, ctx),
                 Err(error) => {
                     let retryable = error.code() == Some(&SqlState::LOCK_NOT_AVAILABLE);
                     let unknown_outcome = error.as_db_error().is_none_or(|error| {
@@ -238,28 +207,28 @@ impl Action for AddIndex {
                     first_error.get_or_insert(error);
                     if unknown_outcome {
                         // Never replay DDL on a broken connection. The next invocation holds
-                        // the advisory lock and reconciles the persisted name/OID first.
+                        // the advisory lock and reconciles the temporary index first.
                         return Err(anyhow::Error::new(first_error.take().unwrap()))
-                            .context("index creation outcome unknown after connection loss; ownership retained for reconciliation by migrate or abort");
+                            .context("index creation outcome unknown after connection loss; temporary index retained for reconciliation by migrate or abort");
                     }
-                    let blockers = blocker_information(db, owned.table_oid);
-                    match owned.inspect(db, ctx) {
-                        Ok(Some(index)) if index.valid => {
-                            return self.publish(db, ctx, &mut owned, &index);
+                    let blockers = blocker_information(db, table_oid);
+                    match self.inspect(db, ctx, Some(table_oid)) {
+                        Ok(Some(true)) => {
+                            return self.set_comment(db, ctx);
                         }
                         Err(reconcile) => {
                             return Err(anyhow::Error::new(first_error.take().unwrap())).with_context(|| format!(
-                                "index reconciliation failed: {reconcile:#}; ownership retained for abort; {blockers}"
+                                "index reconciliation failed: {reconcile:#}; temporary index retained for abort; {blockers}"
                             ));
                         }
                         _ => {}
                     }
                     // Also clean up non-retryable failures, e.g. an invalid unique index
                     // which PostgreSQL may still use to enforce uniqueness.
-                    let cleanup = owned.drop_index(db, ctx);
+                    let cleanup = self.drop_temporary_index(db, ctx);
                     if let Err(cleanup) = cleanup {
                         let context = format!(
-                            "index creation failed; cleanup failed: {cleanup:#}; ownership retained for abort; {blockers}"
+                            "index creation failed; cleanup failed: {cleanup:#}; temporary index retained for abort; {blockers}"
                         );
                         return Err(anyhow::Error::new(first_error.take().unwrap()))
                             .context(context);
@@ -283,19 +252,26 @@ impl Action for AddIndex {
         ctx: &MigrationContext,
         db: &'a mut dyn Conn,
     ) -> anyhow::Result<Option<Transaction<'a>>> {
+        if self.inspect(db, ctx, None)?.is_none() {
+            return Ok(None);
+        }
         let mut transaction = db.transaction()?;
-        OwnedIndex::forget(&mut transaction, ctx)?;
+        transaction
+            .run_once(&format!(
+                "ALTER INDEX public.{} RENAME TO {}",
+                quote_identifier(&self.temporary_name(ctx)),
+                quote_identifier(&self.index.name),
+            ))
+            .context("failed to rename temporary index (possible index name conflict)")?;
+        // The existing migration state is saved in this same transaction, so an
+        // interrupted completion cannot commit the rename without its progress.
         Ok(Some(transaction))
     }
 
     fn update_schema(&self, _ctx: &MigrationContext, _schema: &mut Schema) {}
 
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
-        if let Some(mut owned) = OwnedIndex::load(db, ctx)? {
-            owned.drop_index(db, ctx)?;
-            OwnedIndex::forget(db, ctx)?;
-        }
-        Ok(())
+        self.drop_temporary_index(db, ctx)
     }
 
     fn sql_fields(&self) -> Vec<SqlField> {
@@ -358,143 +334,67 @@ fn relation_oid(db: &mut dyn Conn, name: &str) -> anyhow::Result<Option<u32>> {
     )?.first().map(|row| row.get(0)))
 }
 
-// Names are random, reserved for this action, and saved before any non-transactional
-// DDL. Once known, the OID is authoritative, including after a rename or a DROP
-// whose acknowledgement was lost. Never infer ownership from the requested name.
-#[derive(Serialize, Deserialize)]
-struct OwnedIndex {
-    temporary_name: String,
-    table_oid: u32,
-    index_oid: Option<u32>,
-    published: bool,
-}
-
-struct IndexIdentity {
-    name: String,
-    namespace: String,
-    valid: bool,
-}
-
-impl OwnedIndex {
-    fn key(ctx: &MigrationContext) -> String {
-        format!("{}_add_index", ctx.prefix())
+impl AddIndex {
+    fn temporary_name(&self, ctx: &MigrationContext) -> String {
+        ctx.name("add_index", &[&self.index.name], "")
     }
 
-    fn load(db: &mut dyn Conn, ctx: &MigrationContext) -> anyhow::Result<Option<Self>> {
-        db.query_with_params(
-            "SELECT value FROM reshape.data WHERE key = $1",
-            &[&Self::key(ctx)],
-        )?
-        .first()
-        .map(|row| serde_json::from_value(row.get(0)).map_err(Into::into))
-        .transpose()
-    }
-
-    fn save(&self, db: &mut dyn Conn, ctx: &MigrationContext) -> anyhow::Result<()> {
-        db.query_with_params(
-            "INSERT INTO reshape.data (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-            &[&Self::key(ctx), &serde_json::to_value(self)?],
-        )?;
-        Ok(())
-    }
-
-    fn forget(db: &mut dyn Conn, ctx: &MigrationContext) -> anyhow::Result<()> {
-        db.query_with_params(
-            "DELETE FROM reshape.data WHERE key = $1",
-            &[&Self::key(ctx)],
-        )?;
-        Ok(())
-    }
-
+    // Recover using the reserved action name and PostgreSQL's catalog, without
+    // storing action-specific state. A valid index can be reused after interruption;
+    // an invalid one must be removed before another CREATE is attempted.
     fn inspect(
-        &mut self,
+        &self,
         db: &mut dyn Conn,
         ctx: &MigrationContext,
-    ) -> anyhow::Result<Option<IndexIdentity>> {
-        let oid = match self.index_oid {
-            Some(oid) => oid,
-            None => match relation_oid(db, &self.temporary_name)? {
-                Some(oid) => oid,
-                None => return Ok(None),
-            },
-        };
+        table_oid: Option<u32>,
+    ) -> anyhow::Result<Option<bool>> {
         let rows = db.query_with_params(
-            "SELECT c.relname, n.nspname, i.indrelid, i.indisvalid
-             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-             LEFT JOIN pg_index i ON i.indexrelid = c.oid WHERE c.oid = $1",
-            &[&oid],
+            "SELECT i.indrelid, i.indisvalid FROM pg_class c
+             LEFT JOIN pg_index i ON i.indexrelid = c.oid
+             WHERE c.relnamespace = 'public'::regnamespace AND c.relname = $1::name",
+            &[&self.temporary_name(ctx)],
         )?;
         let Some(row) = rows.first() else {
             return Ok(None);
         };
-        if row.get::<_, Option<u32>>("indrelid") != Some(self.table_oid) {
-            bail!("index ownership conflict: refusing to modify relation OID {oid}");
+        let actual_table: Option<u32> = row.get("indrelid");
+        if actual_table.is_none()
+            || table_oid.is_some_and(|expected| actual_table != Some(expected))
+        {
+            bail!(
+                "temporary index name conflict: {}",
+                self.temporary_name(ctx)
+            );
         }
-        if self.index_oid.is_none() {
-            self.index_oid = Some(oid);
-            self.save(db, ctx)?;
-        }
-        Ok(Some(IndexIdentity {
-            name: row.get("relname"),
-            namespace: row.get("nspname"),
-            valid: row.get("indisvalid"),
-        }))
+        Ok(Some(row.get("indisvalid")))
     }
 
-    fn drop_index(&mut self, db: &mut dyn Conn, ctx: &MigrationContext) -> anyhow::Result<()> {
-        if let Some(index) = self.inspect(db, ctx)? {
-            // A concurrent DROP can itself commit partial work. Keep metadata until
-            // it succeeds; a later abort will inspect the same OID and resume it.
-            db.run_once(&format!(
-                "DROP INDEX CONCURRENTLY {}.{}",
-                quote_identifier(&index.namespace),
-                quote_identifier(&index.name)
-            ))?;
-        }
-        self.index_oid = None;
-        self.published = false;
-        // Never adopt a replacement at the previous name after observing a missing
-        // OID, nor reuse a name after a successful DROP.
-        self.temporary_name = format!("__reshape_idx_{:032x}", rand::random::<u128>());
-        self.save(db, ctx)?;
-        Ok(())
-    }
-}
-
-impl AddIndex {
-    fn publish(
+    fn drop_temporary_index(
         &self,
         db: &mut dyn Conn,
         ctx: &MigrationContext,
-        owned: &mut OwnedIndex,
-        index: &IndexIdentity,
     ) -> anyhow::Result<()> {
-        if !index.valid {
-            bail!("cannot publish an invalid index");
-        }
-        if owned.published {
-            return Ok(());
-        }
-        let mut transaction = db.transaction()?;
-        transaction
-            .run_once(&format!(
-                "ALTER INDEX {}.{} RENAME TO {}",
-                quote_identifier(&index.namespace),
-                quote_identifier(&index.name),
-                quote_identifier(&self.index.name)
-            ))
-            .context("failed to publish index (possible index name conflict)")?;
-        if let Some(comment) = &self.index.comment {
-            transaction.run_once(&format!(
-                "COMMENT ON INDEX {}.{} IS {}",
-                quote_identifier(&index.namespace),
-                quote_identifier(&self.index.name),
-                quote_string_literal(comment)
+        if self.inspect(db, ctx, None)?.is_some() {
+            // A concurrent DROP can also commit partial work. A later abort can
+            // inspect and drop the same temporary index if this fails.
+            db.run_once(&format!(
+                "DROP INDEX CONCURRENTLY public.{}",
+                quote_identifier(&self.temporary_name(ctx))
             ))?;
         }
-        owned.published = true;
-        owned.save(&mut transaction, ctx)?;
-        transaction.commit()
+        Ok(())
+    }
+
+    fn set_comment(&self, db: &mut dyn Conn, ctx: &MigrationContext) -> anyhow::Result<()> {
+        if let Some(comment) = &self.index.comment {
+            db.run(&format!(
+                "COMMENT ON INDEX public.{} IS {}",
+                quote_identifier(&self.temporary_name(ctx)),
+                quote_string_literal(comment)
+            ))
+            .context("failed to set index comment")?;
+        }
+        Ok(())
     }
 }
 

@@ -152,31 +152,34 @@ table = "documents"
 
 1. **Start phase**:
    - Uses `CREATE INDEX CONCURRENTLY`
-   - Builds under a persisted unique temporary name, then publishes the requested name
+   - Builds under an action-specific temporary name in Reshape's reserved namespace
    - Retries lock timeouts up to ten attempts with exponential backoff and jitter,
      removing the action's incomplete index before each retry
 
 2. **Complete phase**:
-   - Removes the action's recovery metadata
+   - Renames the temporary index to the requested name
 
 3. **Abort phase**:
-   - Removes only the index owned by this action
+   - Removes only the action's temporary index; never drops the requested name
 
 ## Notes
 
 - Concurrent creation avoids blocking application reads and writes on live tables
 - An existing relation with the requested index name causes a conflict and is left intact
-- If cleanup fails, Reshape preserves recovery metadata. Release the blocker and run
-  `reshape migration abort` again to finish cleanup. Application queries are never
+- If cleanup fails, the temporary index remains available for a later abort. Release the
+  blocker and run `reshape migration abort` again. Application queries are never
   automatically cancelled
 - Connection loss can leave the result of index creation unknown. A subsequent migrate
-  (if still applying) or abort reconciles the saved temporary name and index identity
-  before changing the index. Errors retain the original PostgreSQL failure, the cleanup
-  outcome, and available information about possible blockers
-- Recovery metadata is available for actions started with this version. An older pending
-  action without ownership metadata is not dropped automatically on abort; inspect any
-  leftover index manually rather than assuming it belongs to the migration
-- The index is immediately available after the start phase
+  (if still applying) or abort inspects the temporary index in PostgreSQL's catalog.
+  A valid build is reused; an invalid build is removed before retrying. No action-specific
+  records are stored in `reshape.data`
+- Errors retain the original PostgreSQL failure, the cleanup outcome, and available
+  information about possible blockers
+- Indexes started by older Reshape versions under their final names are left untouched
+  on abort; inspect any leftover index manually rather than assuming ownership
+- The index is usable immediately after the start phase, including uniqueness enforcement.
+  Its requested name is assigned during completion, so SQL referring to that name must
+  wait until completion
 - For unique indexes, existing data must not have duplicates
 - Expressions and `where` predicates reference columns by their current names, just like
   plain column entries. Columns which are added, altered or renamed earlier in the same

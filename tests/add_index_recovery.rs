@@ -92,10 +92,12 @@ fn wait_for_query(db: &mut Client, prefix: &str) -> i32 {
     }
 }
 
+const TEMP_INDEX: &str = "__reshape_0000_0000_add_index_users_value_idx";
+
 fn assert_clean(db: &mut Client) {
     let count: i64 = db
         .query_one(
-            "SELECT count(*) FROM reshape.data WHERE key LIKE '%_add_index'",
+            "SELECT count(*) FROM reshape.data WHERE key NOT IN ('state', 'version')",
             &[],
         )
         .unwrap()
@@ -103,7 +105,7 @@ fn assert_clean(db: &mut Client) {
     assert_eq!(count, 0);
     let count: i64 = db
         .query_one(
-            "SELECT count(*) FROM pg_class WHERE relname LIKE '__reshape_idx_%'",
+            "SELECT count(*) FROM pg_class WHERE relname LIKE '__reshape%add_index%'",
             &[],
         )
         .unwrap()
@@ -131,7 +133,7 @@ fn retries_after_blocker_clears_and_removes_invalid_index() {
     let invalid: i64 = db
         .query_one(
             "SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
-         WHERE c.relname LIKE '__reshape_idx_%' AND NOT i.indisvalid",
+         WHERE c.relname LIKE '__reshape%add_index%' AND NOT i.indisvalid",
             &[],
         )
         .unwrap()
@@ -141,7 +143,7 @@ fn retries_after_blocker_clears_and_removes_invalid_index() {
     worker.join().unwrap().unwrap();
     let valid: bool = db
         .query_one(
-            "SELECT indisvalid FROM pg_index WHERE indexrelid = 'users_value_idx'::regclass",
+            "SELECT indisvalid FROM pg_index WHERE indexrelid = '__reshape_0000_0000_add_index_users_value_idx'::regclass",
             &[],
         )
         .unwrap()
@@ -191,14 +193,7 @@ fn failed_cleanup_can_be_aborted_later() {
     );
     let message = format!("{error:#}");
     assert!(message.contains("cleanup failed"), "{message}");
-    let count: i64 = db
-        .query_one(
-            "SELECT count(*) FROM reshape.data WHERE key LIKE '%_add_index'",
-            &[],
-        )
-        .unwrap()
-        .get(0);
-    assert_eq!(count, 1);
+    assert!(oid(&mut db, TEMP_INDEX).is_some());
     blocker.batch_execute("COMMIT").unwrap();
     let mut recovered = Reshape::new(&connection_string()).unwrap();
     recovered.abort().unwrap();
@@ -207,12 +202,12 @@ fn failed_cleanup_can_be_aborted_later() {
 }
 
 #[test]
-fn connection_loss_reconciles_unrecorded_oid_on_abort() {
+fn connection_loss_reconciles_temporary_index_on_abort() {
     recover_connection_loss(false);
 }
 
 #[test]
-fn connection_loss_reconciles_unrecorded_oid_on_retry() {
+fn connection_loss_reconciles_temporary_index_on_retry() {
     recover_connection_loss(true);
 }
 
@@ -224,15 +219,7 @@ fn recover_connection_loss(retry: bool) {
         .unwrap();
     let worker = start_index();
     let pid = wait_for_query(&mut db, "CREATE  INDEX CONCURRENTLY");
-    // The unique name is durable, but CREATE has not returned an OID yet.
-    let metadata: serde_json::Value = db
-        .query_one(
-            "SELECT value FROM reshape.data WHERE key LIKE '%_add_index'",
-            &[],
-        )
-        .unwrap()
-        .get(0);
-    assert!(metadata["index_oid"].is_null());
+    assert!(oid(&mut db, TEMP_INDEX).is_some());
     db.query_one("SELECT pg_terminate_backend($1)", &[&pid])
         .unwrap();
     let error = worker.join().unwrap().unwrap_err();
@@ -283,10 +270,10 @@ fn preexisting_index_survives_conflict_and_abort() {
 }
 
 #[test]
-fn abort_preserves_replacement_index_with_same_name() {
+fn abort_preserves_unrelated_index_with_requested_name() {
     let (mut reshape, mut db) = setup();
     reshape.migrate(vec![initial(), index(false)]).unwrap();
-    db.batch_execute("DROP INDEX users_value_idx; CREATE INDEX users_value_idx ON users (id)")
+    db.batch_execute("CREATE INDEX users_value_idx ON users (id)")
         .unwrap();
     let replacement = oid(&mut db, "users_value_idx");
     reshape.abort().unwrap();
@@ -298,66 +285,57 @@ fn abort_preserves_replacement_index_with_same_name() {
 fn interrupted_apply_reuses_successful_index() {
     let (mut reshape, mut db) = setup();
     reshape.migrate(vec![initial(), index(false)]).unwrap();
-    let original = oid(&mut db, "users_value_idx");
-    // Simulate interruption between action publication and the final state save.
+    let original = oid(&mut db, TEMP_INDEX);
+    // Simulate interruption after index creation and the final state save.
     db.batch_execute("UPDATE reshape.data SET value = jsonb_set(value, '{state}', '\"applying\"') WHERE key = 'state'").unwrap();
     Reshape::new(&connection_string())
         .unwrap()
         .migrate(vec![initial(), index(false)])
         .unwrap();
-    assert_eq!(oid(&mut db, "users_value_idx"), original);
+    assert_eq!(oid(&mut db, TEMP_INDEX), original);
     reshape.complete().unwrap();
     assert_clean(&mut db);
 }
 
 #[test]
-fn conflict_during_publication_preserves_unrelated_index() {
-    let (_reshape, mut db) = setup();
-    db.batch_execute("CREATE TABLE other_users (id INTEGER)")
+fn completion_conflict_preserves_unrelated_index_and_can_resume() {
+    let (mut reshape, mut db) = setup();
+    // The first rename must stay committed if a later rename fails. Completion
+    // must resume at the second action instead of skipping the whole migration.
+    let mut migration = index(false);
+    let second: Migration = toml::from_str(
+        r#"
+name = "second"
+[[actions]]
+type = "add_index"
+table = "users"
+[actions.index]
+name = "users_id_idx"
+columns = ["id"]
+"#,
+    )
+    .unwrap();
+    migration.actions.extend(second.actions);
+    reshape.migrate(vec![initial(), migration]).unwrap();
+    let original = oid(&mut db, TEMP_INDEX);
+    db.batch_execute("CREATE INDEX users_id_idx ON users (value)")
         .unwrap();
-    let mut blocker = connect();
-    blocker
-        .batch_execute("BEGIN; UPDATE users SET value = value WHERE id = 1")
-        .unwrap();
-    let worker = start_index();
-    wait_for_query(&mut db, "CREATE  INDEX CONCURRENTLY");
-    db.batch_execute("CREATE INDEX users_value_idx ON other_users (id)")
-        .unwrap();
-    let original = oid(&mut db, "users_value_idx");
-    blocker.batch_execute("COMMIT").unwrap();
-    let error = worker.join().unwrap().unwrap_err();
+    let unrelated = oid(&mut db, "users_id_idx");
+    let error = reshape.complete().unwrap_err();
     assert!(
         format!("{error:#}").contains("index name conflict"),
         "{error:#}"
     );
+    assert_eq!(oid(&mut db, "users_id_idx"), unrelated);
     assert_eq!(oid(&mut db, "users_value_idx"), original);
-    assert_clean(&mut db);
-}
-
-#[test]
-fn recovery_publishes_valid_temporary_index() {
-    let (mut reshape, mut db) = setup();
-    reshape.migrate(vec![initial(), index(false)]).unwrap();
-    let original = oid(&mut db, "users_value_idx");
-    let metadata: serde_json::Value = db
-        .query_one(
-            "SELECT value FROM reshape.data WHERE key LIKE '%_add_index'",
-            &[],
-        )
+    db.batch_execute("ALTER INDEX users_id_idx RENAME TO unrelated_index")
+        .unwrap();
+    Reshape::new(&connection_string())
         .unwrap()
-        .get(0);
-    let temporary = metadata["temporary_name"].as_str().unwrap();
-    // Reproduce the durable boundary just after CREATE commits but before its
-    // result is recorded and the final name is published.
-    db.batch_execute(&format!(
-        "ALTER INDEX users_value_idx RENAME TO {temporary}"
-    ))
-    .unwrap();
-    db.batch_execute("UPDATE reshape.data SET value = value || '{\"index_oid\": null, \"published\": false}' WHERE key LIKE '%_add_index';
-        UPDATE reshape.data SET value = jsonb_set(value, '{state}', '\"applying\"') WHERE key = 'state'").unwrap();
-    reshape.migrate(vec![initial(), index(false)]).unwrap();
-    assert_eq!(oid(&mut db, "users_value_idx"), original);
-    reshape.complete().unwrap();
+        .complete()
+        .unwrap();
+    assert_eq!(oid(&mut db, "unrelated_index"), unrelated);
+    assert!(oid(&mut db, "users_id_idx").is_some());
     assert_clean(&mut db);
 }
 
