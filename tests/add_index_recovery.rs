@@ -311,59 +311,6 @@ fn interrupted_apply_reuses_successful_index() {
 }
 
 #[test]
-fn new_renamed_table_does_not_wait_for_old_snapshots() {
-    let (_reshape, mut db) = setup();
-    let mut snapshot = connect();
-    snapshot
-        .batch_execute("BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT * FROM users")
-        .unwrap();
-    let migration: Migration = toml::from_str(
-        r#"
-name = "private_index"
-[[actions]]
-type = "create_table"
-name = "new_users"
-primary_key = ["id"]
-[[actions.columns]]
-name = "id"
-type = "INTEGER"
-[[actions]]
-type = "rename_table"
-table = "new_users"
-new_name = "customers"
-[[actions]]
-type = "add_index"
-table = "customers"
-[actions.index]
-name = "customers_idx"
-columns = ["id"]
-where = "id > 0"
-"#,
-    )
-    .unwrap();
-    let migration = serde_json::to_string(&migration).unwrap();
-    let (tx, rx) = std::sync::mpsc::channel();
-    let worker = thread::spawn(move || {
-        let result = Reshape::new(&connection_string())
-            .unwrap()
-            .migrate(vec![initial(), serde_json::from_str(&migration).unwrap()]);
-        tx.send(result).unwrap();
-    });
-    let result = rx.recv_timeout(Duration::from_secs(5));
-    snapshot.batch_execute("COMMIT").unwrap();
-    worker.join().unwrap();
-    result
-        .expect("private table index waited for an unrelated snapshot")
-        .unwrap();
-    Reshape::new(&connection_string())
-        .unwrap()
-        .complete()
-        .unwrap();
-    assert!(oid(&mut db, "customers_idx").is_some());
-    assert_clean(&mut db);
-}
-
-#[test]
 fn conflict_during_publication_preserves_unrelated_index() {
     let (_reshape, mut db) = setup();
     db.batch_execute("CREATE TABLE other_users (id INTEGER)")
@@ -427,43 +374,5 @@ fn preexisting_invalid_index_is_not_owned_by_this_action() {
     assert!(format!("{error:#}").contains("index name conflict"));
     reshape.abort().unwrap();
     assert_eq!(oid(&mut db, "users_value_idx"), original);
-    assert_clean(&mut db);
-}
-
-#[test]
-fn table_receiving_live_transformed_writes_uses_concurrent_index() {
-    let (mut reshape, mut db) = setup();
-    let migration: Migration = toml::from_str(
-        r#"
-name = "transformed"
-[[actions]]
-type = "create_table"
-name = "profiles"
-primary_key = ["id"]
-[[actions.columns]]
-name = "id"
-type = "INTEGER"
-[actions.up]
-table = "users"
-values = { id = "id" }
-[[actions]]
-type = "add_index"
-table = "profiles"
-[actions.index]
-name = "profiles_idx"
-columns = ["id"]
-"#,
-    )
-    .unwrap();
-    reshape.migrate(vec![initial(), migration]).unwrap();
-    let metadata: serde_json::Value = db
-        .query_one(
-            "SELECT value FROM reshape.data WHERE key LIKE '%_add_index'",
-            &[],
-        )
-        .unwrap()
-        .get(0);
-    assert_eq!(metadata["concurrent"], true);
-    reshape.abort().unwrap();
     assert_clean(&mut db);
 }

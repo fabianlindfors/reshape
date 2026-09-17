@@ -298,11 +298,7 @@ impl Action for CreateTable {
         Ok(None)
     }
 
-    fn update_schema(&self, _ctx: &MigrationContext, schema: &mut Schema) {
-        if self.up.is_none() {
-            schema.change_table(&self.name, |table| table.set_private());
-        }
-    }
+    fn update_schema(&self, _ctx: &MigrationContext, _schema: &mut Schema) {}
 
     fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
         // Remove triggers and procedures

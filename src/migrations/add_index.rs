@@ -193,15 +193,12 @@ impl Action for AddIndex {
                     table_oid,
                     index_oid: None,
                     published: false,
-                    concurrent: !schema.is_table_private(&self.table),
                 };
                 // Commit the random name before CREATE, which can commit even on failure.
                 owned.save(db, ctx)?;
                 owned
             }
         };
-
-        let concurrent = if owned.concurrent { "CONCURRENTLY" } else { "" };
 
         // Reconcile a previous interrupted attempt before issuing any new DDL.
         match owned.inspect(db, ctx)? {
@@ -221,7 +218,7 @@ impl Action for AddIndex {
         let mut first_error = None;
         for attempt in 0..MAX_ATTEMPTS {
             let create = format!(
-                "CREATE {unique} INDEX {concurrent} {name} ON public.{table} {index_type_def} ({columns}) {where_def}",
+                "CREATE {unique} INDEX CONCURRENTLY {name} ON public.{table} {index_type_def} ({columns}) {where_def}",
                 name = quote_identifier(&owned.temporary_name),
                 table = quote_identifier(&table.real_name),
             );
@@ -370,7 +367,6 @@ struct OwnedIndex {
     table_oid: u32,
     index_oid: Option<u32>,
     published: bool,
-    concurrent: bool,
 }
 
 struct IndexIdentity {
@@ -447,11 +443,10 @@ impl OwnedIndex {
 
     fn drop_index(&mut self, db: &mut dyn Conn, ctx: &MigrationContext) -> anyhow::Result<()> {
         if let Some(index) = self.inspect(db, ctx)? {
-            let concurrent = if self.concurrent { "CONCURRENTLY" } else { "" };
             // A concurrent DROP can itself commit partial work. Keep metadata until
             // it succeeds; a later abort will inspect the same OID and resume it.
             db.run_once(&format!(
-                "DROP INDEX {concurrent} {}.{}",
+                "DROP INDEX CONCURRENTLY {}.{}",
                 quote_identifier(&index.namespace),
                 quote_identifier(&index.name)
             ))?;

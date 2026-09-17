@@ -151,9 +151,7 @@ table = "documents"
 ## Behavior
 
 1. **Start phase**:
-   - Uses `CREATE INDEX CONCURRENTLY` on existing tables
-   - Uses ordinary `CREATE INDEX` on tables created in the pending migration batch
-     that are not receiving live writes through an `up` transformation
+   - Uses `CREATE INDEX CONCURRENTLY`
    - Builds under a persisted unique temporary name, then publishes the requested name
    - Retries lock timeouts up to ten attempts with exponential backoff and jitter,
      removing the action's incomplete index before each retry
