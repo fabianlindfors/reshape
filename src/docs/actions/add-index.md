@@ -151,15 +151,33 @@ table = "documents"
 ## Behavior
 
 1. **Start phase**:
-   - Creates index using `CREATE INDEX CONCURRENTLY`
-   - Does not block reads or writes
+   - Uses `CREATE INDEX CONCURRENTLY` on existing tables
+   - Uses ordinary `CREATE INDEX` on tables created in the pending migration batch
+     that are not receiving live writes through an `up` transformation
+   - Builds under a persisted unique temporary name, then publishes the requested name
+   - Retries lock timeouts up to ten attempts with exponential backoff and jitter,
+     removing the action's incomplete index before each retry
 
 2. **Complete phase**:
-   - No action needed
+   - Removes the action's recovery metadata
+
+3. **Abort phase**:
+   - Removes only the index owned by this action
 
 ## Notes
 
-- Indexes are created concurrently to avoid blocking
+- Concurrent creation avoids blocking application reads and writes on live tables
+- An existing relation with the requested index name causes a conflict and is left intact
+- If cleanup fails, Reshape preserves recovery metadata. Release the blocker and run
+  `reshape migration abort` again to finish cleanup. Application queries are never
+  automatically cancelled
+- Connection loss can leave the result of index creation unknown. A subsequent migrate
+  (if still applying) or abort reconciles the saved temporary name and index identity
+  before changing the index. Errors retain the original PostgreSQL failure, the cleanup
+  outcome, and available information about possible blockers
+- Recovery metadata is available for actions started with this version. An older pending
+  action without ownership metadata is not dropped automatically on abort; inspect any
+  leftover index manually rather than assuming it belongs to the migration
 - The index is immediately available after the start phase
 - For unique indexes, existing data must not have duplicates
 - Expressions and `where` predicates reference columns by their current names, just like

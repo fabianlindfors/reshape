@@ -33,6 +33,14 @@ pub struct Schema {
 }
 
 impl Schema {
+    /// Tables created in this batch without live write-through transformations are
+    /// private until the new migration's views are published.
+    pub fn is_table_private(&self, name: &str) -> bool {
+        self.table_changes
+            .iter()
+            .any(|table| table.current_name == name && table.private)
+    }
+
     pub fn new() -> Schema {
         Schema {
             table_changes: Vec::new(),
@@ -95,6 +103,7 @@ impl Default for Schema {
 
 #[derive(Debug)]
 pub struct TableChanges {
+    private: bool,
     current_name: String,
     real_name: String,
     column_changes: Vec<ColumnChanges>,
@@ -105,6 +114,7 @@ pub struct TableChanges {
 impl TableChanges {
     fn new(name: String) -> Self {
         Self {
+            private: false,
             current_name: name.to_string(),
             real_name: name,
             column_changes: Vec::new(),
@@ -115,6 +125,10 @@ impl TableChanges {
 
     pub fn set_check_removed(&mut self, name: &str) {
         self.removed_checks.push(name.to_string());
+    }
+
+    pub fn set_private(&mut self) {
+        self.private = true;
     }
 
     pub fn set_check_added(&mut self, name: &str) {
