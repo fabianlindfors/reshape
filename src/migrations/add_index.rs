@@ -6,8 +6,11 @@ use crate::{
     schema::{Schema, Table},
     sql::rewrite_column_references,
 };
-use anyhow::Context;
+use anyhow::{anyhow, bail, Context};
+use postgres::error::SqlState;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AddIndex {
@@ -154,63 +157,121 @@ impl Action for AddIndex {
 
     fn run(
         &self,
-        _ctx: &MigrationContext,
+        ctx: &MigrationContext,
         db: &mut dyn Conn,
         schema: &Schema,
     ) -> anyhow::Result<()> {
         let table = schema.get_table(db, &self.table)?;
-
-        let unique = if self.index.unique { "UNIQUE" } else { "" };
-        let index_type_def = if let Some(index_type) = &self.index.index_type {
-            format!("USING {index_type}")
-        } else {
-            "".to_string()
-        };
+        let columns = self.index.column_definitions(&table)?.join(", ");
         let where_def = self.index.where_definition(&table)?;
+        let unique = if self.index.unique { "UNIQUE" } else { "" };
+        let index_type_def = self
+            .index
+            .index_type
+            .as_ref()
+            .map(|kind| format!("USING {kind}"))
+            .unwrap_or_default();
 
-        db.run(&format!(
-            r#"
-			CREATE {unique} INDEX CONCURRENTLY "{name}" ON "{table}" {index_type_def} ({columns}) {where_def}
-			"#,
-            name = self.index.name,
-            table = table.real_name,
-            columns = self.index.column_definitions(&table)?.join(", "),
-        ))
-        .context("failed to create index")?;
-
-        if let Some(comment) = &self.index.comment {
-            db.run(&format!(
-                r#"
-                COMMENT ON INDEX "{name}" IS {comment}
-                "#,
-                name = self.index.name,
-                comment = quote_string_literal(comment),
-            ))
-            .context("failed to set index comment")?;
+        // Like check constraints, keep the action's reserved temporary name until
+        // completion. Abort never needs to infer ownership of the requested name.
+        if relation_oid(db, &self.index.name)?.is_some() {
+            bail!(
+                "index name conflict: public.{} already exists",
+                self.index.name
+            );
+        }
+        let table_oid = relation_oid(db, &table.real_name)?
+            .ok_or_else(|| anyhow!("index table disappeared"))?;
+        match self.inspect(db, ctx, Some(table_oid))? {
+            Some(true) => return self.set_comment(db, ctx),
+            Some(false) => self.drop_temporary_index(db, ctx)?,
+            None => {}
         }
 
-        Ok(())
+        const MAX_ATTEMPTS: u32 = 10;
+        let mut first_error = None;
+        for attempt in 0..MAX_ATTEMPTS {
+            let create = format!(
+                "CREATE {unique} INDEX CONCURRENTLY {name} ON public.{table} {index_type_def} ({columns}) {where_def}",
+                name = quote_identifier(&self.temporary_name(ctx)),
+                table = quote_identifier(&table.real_name),
+            );
+            match db.run_once(&create) {
+                Ok(()) => return self.set_comment(db, ctx),
+                Err(error) => {
+                    let retryable = error.code() == Some(&SqlState::LOCK_NOT_AVAILABLE);
+                    let unknown_outcome = error.as_db_error().is_none_or(|error| {
+                        matches!(error.severity(), "FATAL" | "PANIC")
+                            || error.code().code().starts_with("08")
+                    });
+                    first_error.get_or_insert(error);
+                    if unknown_outcome {
+                        // Never replay DDL on a broken connection. The next invocation holds
+                        // the advisory lock and reconciles the temporary index first.
+                        return Err(anyhow::Error::new(first_error.take().unwrap()))
+                            .context("index creation outcome unknown after connection loss; temporary index retained for reconciliation by migrate or abort");
+                    }
+                    let blockers = blocker_information(db, table_oid);
+                    match self.inspect(db, ctx, Some(table_oid)) {
+                        Ok(Some(true)) => {
+                            return self.set_comment(db, ctx);
+                        }
+                        Err(reconcile) => {
+                            return Err(anyhow::Error::new(first_error.take().unwrap())).with_context(|| format!(
+                                "index reconciliation failed: {reconcile:#}; temporary index retained for abort; {blockers}"
+                            ));
+                        }
+                        _ => {}
+                    }
+                    // Also clean up non-retryable failures, e.g. an invalid unique index
+                    // which PostgreSQL may still use to enforce uniqueness.
+                    let cleanup = self.drop_temporary_index(db, ctx);
+                    if let Err(cleanup) = cleanup {
+                        let context = format!(
+                            "index creation failed; cleanup failed: {cleanup:#}; temporary index retained for abort; {blockers}"
+                        );
+                        return Err(anyhow::Error::new(first_error.take().unwrap()))
+                            .context(context);
+                    }
+                    if !retryable || attempt + 1 == MAX_ATTEMPTS {
+                        return Err(anyhow::Error::new(first_error.take().unwrap())).with_context(|| format!(
+                            "index creation failed after {} attempt(s); cleanup succeeded; {blockers}", attempt + 1
+                        ));
+                    }
+                    let delay = (100_u64 << attempt).min(3_200);
+                    let jitter = rand::rng().random_range(0..delay / 2);
+                    std::thread::sleep(Duration::from_millis(delay + jitter));
+                }
+            }
+        }
+        unreachable!()
     }
 
     fn complete<'a>(
         &self,
-        _ctx: &MigrationContext,
-        _db: &'a mut dyn Conn,
+        ctx: &MigrationContext,
+        db: &'a mut dyn Conn,
     ) -> anyhow::Result<Option<Transaction<'a>>> {
-        Ok(None)
+        if self.inspect(db, ctx, None)?.is_none() {
+            return Ok(None);
+        }
+        let mut transaction = db.transaction()?;
+        transaction
+            .run_once(&format!(
+                "ALTER INDEX public.{} RENAME TO {}",
+                quote_identifier(&self.temporary_name(ctx)),
+                quote_identifier(&self.index.name),
+            ))
+            .context("failed to rename temporary index (possible index name conflict)")?;
+        // The existing migration state is saved in this same transaction, so an
+        // interrupted completion cannot commit the rename without its progress.
+        Ok(Some(transaction))
     }
 
     fn update_schema(&self, _ctx: &MigrationContext, _schema: &mut Schema) {}
 
-    fn abort(&self, _ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
-        db.run(&format!(
-            r#"
-			DROP INDEX CONCURRENTLY IF EXISTS "{name}"
-			"#,
-            name = self.index.name,
-        ))
-        .context("failed to drop index")?;
-        Ok(())
+    fn abort(&self, ctx: &MigrationContext, db: &mut dyn Conn) -> anyhow::Result<()> {
+        self.drop_temporary_index(db, ctx)
     }
 
     fn sql_fields(&self) -> Vec<SqlField> {
@@ -259,5 +320,106 @@ impl Action for AddIndex {
         }
 
         fields
+    }
+}
+
+fn quote_identifier(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+fn relation_oid(db: &mut dyn Conn, name: &str) -> anyhow::Result<Option<u32>> {
+    Ok(db.query_with_params(
+        "SELECT oid FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname = $1::name",
+        &[&name],
+    )?.first().map(|row| row.get(0)))
+}
+
+impl AddIndex {
+    fn temporary_name(&self, ctx: &MigrationContext) -> String {
+        ctx.name("add_index", &[&self.index.name], "")
+    }
+
+    // Recover using the reserved action name and PostgreSQL's catalog, without
+    // storing action-specific state. A valid index can be reused after interruption;
+    // an invalid one must be removed before another CREATE is attempted.
+    fn inspect(
+        &self,
+        db: &mut dyn Conn,
+        ctx: &MigrationContext,
+        table_oid: Option<u32>,
+    ) -> anyhow::Result<Option<bool>> {
+        let rows = db.query_with_params(
+            "SELECT i.indrelid, i.indisvalid FROM pg_class c
+             LEFT JOIN pg_index i ON i.indexrelid = c.oid
+             WHERE c.relnamespace = 'public'::regnamespace AND c.relname = $1::name",
+            &[&self.temporary_name(ctx)],
+        )?;
+        let Some(row) = rows.first() else {
+            return Ok(None);
+        };
+        let actual_table: Option<u32> = row.get("indrelid");
+        if actual_table.is_none()
+            || table_oid.is_some_and(|expected| actual_table != Some(expected))
+        {
+            bail!(
+                "temporary index name conflict: {}",
+                self.temporary_name(ctx)
+            );
+        }
+        Ok(Some(row.get("indisvalid")))
+    }
+
+    fn drop_temporary_index(
+        &self,
+        db: &mut dyn Conn,
+        ctx: &MigrationContext,
+    ) -> anyhow::Result<()> {
+        if self.inspect(db, ctx, None)?.is_some() {
+            // A concurrent DROP can also commit partial work. A later abort can
+            // inspect and drop the same temporary index if this fails.
+            db.run_once(&format!(
+                "DROP INDEX CONCURRENTLY public.{}",
+                quote_identifier(&self.temporary_name(ctx))
+            ))?;
+        }
+        Ok(())
+    }
+
+    fn set_comment(&self, db: &mut dyn Conn, ctx: &MigrationContext) -> anyhow::Result<()> {
+        if let Some(comment) = &self.index.comment {
+            db.run(&format!(
+                "COMMENT ON INDEX public.{} IS {}",
+                quote_identifier(&self.temporary_name(ctx)),
+                quote_string_literal(comment)
+            ))
+            .context("failed to set index comment")?;
+        }
+        Ok(())
+    }
+}
+
+fn blocker_information(db: &mut dyn Conn, table_oid: u32) -> String {
+    // The timed-out wait has ended, so pg_blocking_pids(self) is already empty.
+    // Report candidate table lockers and old snapshots rather than claiming these
+    // are proven blockers. No application queries are cancelled.
+    match db.query_with_params(
+        "SELECT DISTINCT a.pid, a.state FROM pg_stat_activity a
+         LEFT JOIN pg_locks l ON l.pid = a.pid AND l.relation = $1
+         WHERE a.datname = current_database() AND a.pid <> pg_backend_pid()
+           AND (l.granted OR a.backend_xmin IS NOT NULL)",
+        &[&table_oid],
+    ) {
+        Ok(rows) => format!(
+            "possible blockers (table locks or snapshots): {}",
+            rows.iter()
+                .map(|row| format!(
+                    "pid {} ({})",
+                    row.get::<_, i32>("pid"),
+                    row.get::<_, Option<String>>("state").unwrap_or_default()
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Err(error) => format!("blocker information unavailable: {error:#}"),
     }
 }

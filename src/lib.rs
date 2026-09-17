@@ -215,6 +215,11 @@ fn migrate(
     migrations: impl IntoIterator<Item = Migration>,
 ) -> anyhow::Result<()> {
     // Make sure no migration is in progress
+    if matches!(state, State::Aborting { .. }) {
+        return Err(anyhow!(
+            "migration abort is incomplete; run `reshape migration abort` before migrating again"
+        ));
+    }
     if let State::InProgress { .. } = &state {
         println!(
             "Migration already in progress, please complete using 'reshape migration complete'"
@@ -330,8 +335,13 @@ fn migrate(
             last_action_index + 1,
         );
 
-        // Abort will only
-        abort(db, state)?;
+        // Persist the abort boundary before cleanup, and retain the original action
+        // error even if the connection or cleanup fails.
+        if let Err(cleanup) = state.save(db).and_then(|()| abort(db, state)) {
+            return Err(err.context(format!(
+                "migration cleanup failed: {cleanup:#}; run `reshape migration abort` to resume"
+            )));
+        }
 
         return Err(err);
     }
@@ -415,7 +425,7 @@ fn complete(db: &mut DbConn, state: &mut State) -> anyhow::Result<()> {
             // We won't save this new state until after the action has completed.
             state.completing(
                 remaining_migrations.clone(),
-                migration_index + 1,
+                migration_index,
                 action_index + 1,
             );
 
@@ -489,7 +499,11 @@ fn abort(db: &mut DbConn, state: &mut State) -> anyhow::Result<()> {
         State::InProgress { migrations } | State::Applying { migrations } => {
             // Set to the Aborting state. Once this is done, the migration has to
             // be fully aborted and can't be completed.
-            state.aborting(migrations.clone(), 0, 0);
+            state.aborting(
+                migrations.clone(),
+                migrations.len(),
+                migrations.last().map_or(0, |m| m.actions.len()),
+            );
             state.save(db)?;
 
             (migrations, usize::MAX, usize::MAX)
@@ -542,7 +556,11 @@ fn abort(db: &mut DbConn, state: &mut State) -> anyhow::Result<()> {
 
             // Update state with which migrations and actions have been aborted.
             // We don't need to run this in a transaction as aborts are idempotent.
-            state.aborting(remaining_migrations.to_vec(), migration_index, action_index);
+            state.aborting(
+                remaining_migrations.to_vec(),
+                migration_index + 1,
+                action_index,
+            );
             state.save(db).context("failed to save state")?;
         }
 
