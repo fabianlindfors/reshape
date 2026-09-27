@@ -58,9 +58,15 @@ impl DbLocker {
     ) -> anyhow::Result<T> {
         self.acquire_lock()?;
         let result = f(&mut self.client);
-        self.release_lock()?;
-
-        result
+        let release = self.release_lock();
+        match (result, release) {
+            (Err(error), Err(release)) => {
+                Err(error.context(format!("also failed to release advisory lock: {release:#}")))
+            }
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Ok(value), Ok(())) => Ok(value),
+        }
     }
 
     fn acquire_lock(&mut self) -> anyhow::Result<()> {
@@ -89,6 +95,8 @@ impl DbLocker {
 
 pub trait Conn {
     fn run(&mut self, query: &str) -> anyhow::Result<()>;
+    /// Execute exactly once. Required for statements which can commit partial work.
+    fn run_once(&mut self, query: &str) -> Result<(), postgres::Error>;
     fn query(&mut self, query: &str) -> anyhow::Result<Vec<Row>>;
     fn query_with_params(
         &mut self,
@@ -109,6 +117,10 @@ impl DbConn {
 }
 
 impl Conn for DbConn {
+    fn run_once(&mut self, query: &str) -> Result<(), postgres::Error> {
+        self.client.batch_execute(query)
+    }
+
     fn run(&mut self, query: &str) -> anyhow::Result<()> {
         retry_automatically(|| self.client.batch_execute(query))?;
         Ok(())
@@ -151,6 +163,10 @@ impl Transaction<'_> {
 }
 
 impl Conn for Transaction<'_> {
+    fn run_once(&mut self, query: &str) -> Result<(), postgres::Error> {
+        self.transaction.batch_execute(query)
+    }
+
     fn run(&mut self, query: &str) -> anyhow::Result<()> {
         self.transaction.batch_execute(query)?;
         Ok(())
@@ -193,6 +209,11 @@ fn retry_automatically<T>(
             Ok(_) => return result,
             Err(err) => err,
         };
+
+        // A closed client cannot recover by replaying a statement on it.
+        if error.is_closed() {
+            return Err(error);
+        }
 
         // If we got a database error, we check if it's retryable.
         // If we didn't get a database error, then it's most likely some kind of connection

@@ -77,7 +77,7 @@ fn add_index() {
                 SELECT pg_index.indisready, pg_index.indisvalid
                 FROM pg_catalog.pg_index
                 JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
-                WHERE pg_class.relname = 'name_idx'
+                WHERE pg_class.relname = '__reshape_0000_0000_add_index_name_idx'
                 ",
                 &[],
             )
@@ -155,7 +155,7 @@ fn add_index_with_comment() {
     test.intermediate(|db, _| {
         assert_eq!(
             Some("Lookups by name".to_string()),
-            get_comment(db, "public.name_idx")
+            get_comment(db, "public.__reshape_0000_0000_add_index_name_idx")
         );
     });
 
@@ -220,7 +220,7 @@ fn add_index_unique() {
                 SELECT pg_index.indisready, pg_index.indisvalid, pg_index.indisunique
                 FROM pg_catalog.pg_index
                 JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
-                WHERE pg_class.relname = 'name_idx'
+                WHERE pg_class.relname = '__reshape_0000_0000_add_index_name_idx'
                 ",
                 &[],
             )
@@ -290,7 +290,7 @@ fn add_index_with_type() {
                 FROM pg_catalog.pg_index
                 JOIN pg_catalog.pg_class ON pg_index.indexrelid = pg_class.oid
                 JOIN pg_catalog.pg_am ON pg_class.relam = pg_am.oid
-                WHERE pg_class.relname = 'data_idx'
+                WHERE pg_class.relname = '__reshape_0000_0000_add_index_data_idx'
                 ",
                 &[],
             )
@@ -356,7 +356,7 @@ fn add_index_keeps_column_order() {
     );
 
     test.intermediate(|db, _| {
-        let definition = get_index_definition(db, "name_idx");
+        let definition = get_index_definition(db, "__reshape_0000_0000_add_index_name_idx");
         assert!(
             definition.contains("(last_name, first_name)"),
             "expected index columns to be in the declared order, got: {}",
@@ -413,7 +413,7 @@ fn add_index_with_direction_and_nulls() {
     );
 
     test.intermediate(|db, _| {
-        let definition = get_index_definition(db, "posts_keyset_idx");
+        let definition = get_index_definition(db, "__reshape_0000_0000_add_index_posts_keyset_idx");
         assert!(
             definition.contains("(audience, content_updated_at DESC NULLS LAST, id)"),
             "expected index to use the declared sort order, got: {}",
@@ -467,7 +467,8 @@ fn add_index_partial() {
     );
 
     test.intermediate(|db, _| {
-        let definition = get_index_definition(db, "posts_community_idx");
+        let definition =
+            get_index_definition(db, "__reshape_0000_0000_add_index_posts_community_idx");
         assert!(
             definition.contains("WHERE (is_public AND shared_to_community)"),
             "expected index to be partial, got: {}",
@@ -517,7 +518,7 @@ fn add_index_with_expression() {
     );
 
     test.intermediate(|db, _| {
-        let definition = get_index_definition(db, "users_email_idx");
+        let definition = get_index_definition(db, "__reshape_0000_0000_add_index_users_email_idx");
         assert!(
             definition.contains("lower(email)"),
             "expected an expression index, got: {}",
@@ -579,7 +580,8 @@ fn add_index_to_renamed_table() {
 
     test.intermediate(|db, _| {
         // The index is created on the table under its current, real name
-        let definition = get_index_definition(db, "customers_name_idx");
+        let definition =
+            get_index_definition(db, "__reshape_0000_0001_add_index_customers_name_idx");
         assert!(
             definition.contains("ON public.users"),
             "expected index to be created on the real table, got: {}",
@@ -644,9 +646,13 @@ fn add_index_to_migrating_column() {
 
     test.intermediate(|db, _| {
         // The index is created on the temporary column
-        let definition = get_index_definition(db, "users_name_idx");
+        let definition = get_index_definition(db, "__reshape_0000_0001_add_index_users_name_idx");
         assert!(
-            definition.contains("__reshape"),
+            definition
+                .split(" ON ")
+                .nth(1)
+                .unwrap()
+                .contains("__reshape"),
             "expected index to be created on the temporary column, got: {}",
             definition
         );
@@ -713,7 +719,7 @@ fn add_index_with_expression_alongside_a_column_migration() {
     );
 
     test.intermediate(|db, _| {
-        let definition = get_index_definition(db, "users_email_idx");
+        let definition = get_index_definition(db, "__reshape_0000_0001_add_index_users_email_idx");
         assert!(
             definition.contains("lower(email)"),
             "expected an expression index, got: {}",
@@ -796,10 +802,17 @@ fn add_index_referencing_altered_column() {
 
     test.intermediate(|db, _| {
         // Both indexes are created against the temporary column
-        for index in ["users_active_idx", "users_lower_status_idx"] {
+        for index in [
+            "__reshape_0000_0001_add_index_users_active_idx",
+            "__reshape_0000_0002_add_index_users_lower_status_idx",
+        ] {
             let definition = get_index_definition(db, index);
             assert!(
-                definition.contains("__reshape"),
+                definition
+                    .split(" ON ")
+                    .nth(1)
+                    .unwrap()
+                    .contains("__reshape"),
                 "expected {} to reference the temporary column, got: {}",
                 index,
                 definition
@@ -878,7 +891,7 @@ fn add_index_referencing_renamed_column() {
     );
 
     test.intermediate(|db, _| {
-        let definition = get_index_definition(db, "users_active_idx");
+        let definition = get_index_definition(db, "__reshape_0000_0001_add_index_users_active_idx");
         assert!(
             definition.contains("(status = 'active'::text)"),
             "expected predicate to reference the real column, got: {}",
