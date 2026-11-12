@@ -911,6 +911,11 @@ Generates the SQL query you need to run in your application before using the dat
 
 The query should look something like `SET search_path TO migration_1_initial_migration`.
 
+You can append other schemas, for example `SET search_path TO migration_1_initial_migration, public`
+to make extension types available. Keep the migration schema first: during a migration,
+Reshape uses the first effective schema on the search path to distinguish writes from
+the old and new versions of your application.
+
 We recommend using one of the helper libraries if available for your language to simplify this:
 
 - [Rust](https://github.com/fabianlindfors/reshape-helper)

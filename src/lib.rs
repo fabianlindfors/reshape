@@ -203,8 +203,8 @@ pub fn schema_query_for_migration(migration_name: &str) -> String {
     format!("SET search_path TO {}", schema_name)
 }
 
-// Truncated like Postgres would, so that the name matches what `current_setting('search_path')`
-// returns once an application has set it
+// Truncated like Postgres would, so that the name matches the schema Postgres creates, which
+// is what `current_schema()` returns once an application has set its search path
 pub(crate) fn schema_name_for_migration(migration_name: &str) -> String {
     migrations::common::truncate_identifier(&format!("migration_{}", migration_name))
 }
